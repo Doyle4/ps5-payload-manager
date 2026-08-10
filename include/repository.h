@@ -68,11 +68,17 @@ int repository_install_commit(const char *filename, const char *uploaded_temp_pa
 int get_elf_pldmgr_version(const char *path, char *out_version, size_t out_size);
 
 /* Scan the payload storage for a newer pldmgr.elf.
- * If found, writes the path to out_path and returns 0. */
-int repository_check_self_update(char *out_path, size_t out_size);
+ * If found, writes the path to out_path and returns 0.
+ * out_version (optional) receives the detected ELF version. */
+int repository_check_self_update(char *out_path, size_t out_size,
+                                 char *out_version, size_t out_version_size);
 
 /* Check if a newer version of the payload manager is available in the repo cache.
- * Returns 0 if an update is available, -1 otherwise. */
-int repository_check_repo_update(void);
+ * Returns 0 if an update is available, -1 otherwise.
+ * out_filename / out_version / out_source (optional) receive the matching
+ * repository entry's details. */
+int repository_check_repo_update(char *out_filename, size_t out_size,
+                                 char *out_version, size_t out_version_size,
+                                 char *out_source, size_t out_source_size);
 
 #endif

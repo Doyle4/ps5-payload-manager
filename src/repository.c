@@ -111,15 +111,96 @@ int download_to_file(const char *url, const char *out_path) {
 
 /* ── JSON parsing ──────────────────────────────────────────── */
 
-int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t *out_count) {
+/* Skip the top-level wrapping object, returning a pointer to just past its
+ * opening '{' so entries inside the wrapper can be scanned. If the document is
+ * a bare array of entries, or a single entry object (no "payloads" member), the
+ * input is returned unchanged. */
+static const char *skip_top_level_wrapper(const char *json) {
     const char *p = json;
+    int in_string = 0;
+    int escaped = 0;
+
+    while (*p && isspace((unsigned char)*p))
+        p++;
+    if (*p != '{')
+        return json; /* Bare array of entries */
+
+    {
+        const char *q = p + 1;
+        int depth = 1;
+        int is_wrapper = 0;
+
+        while (*q && depth > 0) {
+            if (in_string) {
+                if (escaped) {
+                    escaped = 0;
+                } else if (*q == '\\') {
+                    escaped = 1;
+                } else if (*q == '"') {
+                    in_string = 0;
+                }
+            } else {
+                if (*q == '"') {
+                    in_string = 1;
+                    if (depth == 1 && strncmp(q, "\"payloads\"", 10) == 0) {
+                        is_wrapper = 1;
+                        break;
+                    }
+                } else if (*q == '{') {
+                    depth++;
+                } else if (*q == '}' && --depth == 0) {
+                    break;
+                }
+            }
+            q++;
+        }
+
+        if (is_wrapper)
+            return p + 1; /* Scan inside the wrapper */
+    }
+
+    return json; /* Single entry object */
+}
+
+/* Find the next '{' that is not inside a JSON string value. */
+static const char *find_next_object_start(const char *p) {
+    int in_string = 0;
+    int escaped = 0;
+
+    while (*p) {
+        if (in_string) {
+            if (escaped) {
+                escaped = 0;
+            } else if (*p == '\\') {
+                escaped = 1;
+            } else if (*p == '"') {
+                in_string = 0;
+            }
+        } else {
+            if (*p == '"') {
+                in_string = 1;
+            } else if (*p == '{') {
+                return p;
+            }
+        }
+        p++;
+    }
+    return NULL;
+}
+
+int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t *out_count) {
+    const char *p;
     RepoPayload *items = NULL;
     size_t count = 0;
 
     *out_items = NULL;
     *out_count = 0;
 
-    while ((p = strchr(p, '{')) != NULL) {
+    p = skip_top_level_wrapper(json);
+    if (!p)
+        return 0;
+
+    while ((p = find_next_object_start(p)) != NULL) {
         const char *end = p + 1;
         int depth = 1;
         int in_string = 0;
@@ -695,7 +776,8 @@ static int compare_versions(const char *v1, const char *v2) {
     return res;
 }
 
-int repository_check_self_update(char *out_path, size_t out_size) {
+int repository_check_self_update(char *out_path, size_t out_size,
+                                 char *out_version, size_t out_version_size) {
     DIR *dir = opendir(PAYLOADS_STORAGE_DIR);
     if (!dir) return -1;
 
@@ -733,6 +815,10 @@ int repository_check_self_update(char *out_path, size_t out_size) {
                                             pldmgr_log("[PLDMGR] Found potential update: %s (v%s)\n", full_path, version);
                                             if (compare_versions(version, MENU_VERSION) > 0) {
                                                 strncpy(out_path, full_path, out_size);
+                                                if (out_version && out_version_size) {
+                                                    strncpy(out_version, version, out_version_size - 1);
+                                                    out_version[out_version_size - 1] = '\0';
+                                                }
                                                 closedir(sdir);
                                                 closedir(dir);
                                                 return 0;
@@ -755,7 +841,9 @@ int repository_check_self_update(char *out_path, size_t out_size) {
     return -1;
 }
 
-int repository_check_repo_update(void) {
+int repository_check_repo_update(char *out_filename, size_t out_size,
+                                 char *out_version, size_t out_version_size,
+                                 char *out_source, size_t out_source_size) {
     RepoPayload *items = NULL;
     size_t count = 0;
     if (load_cached_repository(&items, &count) != 0) {
@@ -768,6 +856,19 @@ int repository_check_repo_update(void) {
             if (items[i].version[0] != '\0') {
                 if (compare_versions(items[i].version, MENU_VERSION) > 0) {
                     found = 1;
+                    if (out_filename && out_size) {
+                        strncpy(out_filename, items[i].filename, out_size - 1);
+                        out_filename[out_size - 1] = '\0';
+                    }
+                    if (out_version && out_version_size) {
+                        strncpy(out_version, items[i].version, out_version_size - 1);
+                        out_version[out_version_size - 1] = '\0';
+                    }
+                    if (out_source && out_source_size) {
+                        const char *src = items[i].source[0] ? items[i].source : items[i].url;
+                        strncpy(out_source, src, out_source_size - 1);
+                        out_source[out_source_size - 1] = '\0';
+                    }
                     break;
                 }
             }

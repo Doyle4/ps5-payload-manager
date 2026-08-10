@@ -98,7 +98,7 @@ int main(int argc, char *argv[]) {
 
     /* Check for Self-Update */
     char new_payload_path[512];
-    if (repository_check_self_update(new_payload_path, sizeof(new_payload_path)) == 0) {
+    if (repository_check_self_update(new_payload_path, sizeof(new_payload_path), NULL, 0) == 0) {
         pldmgr_log("[PLDMGR] Found updated payload manager at %s. Launching...\n",
                     new_payload_path);
         ps5_launch_elf(new_payload_path);

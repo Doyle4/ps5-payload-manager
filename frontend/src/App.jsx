@@ -121,16 +121,22 @@ function App() {
   const [isOffline, setIsOffline] = useState(false)
 
   const [updateStatus, setUpdateStatus] = useState(null)
-  
-  useEffect(() => {
-    const checkUpdates = async () => {
-      try {
-        const data = await api('/update_check')
-        if (data && data.status !== 'none') {
-          setUpdateStatus(data)
-        }
-      } catch (e) {}
+  const [updateBusy, setUpdateBusy] = useState(false)
+
+  const checkUpdates = async () => {
+    try {
+      const data = await api('/update_check')
+      if (data && data.status !== 'none') {
+        setUpdateStatus(data)
+      } else {
+        setUpdateStatus(null)
+      }
+    } catch (e) {
+      setUpdateStatus(null)
     }
+  }
+
+  useEffect(() => {
     checkUpdates()
   }, [])
 
@@ -234,6 +240,31 @@ function App() {
       setLoading(false)
       setActiveLoadingName('')
     }, 1500)
+  }
+
+  const handleApplyUpdate = async (localPath) => {
+    if (!localPath) return
+    setUpdateStatus(null)
+    loadPayload(localPath)
+  }
+
+  const handleInstallUpdate = async (filename) => {
+    if (!filename || updateBusy) return
+    setUpdateBusy(true)
+    try {
+      const res = await fetch(`/repository_install?filename=${encodeURIComponent(filename)}`)
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.ok) {
+        addToast(t("app.toasts.payload_installed", "{{fileName}} installed", { fileName: filename }))
+        refreshPayloads()
+        await checkUpdates()
+      } else {
+        throw new Error(data?.message || t("app.toasts.install_failed", "Installation failed"))
+      }
+    } catch (e) {
+      addToast(e.message || t("app.toasts.install_failed", "Installation failed"), 'error')
+    }
+    setUpdateBusy(false)
   }
 
   const handleDelete = (fileName) => {
@@ -555,22 +586,49 @@ function App() {
         isPS5 ? "h-screen flex-1 min-h-0" : "md:h-screen md:flex-1 md:min-h-0"
       )}>
         {updateStatus && (
-          <div className="bg-ps-blue/20 border-b border-ps-blue/50 p-4 flex items-center justify-between z-[50]">
-            <div className="flex items-center gap-3">
-              <CloudDownload className="w-5 h-5 text-ps-blue" />
-              <span className="text-zinc-200">
-                <strong className="text-white">Update Available!</strong> 
-                {updateStatus.status === 'ready-to-apply'
-                  ? " A new version is ready to be applied. Launch it from the dashboard."
-                  : " A new version is available in the repository. Please download it."}
+          <div className="bg-ps-blue/20 border-b border-ps-blue/50 p-4 flex items-center justify-between gap-4 z-[50]">
+            <div className="flex items-center gap-3 min-w-0">
+              <CloudDownload className="w-5 h-5 text-ps-blue shrink-0" />
+              <span className="text-zinc-200 text-sm">
+                {updateStatus.status === 'ready-to-apply' ? (
+                  <>
+                    <strong className="text-white">
+                      Payload Manager {updateStatus.new_version ? `v${updateStatus.new_version}` : ''} downloaded
+                    </strong>
+                    {' — load it to apply the update.'}
+                  </>
+                ) : (
+                  <>
+                    <strong className="text-white">Update Available!</strong>
+                    {updateStatus.new_version ? ` Payload Manager v${updateStatus.new_version}` : ''} is available in the repository.
+                  </>
+                )}
               </span>
             </div>
-            <button 
-              onClick={() => setUpdateStatus(null)}
-              className="p-2 hover:bg-white/10 rounded-full transition-colors text-zinc-400 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {updateStatus.status === 'ready-to-apply' ? (
+                <button
+                  onClick={() => handleApplyUpdate(updateStatus.local_path)}
+                  className="px-4 py-2 rounded-lg bg-ps-blue text-ps-black font-bold text-sm hover:opacity-90 transition-opacity"
+                >
+                  Load
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleInstallUpdate(updateStatus.new_filename)}
+                  disabled={updateBusy}
+                  className="px-4 py-2 rounded-lg bg-ps-blue text-ps-black font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {updateBusy ? 'Installing…' : 'Update'}
+                </button>
+              )}
+              <button
+                onClick={() => setUpdateStatus(null)}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors text-zinc-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
         )}
         <main ref={mainRef} className={cn(

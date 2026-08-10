@@ -125,6 +125,7 @@ static int is_noisy_route(const char *url) {
     if (strcmp(url, ROUTE_REPO_LIST) == 0) return 1;
     if (strcmp(url, ROUTE_PROCESSES_LIST) == 0) return 1;
     if (strcmp(url, ROUTE_HISTORY_LIST) == 0) return 1;
+    if (strcmp(url, ROUTE_UPDATE_CHECK) == 0) return 1;
     if (strcmp(url, "/events") == 0) return 1;
     return 0;
 }
@@ -583,18 +584,37 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             return MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
             
         char update_path[512] = {0};
+        char update_version[64] = {0};
+        char update_filename[512] = {0};
+        char update_repo_version[64] = {0};
+        char update_source[1024] = {0};
         
         PldmgrConfig cfg;
         config_read(&cfg);
         
         if (!cfg.show_update_notifications) {
             snprintf(resp_buf, RESPONSE_BUFFER_SIZE, "{\"status\":\"none\"}");
-        } else if (repository_check_self_update(update_path, sizeof(update_path)) == 0) {
+        } else if (repository_check_self_update(update_path, sizeof(update_path),
+                                                update_version, sizeof(update_version)) == 0) {
             char escaped_path[1024];
+            char escaped_version[128];
             pldmgr_json_escape(update_path, escaped_path, sizeof(escaped_path));
-            snprintf(resp_buf, RESPONSE_BUFFER_SIZE, "{\"status\":\"ready-to-apply\",\"path\":\"%s\"}", escaped_path);
-        } else if (repository_check_repo_update() == 0) {
-            snprintf(resp_buf, RESPONSE_BUFFER_SIZE, "{\"status\":\"update-available\"}");
+            pldmgr_json_escape(update_version, escaped_version, sizeof(escaped_version));
+            snprintf(resp_buf, RESPONSE_BUFFER_SIZE,
+                     "{\"status\":\"ready-to-apply\",\"current_version\":\"%s\",\"new_version\":\"%s\",\"local_path\":\"%s\"}",
+                     MENU_VERSION, escaped_version, escaped_path);
+        } else if (repository_check_repo_update(update_filename, sizeof(update_filename),
+                                                update_repo_version, sizeof(update_repo_version),
+                                                update_source, sizeof(update_source)) == 0) {
+            char escaped_filename[1024];
+            char escaped_version[128];
+            char escaped_source[2048];
+            pldmgr_json_escape(update_filename, escaped_filename, sizeof(escaped_filename));
+            pldmgr_json_escape(update_repo_version, escaped_version, sizeof(escaped_version));
+            pldmgr_json_escape(update_source, escaped_source, sizeof(escaped_source));
+            snprintf(resp_buf, RESPONSE_BUFFER_SIZE,
+                     "{\"status\":\"update-available\",\"current_version\":\"%s\",\"new_version\":\"%s\",\"new_filename\":\"%s\",\"source\":\"%s\"}",
+                     MENU_VERSION, escaped_version, escaped_filename, escaped_source);
         } else {
             snprintf(resp_buf, RESPONSE_BUFFER_SIZE, "{\"status\":\"none\"}");
         }
