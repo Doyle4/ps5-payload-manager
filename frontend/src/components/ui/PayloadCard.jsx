@@ -16,7 +16,7 @@ const PayloadCard = ({ payload, onClick, isUpdate, isInstalled }) => {
         <PayloadIcon icon={payload.icon} name={payload.filename} className="w-20 h-20 md:w-28 md:h-28 shadow-2xl" />
       </div>
       <div className="flex flex-col flex-1 min-w-0 w-full text-center">
-        <PayloadName path={payload.filename} hideVersion={true} className="text-lg md:text-xl text-white font-extrabold truncate w-full flex justify-center" />
+        <PayloadName path={payload.filename} hideVersion={true} centered={true} className="text-lg md:text-xl text-white font-extrabold truncate w-full flex justify-center" />
         <div className="flex items-center justify-center gap-2 mt-1 w-full">
           {payload.version && <span className="text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0">{payload.version}</span>}
           {payload.author && (

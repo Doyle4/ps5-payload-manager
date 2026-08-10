@@ -3,7 +3,7 @@ import { Zap, Usb } from 'lucide-react'
 import { cn, parsePayloadName } from '../../utils/helpers'
 import { useTranslation } from 'react-i18next'
 
-const PayloadName = ({ path, version: repoVersion, className, versionClassName, stacked = false, hideIcon = false, lastUpdate = null, hideVersion = false }) => {
+const PayloadName = ({ path, version: repoVersion, className, versionClassName, stacked = false, hideIcon = false, lastUpdate = null, hideVersion = false, centered = false }) => {
   const { t } = useTranslation();
   let { displayName, version, isDelay, delaySeconds } = parsePayloadName(path);
   const isUsb = path?.startsWith('/mnt/usb');
@@ -44,7 +44,8 @@ const PayloadName = ({ path, version: repoVersion, className, versionClassName, 
           {/* Static truncated text with ellipsis */}
           <div 
              className={cn(
-               "truncate font-bold text-left leading-tight transition-opacity",
+               "truncate font-bold leading-tight transition-opacity",
+               centered ? "text-center" : "text-left",
                scrollAmount > 0 ? "group-hover:opacity-0 group-focus-within:opacity-0" : ""
              )}
           >
