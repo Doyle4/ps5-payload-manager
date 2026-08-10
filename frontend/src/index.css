@@ -241,3 +241,15 @@ h1, h2, h3, h4 {
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+
+@keyframes marquee-alternate {
+  0%, 15% { transform: translateX(0); }
+  85%, 100% { transform: translateX(calc(-1 * var(--scroll-amount, 0px))); }
+}
+
+button:hover .animate-marquee,
+button:focus .animate-marquee,
+.group:hover .animate-marquee,
+.group:focus-within .animate-marquee {
+  animation: marquee-alternate 4s ease-in-out infinite alternate;
+}

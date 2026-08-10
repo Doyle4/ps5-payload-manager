@@ -13,6 +13,7 @@ typedef struct PldmgrConfig {
     int  scan_usb_payloads;      /* Default: 0  (off) */
     int  auto_install_app;       /* Default: 1  (on) */
     int  multi_sources_enabled;  /* Default: 0  (off) */
+    int  show_update_notifications; /* Default: 1 (on) */
 } PldmgrConfig;
 
 /* Read all config values from PLDMGR_CONFIG_PATH.
@@ -30,7 +31,7 @@ int config_read_bool(const char *key, int default_val);
 /* Apply a JSON config update sent from the frontend /set_config route.
  * Handles AUTOLOAD_ENABLED, AUTO_BROWSER_OPEN, AUTOLOAD_DELAY,
  * KILL_DISC_PLAYER_ON_STARTUP, SCAN_USB_PAYLOADS, AUTO_INSTALL_APP,
- * MULTI_SOURCES_ENABLED, and AUTOLOAD_LIST.
+ * MULTI_SOURCES_ENABLED, SHOW_UPDATE_NOTIFICATIONS, and AUTOLOAD_LIST.
  * Returns 0 on success, -1 on error. */
 int config_handle_set_json(const char *json_data);
 

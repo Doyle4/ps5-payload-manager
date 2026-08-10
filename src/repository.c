@@ -120,12 +120,38 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
     *out_count = 0;
 
     while ((p = strchr(p, '{')) != NULL) {
-        const char *end = strchr(p, '}');
+        const char *end = p + 1;
+        int depth = 1;
+        int in_string = 0;
+        int escaped = 0;
+        
+        while (*end && depth > 0) {
+            if (in_string) {
+                if (escaped) {
+                    escaped = 0;
+                } else if (*end == '\\') {
+                    escaped = 1;
+                } else if (*end == '"') {
+                    in_string = 0;
+                }
+            } else {
+                if (*end == '"') {
+                    in_string = 1;
+                } else if (*end == '{') {
+                    depth++;
+                } else if (*end == '}') {
+                    depth--;
+                }
+            }
+            if (depth > 0) end++;
+        }
+        
+        if (!*end && depth > 0)
+            break; /* Malformed JSON, no matching brace */
+
         RepoPayload item;
         RepoPayload *tmp;
-        if (!end)
-            break;
-
+        
         memset(&item, 0, sizeof(item));
         if (json_extract_string(p, end, "name", item.name, sizeof(item.name)) != 0 ||
             json_extract_string(p, end, "filename", item.filename, sizeof(item.filename)) != 0 ||
@@ -140,6 +166,19 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
         json_extract_string(p, end, "last_update", item.last_update, sizeof(item.last_update));
         json_extract_string(p, end, "version", item.version, sizeof(item.version));
         json_extract_string(p, end, "checksum", item.checksum, sizeof(item.checksum));
+        
+        json_extract_string(p, end, "author", item.author, sizeof(item.author));
+        json_extract_string(p, end, "details_url", item.details_url, sizeof(item.details_url));
+        
+        json_extract_string(p, end, "release_notes", item.release_notes, sizeof(item.release_notes));
+        if (strlen(item.release_notes) == sizeof(item.release_notes) - 1) {
+            strcpy(item.release_notes + sizeof(item.release_notes) - 4, "...");
+        }
+
+        json_extract_string(p, end, "icon", item.icon, sizeof(item.icon));
+        if (strlen(item.icon) == sizeof(item.icon) - 1) {
+            item.icon[0] = '\0'; /* Drop if > 16KB */
+        }
         
         if (json_extract_string(p, end, "category", item.category, sizeof(item.category)) != 0 || strlen(item.category) == 0) {
             strncpy(item.category, "Uncategorized", sizeof(item.category) - 1);
@@ -184,7 +223,8 @@ int write_payload_details_json(const RepoPayload *item, const char *details_path
     char name[256], filename[384], url[1400], source[1400], source_direct[1400];
     char description[1400], last_update[128], version[128], checksum[128], category[256];
     char downloaded_at[64], i_src[256], i_detail[1400], i_src_name[256];
-    char json_buf[8192];
+    char icon[16384], release_notes[4096], author[256], details_url[1400];
+    char json_buf[40960];
     time_t now = time(NULL);
     struct tm tmv;
 
@@ -205,6 +245,10 @@ int write_payload_details_json(const RepoPayload *item, const char *details_path
     pldmgr_json_escape(install_source ? install_source : "unknown", i_src, sizeof(i_src));
     pldmgr_json_escape(install_source_detail ? install_source_detail : "", i_detail, sizeof(i_detail));
     pldmgr_json_escape(item->source_name[0] ? item->source_name : "", i_src_name, sizeof(i_src_name));
+    pldmgr_json_escape(item->icon, icon, sizeof(icon));
+    pldmgr_json_escape(item->release_notes, release_notes, sizeof(release_notes));
+    pldmgr_json_escape(item->author, author, sizeof(author));
+    pldmgr_json_escape(item->details_url, details_url, sizeof(details_url));
 
     snprintf(json_buf, sizeof(json_buf),
              "{\n"
@@ -221,11 +265,15 @@ int write_payload_details_json(const RepoPayload *item, const char *details_path
              "  \"downloaded_at\": \"%s\",\n"
              "  \"install_source\": \"%s\",\n"
              "  \"install_source_detail\": \"%s\",\n"
-             "  \"source_name\": \"%s\"\n"
+             "  \"source_name\": \"%s\",\n"
+             "  \"icon\": \"%s\",\n"
+             "  \"release_notes\": \"%s\",\n"
+             "  \"author\": \"%s\",\n"
+             "  \"details_url\": \"%s\"\n"
              "}\n",
              name, filename, url, source, source_direct, description,
              last_update, version, checksum, category, downloaded_at, i_src, i_detail,
-             i_src_name);
+             i_src_name, icon, release_notes, author, details_url);
 
     FILE *f = fopen(details_path, "w");
     if (!f) return -1;
@@ -627,6 +675,10 @@ static int compare_versions(const char *v1, const char *v2) {
     const char *p1 = v1;
     const char *p2 = v2;
 
+    /* Skip leading non-numeric prefixes (e.g., 'v') */
+    while (*p1 && (*p1 < '0' || *p1 > '9')) p1++;
+    while (*p2 && (*p2 < '0' || *p2 > '9')) p2++;
+
     int maj1 = parse_version_part(&p1);
     int maj2 = parse_version_part(&p2);
     if (maj1 != maj2) return maj1 - maj2;
@@ -701,4 +753,27 @@ int repository_check_self_update(char *out_path, size_t out_size) {
 
     closedir(dir);
     return -1;
+}
+
+int repository_check_repo_update(void) {
+    RepoPayload *items = NULL;
+    size_t count = 0;
+    if (load_cached_repository(&items, &count) != 0) {
+        return -1;
+    }
+    
+    int found = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (strcasestr(items[i].filename, "pldmgr") || strcasestr(items[i].filename, "payload-manager")) {
+            if (items[i].version[0] != '\0') {
+                if (compare_versions(items[i].version, MENU_VERSION) > 0) {
+                    found = 1;
+                    break;
+                }
+            }
+        }
+    }
+    
+    free(items);
+    return found ? 0 : -1;
 }

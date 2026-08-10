@@ -11,11 +11,15 @@ import {
   Menu,
   Terminal,
   X,
-  Star
+  Star,
+  Trash2
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import './App.css'
+
+// Contexts
+import { RepositoryProvider } from './contexts/RepositoryContext'
 
 // Utilities
 import { cn, isPS5, isSystemPayload } from './utils/helpers'
@@ -42,6 +46,7 @@ function App() {
   const { t } = useTranslation();
   const [view, setView] = useState('dashboard')
   const [isFavoriteEditMode, setIsFavoriteEditMode] = useState(false)
+  const [isManageMode, setIsManageMode] = useState(false)
   const mainRef = useRef(null)
 
   useEffect(() => {
@@ -114,6 +119,20 @@ function App() {
     return () => eventSource.close()
   }, [showLogs])
   const [isOffline, setIsOffline] = useState(false)
+
+  const [updateStatus, setUpdateStatus] = useState(null)
+  
+  useEffect(() => {
+    const checkUpdates = async () => {
+      try {
+        const data = await api('/update_check')
+        if (data && data.status !== 'none') {
+          setUpdateStatus(data)
+        }
+      } catch (e) {}
+    }
+    checkUpdates()
+  }, [])
 
 
 
@@ -426,12 +445,11 @@ function App() {
   }
 
   return (
-
-
-    <div className={cn(
-      "min-h-screen min-h-[100dvh] ps5-bg text-zinc-100 font-ps5 flex",
-      isPS5 ? "flex-row overflow-hidden" : "flex-col md:flex-row md:overflow-hidden"
-    )}>
+    <RepositoryProvider config={config}>
+      <div className={cn(
+        "min-h-screen min-h-[100dvh] ps5-bg text-zinc-100 font-ps5 flex",
+        isPS5 ? "flex-row overflow-hidden" : "flex-col md:flex-row md:overflow-hidden"
+      )}>
       {/* Toast Container */}
       <div className="fixed top-0 right-0 p-8 z-[2000] space-y-4 pointer-events-none">
         {toasts.map(t => (
@@ -536,6 +554,25 @@ function App() {
         "flex flex-col relative",
         isPS5 ? "h-screen flex-1 min-h-0" : "md:h-screen md:flex-1 md:min-h-0"
       )}>
+        {updateStatus && (
+          <div className="bg-ps-blue/20 border-b border-ps-blue/50 p-4 flex items-center justify-between z-[50]">
+            <div className="flex items-center gap-3">
+              <CloudDownload className="w-5 h-5 text-ps-blue" />
+              <span className="text-zinc-200">
+                <strong className="text-white">Update Available!</strong> 
+                {updateStatus.status === 'ready-to-apply'
+                  ? " A new version is ready to be applied. Launch it from the dashboard."
+                  : " A new version is available in the repository. Please download it."}
+              </span>
+            </div>
+            <button 
+              onClick={() => setUpdateStatus(null)}
+              className="p-2 hover:bg-white/10 rounded-full transition-colors text-zinc-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        )}
         <main ref={mainRef} className={cn(
           "custom-scrollbar max-w-[1800px] mx-auto w-full flex flex-col",
           isPS5 ? "pt-16 px-16 pb-12 flex-1 overflow-y-auto" : "pt-6 px-6 pb-36 md:pt-16 md:px-16 md:pb-12 md:flex-1 md:overflow-y-auto"
@@ -557,13 +594,20 @@ function App() {
               <PayloadButton
                 key={p}
                 path={p}
-                onClick={() => isFavoriteEditMode ? toggleFavorite(p) : loadPayload(p)}
+                onClick={() => {
+                  if (isManageMode) handleDelete(p.split('/').pop())
+                  else if (isFavoriteEditMode) toggleFavorite(p)
+                  else loadPayload(p)
+                }}
                 isLoading={loading && activeLoadingName === p.split('/').pop().replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')}
                 sourceName={config.MULTI_SOURCES_ENABLED ? (payloadMeta[p.split('/').pop()]?.source_name || null) : null}
                 version={payloadMeta[p.split('/').pop()]?.version || null}
+                icon={payloadMeta[p.split('/').pop()]?.icon || null}
+                author={payloadMeta[p.split('/').pop()]?.author || null}
                 isFavorite={favoritePayloads.includes(p)}
                 isLaunched={launchHistory.includes(p)}
                 isEditMode={isFavoriteEditMode}
+                isManageMode={isManageMode}
                 onMoveFavorite={moveFavorite}
                 canMoveLeft={activeFavorites.indexOf(p) > 0}
                 canMoveRight={activeFavorites.indexOf(p) < activeFavorites.length - 1}
@@ -572,29 +616,44 @@ function App() {
             return (
               <div className={cn(
                 "space-y-8 md:space-y-12 transition-all",
-                isFavoriteEditMode && "-m-4 md:-m-6 p-4 md:p-6 border-2 border-yellow-400/50 bg-yellow-400/5 rounded-ps-2xl"
+                isFavoriteEditMode ? "-m-4 md:-m-6 p-4 md:p-6 border-2 border-yellow-400/50 bg-yellow-400/5 rounded-ps-2xl" :
+                isManageMode ? "-m-4 md:-m-6 p-4 md:p-6 border-2 border-red-500/50 bg-red-500/5 rounded-ps-2xl" : ""
               )}>
                 <div className="flex items-center justify-between">
                   <h2 className={cn(
                     "text-4xl font-extrabold tracking-tight",
-                    isFavoriteEditMode ? "text-yellow-400" : "text-white"
+                    isFavoriteEditMode ? "text-yellow-400" : isManageMode ? "text-red-500" : "text-white"
                   )}>
                     {isFavoriteEditMode ? (
                       t("app.dashboard.editFavorites", "Edit Favorites")
+                    ) : isManageMode ? (
+                      t("app.dashboard.removePayload", "Remove Payload")
                     ) : (
                       <>{t("app.dashboard.title_1", "Launch")} <span className="text-ps-blue">{t("app.dashboard.title_2", "Payload")}</span></>
                     )}
                   </h2>
-                  <button
-                    onClick={() => setIsFavoriteEditMode(!isFavoriteEditMode)}
-                    className={cn(
-                      "p-3 rounded-full transition-colors flex items-center justify-center",
-                      isFavoriteEditMode ? "bg-yellow-400/20 text-yellow-400" : "bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
-                    )}
-                    title={t("app.dashboard.editFavorites", "Edit Favorites")}
-                  >
-                    <Star className={cn("w-6 h-6", isFavoriteEditMode && "fill-yellow-400")} />
-                  </button>
+                  <div className="flex items-center space-x-3">
+                    <button
+                      onClick={() => { setIsManageMode(!isManageMode); setIsFavoriteEditMode(false); }}
+                      className={cn(
+                        "p-3 rounded-full transition-colors flex items-center justify-center",
+                        isManageMode ? "bg-red-600/20 text-red-500" : "bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
+                      )}
+                      title={t("app.dashboard.removePayload", "Remove Payload")}
+                    >
+                      <Trash2 className={cn("w-6 h-6", isManageMode && "text-red-500")} />
+                    </button>
+                    <button
+                      onClick={() => { setIsFavoriteEditMode(!isFavoriteEditMode); setIsManageMode(false); }}
+                      className={cn(
+                        "p-3 rounded-full transition-colors flex items-center justify-center",
+                        isFavoriteEditMode ? "bg-yellow-400/20 text-yellow-400" : "bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
+                      )}
+                      title={t("app.dashboard.editFavorites", "Edit Favorites")}
+                    >
+                      <Star className={cn("w-6 h-6", isFavoriteEditMode && "fill-yellow-400")} />
+                    </button>
+                  </div>
                 </div>
                 {loadingPayloads ? (
                   <div className={gridCols}>
@@ -750,6 +809,7 @@ function App() {
         </div>
       )}
     </div>
+    </RepositoryProvider>
   )
 }
 

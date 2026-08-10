@@ -29,7 +29,7 @@
 #include "assets_favicon_svg.h"
 #include "assets_icon_png.h"
 
-#define RESPONSE_BUFFER_SIZE 1048576
+#define RESPONSE_BUFFER_SIZE 4194304
 #define CORS_ORIGIN "*"
 
 /* Shared flag — set from main() shutdown route, read by main loop */
@@ -576,6 +576,33 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         MHD_add_response_header(resp, "Cache-Control", "max-age=604800");
 
     /* ── API routes ────────────────────────────────────────── */
+    } else if (strcmp(url, ROUTE_UPDATE_CHECK) == 0) {
+        char *resp_buf;
+        struct MHD_Response *oom_resp = alloc_response_buffer(&resp_buf);
+        if (oom_resp)
+            return MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
+            
+        char update_path[512] = {0};
+        
+        PldmgrConfig cfg;
+        config_read(&cfg);
+        
+        if (!cfg.show_update_notifications) {
+            snprintf(resp_buf, RESPONSE_BUFFER_SIZE, "{\"status\":\"none\"}");
+        } else if (repository_check_self_update(update_path, sizeof(update_path)) == 0) {
+            char escaped_path[1024];
+            pldmgr_json_escape(update_path, escaped_path, sizeof(escaped_path));
+            snprintf(resp_buf, RESPONSE_BUFFER_SIZE, "{\"status\":\"ready-to-apply\",\"path\":\"%s\"}", escaped_path);
+        } else if (repository_check_repo_update() == 0) {
+            snprintf(resp_buf, RESPONSE_BUFFER_SIZE, "{\"status\":\"update-available\"}");
+        } else {
+            snprintf(resp_buf, RESPONSE_BUFFER_SIZE, "{\"status\":\"none\"}");
+        }
+        
+        resp = MHD_create_response_from_buffer(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
+        MHD_add_response_header(resp, "Content-Type", "application/json");
+        add_cors_headers(resp);
+        return MHD_queue_response(conn, MHD_HTTP_OK, resp);
     } else if (strcmp(url, ROUTE_CHECK) == 0) {
         const char *filename = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "filename");
         if (!filename) {
@@ -959,12 +986,13 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
                      "REPOSITORY_UPDATE\":%ld,"
                      "\"AUTO_BROWSER_OPEN\":%s,\"AUTOLOAD_DELAY\":%d,\"KILL_DISC_"
                      "PLAYER_ON_STARTUP\":%s,\"SCAN_USB_PAYLOADS\":%s,\"AUTO_INSTALL_APP\":%s,"
-                     "\"MULTI_SOURCES_ENABLED\":%s}",
+                     "\"MULTI_SOURCES_ENABLED\":%s,\"SHOW_UPDATE_NOTIFICATIONS\":%s}",
                      cfg.autoload_enabled ? "true" : "false", list_escaped, cfg.last_repository_update,
                      cfg.auto_browser_open ? "true" : "false", cfg.autoload_delay,
                      cfg.kill_disc_player ? "true" : "false", cfg.scan_usb_payloads ? "true" : "false",
                      cfg.auto_install_app ? "true" : "false",
-                     cfg.multi_sources_enabled ? "true" : "false");
+                     cfg.multi_sources_enabled ? "true" : "false",
+                     cfg.show_update_notifications ? "true" : "false");
             resp = MHD_create_response_from_buffer(strlen(resp_buf),
                                                    (void *)resp_buf,
                                                    MHD_RESPMEM_MUST_FREE);

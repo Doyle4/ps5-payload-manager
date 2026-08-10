@@ -1,129 +1,50 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useLayoutEffect } from 'react'
 import { CloudDownload, Upload, Package, Database, RefreshCw, Trash2, Loader2, AlertTriangle, HardDrive, Usb, ChevronDown, Globe, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { QRCodeSVG } from 'qrcode.react'
 import { cn, isPS5, isIOS, parsePayloadName } from '../../utils/helpers'
 import PayloadName from '../ui/PayloadName'
-
-const PayloadItem = ({ p, multiSources, isPS5, onInstall, srcId, srcUrl }) => {
-  const { t } = useTranslation()
-  return (
-  <div
-    className={cn(
-      "flex flex-col md:flex-row justify-between gap-4 md:gap-8 p-6 md:p-8 transition-all",
-      multiSources
-        ? "hover:bg-white/[0.03]"
-        : "glass-card rounded-ps-3xl border border-white/10 hover:border-ps-blue/20 bg-white/[0.01]",
-      isPS5 ? "flex-row items-center" : "items-start md:items-center"
-    )}
-  >
-    <div className="space-y-2 min-w-0">
-      <PayloadName path={p.filename} version={p.version} className="text-xl md:text-2xl text-white" stacked lastUpdate={p.last_update} />
-      {p.description && (
-        <p className="text-sm md:text-base text-zinc-400 font-medium leading-relaxed">{p.description}</p>
-      )}
-    </div>
-    <button
-      onClick={() => onInstall(p, srcId === 'legacy-repo' ? null : srcId, srcUrl)}
-      className={cn(
-        "flex items-center justify-center space-x-3 px-6 md:px-8 py-3 md:py-5 rounded-2xl font-bold text-lg transition-all shrink-0 transform active:scale-95",
-        isPS5 ? "w-auto px-12" : "w-full md:w-auto",
-        p.isUpdate
-          ? "bg-emerald-600 hover:bg-emerald-500 text-white"
-          : "bg-ps-blue hover:bg-ps-blue/80 text-white"
-      )}
-    >
-      <CloudDownload className="w-5 h-5 md:w-6 md:h-6" />
-      <span>{p.isUpdate ? t("storage_hub.update_btn", "Update") : t("storage_hub.install_btn", "Install")}</span>
-    </button>
-  </div>
-)
-}
-
-const CategoryGroup = ({ category, payloads, multiSources, isPS5, onInstall, srcId, srcUrl, defaultExpanded = false }) => {
-  const [expanded, setExpanded] = useState(defaultExpanded)
-  return (
-    <div className="border-b border-white/5 last:border-0">
-      <button 
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-4 md:p-6 hover:bg-white/5 transition-colors"
-      >
-        <span className="font-bold text-white/80 uppercase tracking-widest text-sm">{category} ({payloads.length})</span>
-        <ChevronDown className={cn("w-5 h-5 text-zinc-500 transition-transform", expanded && "rotate-180")} />
-      </button>
-      {expanded && (
-        <div className={cn(
-          multiSources ? "divide-y divide-white/5 bg-black/20" : "grid grid-cols-1 gap-4 p-4",
-          "border-t border-white/5"
-        )}>
-          {payloads.map(p => (
-            <PayloadItem 
-              key={p.filename} 
-              p={p} 
-              multiSources={multiSources} 
-              isPS5={isPS5} 
-              onInstall={onInstall} 
-              srcId={srcId} 
-              srcUrl={srcUrl} 
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
+import { useRepository } from '../../contexts/RepositoryContext'
+import PayloadCard from '../ui/PayloadCard'
+import PayloadDetailPanel from '../ui/PayloadDetailPanel'
 
 const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onImportFromUsb, config, ip, scrollTarget, onClearScrollTarget }) => {
   const { t, i18n } = useTranslation()
   const multiSources = config?.MULTI_SOURCES_ENABLED === true
 
-  const [repoData, setRepoData] = useState(null)   // null = not loaded yet
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(false)
+  const { repoData, loading, error, fetchRemote } = useRepository()
+
   const [expandedSource, setExpandedSource] = useState(null) // id of expanded catalog
   const [search, setSearch] = useState('')
   const [sortMode, setSortMode] = useState(() => {
-    return localStorage.getItem('repoSortMode') || 'category'
+    return localStorage.getItem('repoSortMode') || 'name'
   })
+  
+  const [selectedPayload, setSelectedPayload] = useState(null)
+  const [savedScroll, setSavedScroll] = useState(0)
+
+  const handlePayloadSelect = (payloadData) => {
+    const mainEl = document.querySelector('main')
+    if (mainEl) setSavedScroll(mainEl.scrollTop)
+    setSelectedPayload(payloadData)
+  }
+
+  useLayoutEffect(() => {
+    const mainEl = document.querySelector('main')
+    if (!mainEl) return
+    
+    if (selectedPayload) {
+      mainEl.scrollTop = 0
+    } else {
+      mainEl.scrollTop = savedScroll
+    }
+  }, [selectedPayload, savedScroll])
 
   const handleSortChange = (mode) => {
     setSortMode(mode)
     localStorage.setItem('repoSortMode', mode)
   }
 
-  const fetchRemote = async (force = false) => {
-    setLoading(true)
-    setError(false)
-    try {
-      const endpoint = force ? '/repository_refresh' : '/repository_payloads'
-      const res = await fetch(endpoint)
-      if (!res.ok) throw new Error()
-      const data = await res.json()
-      setRepoData(data)
-
-      // For multi-source: auto-expand first source with payloads
-      if (data?.sources?.length > 0 && expandedSource === null) {
-        const first = data.sources.find(s => s.payloads?.length > 0)
-        if (first) setExpandedSource(first.id)
-      }
-
-      // Legacy single-source: auto-refresh if older than 24h
-      if (!force && data?.last_update) {
-        // eslint-disable-next-line react-hooks/purity
-        const now = Math.floor(Date.now() / 1000)
-        if (now - Number(data.last_update) > 24 * 60 * 60) {
-          await fetchRemote(true)
-          return
-        }
-      }
-    } catch {
-      setError(true)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { fetchRemote() }, [])
 
   useEffect(() => {
     if (scrollTarget) {
@@ -166,23 +87,23 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
 
   /* ---- Source-grouped data ---- */
   const enrichedSources = useMemo(() => {
-    if (multiSources && repoData?.sources) {
+    if (repoData?.sources) {
       return repoData.sources.map(src => ({
         ...src,
         id: src.id || src.url,
         payloads: enrichPayloads(src.payloads || [])
       }))
-    } else if (!multiSources && repoData?.payloads) {
+    } else if (repoData?.payloads) {
       return [{
         id: 'legacy-repo',
-        name: t("storage_hub.default_repository", "Default Repository"),
+        name: repoData.name || t("storage_hub.default_repository", "Default Repository"),
         url: repoData.repo_url || '',
         last_update: repoData.last_update || 0,
         payloads: enrichPayloads(repoData.payloads)
       }]
     }
     return []
-  }, [repoData, multiSources, localFilenames, t])
+  }, [repoData, localFilenames, t])
 
   const legacyRepoUrl = repoData?.repo_url || ''
 
@@ -193,8 +114,25 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
     return meta?.source_name || meta?.install_source_detail || null
   }
 
+  if (selectedPayload) {
+    return (
+      <PayloadDetailPanel
+        payload={selectedPayload.payload}
+        srcId={selectedPayload.srcId}
+        srcUrl={selectedPayload.srcUrl}
+        isInstalled={selectedPayload.isInstalled}
+        isUpdate={selectedPayload.isUpdate}
+        onClose={() => setSelectedPayload(null)}
+        onInstall={(p, sid, surl) => {
+          onInstall(p, sid, surl)
+          setSelectedPayload(null)
+        }}
+      />
+    )
+  }
+
   return (
-    <div className="space-y-12">
+    <div className="space-y-12 animate-in fade-in duration-300">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
         <h2 className="text-4xl font-extrabold text-white tracking-tight">
           {t("storage_hub.title_1", "Payload")} <span className="text-ps-blue">{t("storage_hub.title_2", "Management")}</span>
@@ -208,79 +146,6 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
           </label>
         )}
       </div>
-
-      {/* Installed Payloads Section */}
-      <section className="space-y-6">
-        <div className="flex items-center justify-between px-2">
-          <h3 className="label-caps !text-white flex items-center space-x-4 text-lg">
-            <Database className="w-6 h-6 text-ps-blue" />
-            <span>{t("storage_hub.installed_title", "Installed Payloads")}</span>
-          </h3>
-          <span className="bg-white/5 px-4 py-1 rounded-full text-zinc-500 font-bold text-xs">
-            {t("storage_hub.files_count", "{{count}} File", { count: internalPayloads.length })}
-          </span>
-        </div>
-
-        <div className={cn("grid gap-4", isPS5 ? "grid-cols-2" : "grid-cols-1 lg:grid-cols-2")}>
-          {internalPayloads.length === 0 ? (
-            <div className="col-span-full py-20 border-2 border-dashed border-white/5 rounded-ps-3xl flex flex-col items-center justify-center space-y-4 bg-white/[0.01]">
-              <Package className="w-16 h-16 text-white/5" />
-              <p className="text-zinc-500 font-bold uppercase tracking-widest text-sm italic">{t("storage_hub.library_empty", "Library Empty")}</p>
-            </div>
-          ) : (
-            internalPayloads.map((path) => {
-              const fileName = path.split('/').pop()
-              const sourceBadge = getSourceBadge(fileName)
-              // Find update in all sources (multi or legacy)
-              const allRemote = enrichedSources.flatMap(s => s.payloads)
-              const remoteMatch = allRemote.find(rp => rp.filename === fileName || rp.installedFilename === fileName)
-              const remoteVersion = remoteMatch?.version || (remoteMatch?.filename ? parsePayloadName(remoteMatch.filename).version : null)
-              return (
-                <div key={path} className="group flex flex-col justify-center p-4 md:p-6 glass-card rounded-ps-2xl border-white/10 hover:border-ps-blue/30 gap-3 md:gap-4 relative overflow-hidden">
-                  <div className="flex flex-row items-center justify-between w-full gap-4">
-                    <div className="flex items-center space-x-4 md:space-x-6 min-w-0 flex-1">
-                      <div className="p-3 md:p-4 bg-white/5 rounded-2xl group-hover:bg-ps-blue/10 transition-colors shrink-0">
-                        <Package className="w-6 h-6 md:w-8 md:h-8 text-zinc-400 group-hover:text-ps-blue transition-colors" />
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <PayloadName path={fileName} className="text-xl md:text-2xl text-white" stacked />
-                        {sourceBadge && (
-                          <div className="flex items-center gap-1 text-zinc-500 text-[11px] select-none font-medium">
-                            <Globe className="w-3.5 h-3.5" />
-                            <span>{sourceBadge}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center shrink-0">
-                      <button
-                        onClick={() => onDelete(fileName)}
-                        className="p-3 md:p-4 rounded-xl bg-red-950/20 text-red-500 border border-red-500/10 hover:bg-red-500 hover:text-white transition-all"
-                        title={t("storage_hub.remove_payload", "Remove Payload")}
-                      >
-                        <Trash2 className="w-5 h-5 md:w-6 md:h-6" />
-                      </button>
-                    </div>
-                  </div>
-                  {remoteMatch?.isUpdate && (
-                    <button
-                      onClick={() => onInstall(remoteMatch, remoteMatch.source_id, legacyRepoUrl)}
-                      className="w-full flex items-center justify-center space-x-2 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs md:text-sm transition-all"
-                    >
-                      <RefreshCw className="w-4 h-4 md:w-5 md:h-5" />
-                      <span>
-                        {remoteVersion
-                          ? t("storage_hub.update_to_version", "Update (to v{{version}})", { version: remoteVersion.replace(/^v/i, '') })
-                          : t("storage_hub.update_btn", "Update")}
-                      </span>
-                    </button>
-                  )}
-                </div>
-              )
-            })
-          )}
-        </div>
-      </section>
 
       {/* Cloud Repository Section */}
       <section id="cloud-repository" className="space-y-6">
@@ -439,10 +304,10 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
                   </button>
                   )}
 
-                  {/* Catalog payload list */}
+                  {/* Catalog payload grid */}
                   {isExpanded && (
                     <div className={cn(
-                      multiSources ? "border-t border-white/5 divide-y divide-white/5" : "grid grid-cols-1 gap-4"
+                      multiSources ? "border-t border-white/5 p-4 md:p-6" : ""
                     )}>
                       {src.payloads.length === 0 ? (
                         <div className="py-12 flex flex-col items-center justify-center space-y-3 text-zinc-600">
@@ -454,30 +319,45 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
                         </div>
                       ) : hasMultipleCategories ? (
                         categories.map(cat => (
-                          <CategoryGroup
-                            key={cat}
-                            category={cat}
-                            payloads={groupedPayloads[cat]}
-                            multiSources={multiSources}
-                            isPS5={isPS5}
-                            onInstall={onInstall}
-                            srcId={src.id}
-                            srcUrl={src.url}
-                            defaultExpanded={availablePayloads.length <= 10}
-                          />
+                          <div key={cat} className="space-y-4 mb-8 last:mb-0">
+                            <h4 className="text-white/80 font-bold uppercase tracking-widest text-sm px-2">{cat}</h4>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
+                              {groupedPayloads[cat].map(p => (
+                                <PayloadCard
+                                  key={p.filename}
+                                  payload={p}
+                                  isUpdate={p.isUpdate}
+                                  isInstalled={p.isInstalled}
+                                  onClick={() => handlePayloadSelect({
+                                    payload: p,
+                                    srcId: src.id === 'legacy-repo' ? null : src.id,
+                                    srcUrl: src.url,
+                                    isInstalled: p.isInstalled,
+                                    isUpdate: p.isUpdate
+                                  })}
+                                />
+                              ))}
+                            </div>
+                          </div>
                         ))
                       ) : (
-                        availablePayloads.map(p => (
-                          <PayloadItem 
-                            key={p.filename} 
-                            p={p} 
-                            multiSources={multiSources} 
-                            isPS5={isPS5} 
-                            onInstall={onInstall} 
-                            srcId={src.id} 
-                            srcUrl={src.url} 
-                          />
-                        ))
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
+                          {availablePayloads.map(p => (
+                            <PayloadCard
+                              key={p.filename}
+                              payload={p}
+                              isUpdate={p.isUpdate}
+                              isInstalled={p.isInstalled}
+                              onClick={() => handlePayloadSelect({
+                                payload: p,
+                                srcId: src.id === 'legacy-repo' ? null : src.id,
+                                srcUrl: src.url,
+                                isInstalled: p.isInstalled,
+                                isUpdate: p.isUpdate
+                              })}
+                            />
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}
@@ -578,6 +458,7 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
           </div>
         </div>
       )}
+
     </div>
   )
 }

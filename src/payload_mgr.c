@@ -242,6 +242,7 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
             char d_checksum[65] = "", d_downloaded[64] = "";
             char d_install_src[128] = "", d_install_detail[1024] = "";
             char d_source_name[256] = "";
+            char d_author[128] = "", d_details_url[1024] = "";
 
             const char *end = details_json + details_size;
             json_extract_string(details_json, end, "name", d_name, sizeof(d_name));
@@ -256,9 +257,12 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
             json_extract_string(details_json, end, "install_source", d_install_src, sizeof(d_install_src));
             json_extract_string(details_json, end, "install_source_detail", d_install_detail, sizeof(d_install_detail));
             json_extract_string(details_json, end, "source_name", d_source_name, sizeof(d_source_name));
+            json_extract_string(details_json, end, "author", d_author, sizeof(d_author));
+            json_extract_string(details_json, end, "details_url", d_details_url, sizeof(d_details_url));
 
             char filename_escaped[512], ne[512], de[2048], ve[128], ue[2048], se[2048], sde[2048];
             char lue[128], ce[128], dae[128], ise[256], ide[2048], sne[512];
+            char ae[256], due[2048];
             pldmgr_json_escape(payloads[i].filename, filename_escaped, sizeof(filename_escaped));
             pldmgr_json_escape(d_name, ne, sizeof(ne));
             pldmgr_json_escape(d_desc, de, sizeof(de));
@@ -272,16 +276,18 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
             pldmgr_json_escape(d_install_src, ise, sizeof(ise));
             pldmgr_json_escape(d_install_detail, ide, sizeof(ide));
             pldmgr_json_escape(d_source_name, sne, sizeof(sne));
+            pldmgr_json_escape(d_author, ae, sizeof(ae));
+            pldmgr_json_escape(d_details_url, due, sizeof(due));
 
             json_append(&jb, "%s\"%s\":{"
                         "\"display_name\":\"%s\",\"description\":\"%s\",\"version\":\"%s\","
                         "\"url\":\"%s\",\"source\":\"%s\",\"source_direct\":\"%s\","
                         "\"last_update\":\"%s\",\"checksum\":\"%s\",\"downloaded_at\":\"%s\","
                         "\"install_source\":\"%s\",\"install_source_detail\":\"%s\","
-                        "\"source_name\":\"%s\"}",
+                        "\"source_name\":\"%s\",\"author\":\"%s\",\"details_url\":\"%s\"}",
                         meta_first ? "" : ",",
                         filename_escaped,
-                        ne, de, ve, ue, se, sde, lue, ce, dae, ise, ide, sne);
+                        ne, de, ve, ue, se, sde, lue, ce, dae, ise, ide, sne, ae, due);
             
             meta_first = 0;
             free(details_json);

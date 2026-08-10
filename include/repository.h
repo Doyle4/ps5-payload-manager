@@ -16,6 +16,10 @@ typedef struct RepoPayload {
     char checksum[65];
     char source_name[256];
     char category[128];
+    char icon[16384];
+    char release_notes[2048];
+    char author[128];
+    char details_url[1024];
 } RepoPayload;
 
 /* Download a URL to a local file. Returns 0 on success, -1 on failure. */
@@ -66,5 +70,9 @@ int get_elf_pldmgr_version(const char *path, char *out_version, size_t out_size)
 /* Scan the payload storage for a newer pldmgr.elf.
  * If found, writes the path to out_path and returns 0. */
 int repository_check_self_update(char *out_path, size_t out_size);
+
+/* Check if a newer version of the payload manager is available in the repo cache.
+ * Returns 0 if an update is available, -1 otherwise. */
+int repository_check_repo_update(void);
 
 #endif
