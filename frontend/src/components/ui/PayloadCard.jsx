@@ -1,15 +1,18 @@
 import React from 'react';
 import { cn } from '../../utils/helpers';
+import { useTranslation } from 'react-i18next';
 import PayloadName from './PayloadName';
 import PayloadIcon from './PayloadIcon';
 
 const PayloadCard = ({ payload, onClick, isUpdate, isInstalled }) => {
+  const { t } = useTranslation();
+  const isInstalledUpToDate = isInstalled && !isUpdate;
   return (
     <button
       onClick={onClick}
       className={cn(
         "group flex flex-col p-4 md:p-6 bg-white/[0.02] hover:bg-white/[0.05] border border-white/5 hover:border-ps-blue/30 rounded-3xl transition-all text-left relative",
-        (isInstalled && !isUpdate) && "opacity-60"
+        isInstalledUpToDate && "opacity-60"
       )}
     >
       <div className="flex justify-center mb-4 w-full">
@@ -31,7 +34,12 @@ const PayloadCard = ({ payload, onClick, isUpdate, isInstalled }) => {
       <div className="absolute top-4 right-4 flex flex-col gap-2">
         {isUpdate && (
           <span className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold text-[10px] uppercase tracking-widest border border-emerald-500/20">
-            Update
+            {t("storage_hub.update_badge", "Update")}
+          </span>
+        )}
+        {isInstalledUpToDate && (
+          <span className="px-2 py-1 rounded-lg bg-white/10 text-zinc-400 font-bold text-[10px] uppercase tracking-widest border border-white/10">
+            {t("storage_hub.installed_badge", "Installed")}
           </span>
         )}
       </div>

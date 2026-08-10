@@ -111,6 +111,20 @@ int download_to_file(const char *url, const char *out_path) {
 
 /* ── JSON parsing ──────────────────────────────────────────── */
 
+/* True if a filename (base name) identifies a payload-manager binary, i.e.
+ * starts with "pldmgr" or "payload-manager" (case-insensitive). */
+static int is_pldmgr_filename(const char *filename) {
+    const char *base;
+
+    if (!filename || !*filename)
+        return 0;
+    base = strrchr(filename, '/');
+    base = base ? base + 1 : filename;
+
+    return strncasecmp(base, "pldmgr", 6) == 0 ||
+           strncasecmp(base, "payload-manager", 15) == 0;
+}
+
 /* Skip the top-level wrapping object, returning a pointer to just past its
  * opening '{' so entries inside the wrapper can be scanned. If the document is
  * a bare array of entries, or a single entry object (no "payloads" member), the
@@ -257,8 +271,8 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
         }
 
         json_extract_string(p, end, "icon", item.icon, sizeof(item.icon));
-        if (strlen(item.icon) == sizeof(item.icon) - 1) {
-            item.icon[0] = '\0'; /* Drop if > 16KB */
+        if (strlen(item.icon) > 12288) {
+            item.icon[0] = '\0'; /* Drop if > 12KB */
         }
         
         if (json_extract_string(p, end, "category", item.category, sizeof(item.category)) != 0 || strlen(item.category) == 0) {
@@ -800,7 +814,7 @@ int repository_check_self_update(char *out_path, size_t out_size,
 
                         /* Look for .elf or .bin files that match our name */
                         if (strstr(sentry->d_name, ".elf") || strstr(sentry->d_name, ".bin")) {
-                            if (strcasestr(sentry->d_name, "pldmgr") || strcasestr(sentry->d_name, "payload-manager")) {
+                            if (is_pldmgr_filename(sentry->d_name)) {
                                 char full_path[512];
                                 snprintf(full_path, sizeof(full_path), "%s/%s", subdir_path, sentry->d_name);
 
@@ -852,7 +866,7 @@ int repository_check_repo_update(char *out_filename, size_t out_size,
     
     int found = 0;
     for (size_t i = 0; i < count; i++) {
-        if (strcasestr(items[i].filename, "pldmgr") || strcasestr(items[i].filename, "payload-manager")) {
+        if (is_pldmgr_filename(items[i].filename)) {
             if (items[i].version[0] != '\0') {
                 if (compare_versions(items[i].version, MENU_VERSION) > 0) {
                     found = 1;

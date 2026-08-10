@@ -593,14 +593,14 @@ function App() {
                 {updateStatus.status === 'ready-to-apply' ? (
                   <>
                     <strong className="text-white">
-                      Payload Manager {updateStatus.new_version ? `v${updateStatus.new_version}` : ''} downloaded
+                      {t('app.update_banner.ready_title', 'Payload Manager {{version}} downloaded', { version: updateStatus.new_version ? `v${updateStatus.new_version}` : '' })}
                     </strong>
-                    {' — load it to apply the update.'}
+                    {t('app.update_banner.ready_desc', ' — load it to apply the update.')}
                   </>
                 ) : (
                   <>
-                    <strong className="text-white">Update Available!</strong>
-                    {updateStatus.new_version ? ` Payload Manager v${updateStatus.new_version}` : ''} is available in the repository.
+                    <strong className="text-white">{t('app.update_banner.available_title', 'Update Available!')}</strong>
+                    {t('app.update_banner.available_desc', ' Payload Manager {{version}} is available in the repository.', { version: updateStatus.new_version ? `v${updateStatus.new_version}` : '' })}
                   </>
                 )}
               </span>
@@ -611,7 +611,7 @@ function App() {
                   onClick={() => handleApplyUpdate(updateStatus.local_path)}
                   className="px-4 py-2 rounded-lg bg-ps-blue text-ps-black font-bold text-sm hover:opacity-90 transition-opacity"
                 >
-                  Load
+                  {t('app.update_banner.load', 'Load')}
                 </button>
               ) : (
                 <button
@@ -619,7 +619,7 @@ function App() {
                   disabled={updateBusy}
                   className="px-4 py-2 rounded-lg bg-ps-blue text-ps-black font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
-                  {updateBusy ? 'Installing…' : 'Update'}
+                  {updateBusy ? t('app.update_banner.installing', 'Installing…') : t('app.update_banner.update', 'Update')}
                 </button>
               )}
               <button
@@ -653,10 +653,11 @@ function App() {
                 key={p}
                 path={p}
                 onClick={() => {
-                  if (isManageMode) handleDelete(p.split('/').pop())
-                  else if (isFavoriteEditMode) toggleFavorite(p)
+                  if (isManageMode) return
+                  if (isFavoriteEditMode) toggleFavorite(p)
                   else loadPayload(p)
                 }}
+                onDelete={() => handleDelete(p.split('/').pop())}
                 isLoading={loading && activeLoadingName === p.split('/').pop().replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')}
                 sourceName={config.MULTI_SOURCES_ENABLED ? (payloadMeta[p.split('/').pop()]?.source_name || null) : null}
                 version={payloadMeta[p.split('/').pop()]?.version || null}

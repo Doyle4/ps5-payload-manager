@@ -5,7 +5,7 @@ import PayloadName from './PayloadName'
 import PayloadIcon from './PayloadIcon'
 import { cn } from '../../utils/helpers'
 
-const PayloadButton = ({ path, onClick, isLoading, sourceName, version, icon, author, displayName, isFavorite, isLaunched, isEditMode, isManageMode, onMoveFavorite, canMoveLeft, canMoveRight }) => {
+const PayloadButton = ({ path, onClick, onDelete, isLoading, sourceName, version, icon, author, displayName, isFavorite, isLaunched, isEditMode, isManageMode, onMoveFavorite, canMoveLeft, canMoveRight }) => {
   const { t } = useTranslation()
   const isUsb = path.startsWith('/mnt/usb')
   return (
@@ -45,7 +45,15 @@ const PayloadButton = ({ path, onClick, isLoading, sourceName, version, icon, au
             </div>
           )}
           {isManageMode && !isUsb && (
-            <div className="p-1 rounded-lg text-red-500 transition-all opacity-50 group-hover:opacity-100">
+            <div
+              role="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onDelete) onDelete();
+              }}
+              className="p-1.5 rounded-lg text-red-500 transition-all opacity-50 group-hover:opacity-100 hover:bg-red-500/10 hover:opacity-100 cursor-pointer"
+            >
               <Trash2 className="w-5 h-5" />
             </div>
           )}

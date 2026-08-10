@@ -83,24 +83,27 @@ Fix applied:
 
 ## Minor
 
-- **Hardcoded English strings** — App.jsx (update banner, manage-mode toasts),
-  PayloadCard ("Update"/"Installed" badges), PayloadDetailPanel ("Back to Repository",
-  "Description", "What's New", "About", "Loading details...", "Failed to load details.").
-  No i18n keys added; `en-US.json` unchanged (217 keys). Locales submodule shows
-  uncommitted content changes in `git status`.
-- **PayloadDetailPanel** — content not reset between payload switches (brief stale
-  markup shown), details refetched on every open (no memoization), markdown images not
-  lazy-loaded / error-bounded.
-- **Dead code** — `PayloadCard` `opacity-60` "installed" state is unreachable (installed
-  payloads are filtered out of `availablePayloads` in StorageHub); "Installed ✓"/Remove
-  states in the detail panel are unreachable.
-- **Manage mode** — entire card click opens the delete confirm; the trash icon is
-  decorative (no `stopPropagation`), deviating from the specified trash-overlay
-  interaction.
-- **`repository_check_repo_update`** matches any filename containing `pldmgr` via
-  `strcasestr` — false-positive risk for unrelated repo files.
-- **Icon size threshold** — icons dropped only when truncated to ~16KB
-  (buffer-limited), vs plan's 12KB. Non-issue functionally.
+- **Hardcoded English strings — ✅ FIXED** — update banner (App.jsx), PayloadCard
+  badges, and PayloadDetailPanel labels now use i18n keys
+  (`app.update_banner.*`, `storage_hub.update_badge`/`installed_badge`/
+  `back_to_repository`/`payload_count`, `payload_detail.*`); ran `npm run extract`.
+- **PayloadDetailPanel — ✅ FIXED** — resets `detailsHtml`/error state on payload
+  switch, guards against stale async responses (cancellation flag), and markdown
+  `<img>`s are lazy-loaded and hidden on error via `useLayoutEffect` post-processing.
+- **Dead code — ✅ FIXED** — StorageHub no longer filters installed payloads out of the
+  shop grid, so the "Installed"/"Update" card states and the detail panel's
+  "Installed"/"Update" buttons are reachable. PayloadCard dims installed-up-to-date
+  cards (`opacity-60`) and shows an "Installed" badge. Removed the now-impossible
+  "All payloads installed" empty-state branch; catalog count label is now "{{count}}
+  payloads".
+- **Manage mode — ✅ FIXED** — the trash icon is now the actual delete trigger (a
+  `role="button"` div with `stopPropagation`, valid inside the card `<button>`);
+  clicking a card in manage mode no longer launches or deletes.
+- **`repository_check_repo_update` — ✅ FIXED** — added `is_pldmgr_filename()`
+  (base name starts with `pldmgr`/`payload-manager`, case-insensitive); used in both
+  the repo-update scan and the self-update file match (replaces broad `strcasestr`).
+- **Icon size threshold — ✅ FIXED** — icons dropped when > 12KB (was buffer-limited
+  ~16KB), matching the plan.
 
 ## Verified OK
 - `RESPONSE_BUFFER_SIZE` = 4MB (http_server.c:32)

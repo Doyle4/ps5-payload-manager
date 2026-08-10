@@ -212,7 +212,7 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
           /* ===== REPOSITORY CATALOGS ===== */
           <div className="space-y-4">
             {enrichedSources.map(src => {
-              let availablePayloads = src.payloads.filter(p => !p.isInstalled || p.isUpdate)
+              let availablePayloads = [...src.payloads]
               
               if (search.trim() !== '') {
                 const q = search.toLowerCase()
@@ -295,7 +295,7 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
                     </div>
                     <div className="flex items-center space-x-3">
                       <span className="px-3 py-1 rounded-full bg-white/5 text-zinc-500 text-xs font-bold">
-                        {t("storage_hub.available_count", "{{count}} available", { count: availablePayloads.length })}
+                        {t("storage_hub.payload_count", "{{count}} payloads", { count: availablePayloads.length })}
                       </span>
                       {enrichedSources.length > 1 && (
                         <ChevronDown className={cn("w-5 h-5 text-zinc-500 transition-transform", isExpanded && "rotate-180")} />
@@ -312,10 +312,6 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
                       {src.payloads.length === 0 ? (
                         <div className="py-12 flex flex-col items-center justify-center space-y-3 text-zinc-600">
                           <p className="text-sm font-bold uppercase tracking-widest italic">{t("storage_hub.source_empty", "Source is empty")}</p>
-                        </div>
-                      ) : availablePayloads.length === 0 ? (
-                        <div className="py-12 flex flex-col items-center justify-center space-y-3 text-zinc-600">
-                          <p className="text-sm font-bold uppercase tracking-widest italic">{t("storage_hub.all_installed", "All payloads installed")}</p>
                         </div>
                       ) : hasMultipleCategories ? (
                         categories.map(cat => (

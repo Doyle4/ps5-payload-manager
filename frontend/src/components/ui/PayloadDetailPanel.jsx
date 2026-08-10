@@ -1,20 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { X, CloudDownload, Loader2, ArrowLeft } from 'lucide-react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { CloudDownload, Loader2, ArrowLeft } from 'lucide-react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { cn } from '../../utils/helpers';
+import { useTranslation } from 'react-i18next';
 import PayloadIcon from './PayloadIcon';
 import PayloadName from './PayloadName';
 
 const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate, srcUrl, srcId }) => {
+  const { t } = useTranslation();
   const [detailsHtml, setDetailsHtml] = useState(null);
+  const [detailsError, setDetailsError] = useState(false);
   const [loading, setLoading] = useState(false);
-
-
+  const detailsRef = useRef(null);
 
   useEffect(() => {
+    setDetailsHtml(null);
+    setDetailsError(false);
     if (!payload?.details_url) return;
-    
+
     // Resolve full URL if relative
     let url = payload.details_url;
     if (!url.startsWith('http')) {
@@ -25,6 +29,7 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate
       }
     }
 
+    let cancelled = false;
     const fetchDetails = async () => {
       setLoading(true);
       try {
@@ -32,16 +37,26 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate
         if (!res.ok) throw new Error('Failed to fetch details');
         const text = await res.text();
         const html = DOMPurify.sanitize(marked.parse(text));
-        setDetailsHtml(html);
+        if (!cancelled) setDetailsHtml(html);
       } catch (err) {
-        setDetailsHtml('<p class="text-red-400">Failed to load details.</p>');
+        if (!cancelled) setDetailsError(true);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchDetails();
+    return () => { cancelled = true; };
   }, [payload, srcUrl]);
+
+  // Lazy-load markdown images and hide broken ones
+  useLayoutEffect(() => {
+    if (!detailsRef.current) return;
+    detailsRef.current.querySelectorAll('img').forEach((img) => {
+      img.loading = 'lazy';
+      img.onerror = () => { img.style.display = 'none'; };
+    });
+  }, [detailsHtml]);
 
   if (!payload) return null;
 
@@ -55,7 +70,7 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate
           className="flex items-center space-x-2 text-zinc-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 px-4 py-2 rounded-xl"
         >
           <ArrowLeft className="w-5 h-5" />
-          <span className="font-bold text-sm uppercase tracking-wider">Back to Repository</span>
+          <span className="font-bold text-sm uppercase tracking-wider">{t("storage_hub.back_to_repository", "Back to Repository")}</span>
         </button>
       </div>
 
@@ -88,7 +103,7 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate
             >
               <CloudDownload className="w-5 h-5" />
               <span>
-                {isUpdate ? "Update" : isInstalled ? "Installed" : "Install"}
+                {isUpdate ? t("payload_detail.update", "Update") : isInstalled ? t("payload_detail.installed", "Installed") : t("payload_detail.install", "Install")}
               </span>
             </button>
           </div>
@@ -97,14 +112,14 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate
         <div className="flex-1 p-6 md:p-8">
           {payload.description && (
             <div className="mb-8">
-              <h3 className="text-lg font-bold text-white mb-3">Description</h3>
+              <h3 className="text-lg font-bold text-white mb-3">{t("payload_detail.description", "Description")}</h3>
               <p className="text-zinc-300 leading-relaxed text-base">{payload.description}</p>
             </div>
           )}
 
           {payload.release_notes && (
             <div className="mb-8">
-              <h3 className="text-lg font-bold text-white mb-3">What's New</h3>
+              <h3 className="text-lg font-bold text-white mb-3">{t("payload_detail.whats_new", "What's New")}</h3>
               <div className="text-zinc-300 leading-relaxed text-sm whitespace-pre-wrap bg-white/5 p-4 rounded-2xl border border-white/5">
                 {payload.release_notes}
               </div>
@@ -113,14 +128,17 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate
 
           {payload.details_url && (
             <div className="mt-8 pt-8 border-t border-white/10">
-              <h3 className="text-lg font-bold text-white mb-4">About</h3>
+              <h3 className="text-lg font-bold text-white mb-4">{t("payload_detail.about", "About")}</h3>
               {loading ? (
                 <div className="flex items-center gap-3 text-zinc-500">
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Loading details...</span>
+                  <span>{t("payload_detail.loading_details", "Loading details...")}</span>
                 </div>
+              ) : detailsError ? (
+                <p className="text-red-400">{t("payload_detail.failed_load", "Failed to load details.")}</p>
               ) : detailsHtml ? (
-                <div 
+                <div
+                  ref={detailsRef}
                   className="prose prose-invert max-w-none prose-a:text-ps-blue hover:prose-a:text-ps-blue/80 prose-headings:text-white prose-p:text-zinc-300"
                   dangerouslySetInnerHTML={{ __html: detailsHtml }}
                 />
