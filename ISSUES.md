@@ -47,11 +47,26 @@ Fix applied:
 
 ## High
 
-### 3. Dashboard icons are always null
-App.jsx passes `icon={payloadMeta[p.split('/').pop()]?.icon}` but
+### 3. Dashboard icons are always null — ✅ FIXED
+App.jsx passed `icon={payloadMeta[p.split('/').pop()]?.icon}` but
 `payload_mgr_list_json` adds only `author` + `details_url` to the meta (per plan), never
-`icon`. Every dashboard card renders the fallback generated icon. The planned
+`icon`. Every dashboard card rendered the fallback generated icon. The planned
 "lifted repo filename→icon map" was never wired into the dashboard.
+
+Fix applied:
+- `RepositoryProvider` moved to `main.jsx` (drops the `config` prop dependency) so App can
+  consume the context via `useRepository()`.
+- Context now derives and exposes `filenameMap`: `filename → { icon, author,
+  release_notes, details_url, display_name }`, built from all payload entries in
+  `/repository_payloads` (handles both `sources[]` and bare-array `payloads[]` shapes).
+- App's dashboard `PayloadButton` now sources `icon`, `author`, and `displayName` from
+  `filenameMap` (falling back to `payloadMeta` for author, and to filename parsing when no
+  map entry exists).
+- `PayloadName` gained a `displayName` override prop; `PayloadCard` (shop) passes the repo
+  `name` as well.
+- Note: the live mirror (`payloads.json`) currently ships a bare array without
+  `icon`/`author`/`release_notes` yet (mirror tool out of scope), so dashboard icons still
+  fall back to generated icons until the mirror adds them — but the wiring is now correct.
 
 ### 4. No `SHOW_UPDATE_NOTIFICATIONS` UI toggle
 `show_update_notifications` is read/written in config.c (defaults on) and the server-side

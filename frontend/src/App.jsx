@@ -19,7 +19,7 @@ import { useTranslation } from 'react-i18next'
 import './App.css'
 
 // Contexts
-import { RepositoryProvider } from './contexts/RepositoryContext'
+import { useRepository } from './contexts/RepositoryContext'
 
 // Utilities
 import { cn, isPS5, isSystemPayload } from './utils/helpers'
@@ -44,6 +44,7 @@ import ActiveProcessesView from './components/views/ActiveProcessesView'
 
 function App() {
   const { t } = useTranslation();
+  const { filenameMap } = useRepository()
   const [view, setView] = useState('dashboard')
   const [isFavoriteEditMode, setIsFavoriteEditMode] = useState(false)
   const [isManageMode, setIsManageMode] = useState(false)
@@ -476,11 +477,10 @@ function App() {
   }
 
   return (
-    <RepositoryProvider config={config}>
-      <div className={cn(
-        "min-h-screen min-h-[100dvh] ps5-bg text-zinc-100 font-ps5 flex",
-        isPS5 ? "flex-row overflow-hidden" : "flex-col md:flex-row md:overflow-hidden"
-      )}>
+    <div className={cn(
+      "min-h-screen min-h-[100dvh] ps5-bg text-zinc-100 font-ps5 flex",
+      isPS5 ? "flex-row overflow-hidden" : "flex-col md:flex-row md:overflow-hidden"
+    )}>
       {/* Toast Container */}
       <div className="fixed top-0 right-0 p-8 z-[2000] space-y-4 pointer-events-none">
         {toasts.map(t => (
@@ -660,8 +660,9 @@ function App() {
                 isLoading={loading && activeLoadingName === p.split('/').pop().replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')}
                 sourceName={config.MULTI_SOURCES_ENABLED ? (payloadMeta[p.split('/').pop()]?.source_name || null) : null}
                 version={payloadMeta[p.split('/').pop()]?.version || null}
-                icon={payloadMeta[p.split('/').pop()]?.icon || null}
-                author={payloadMeta[p.split('/').pop()]?.author || null}
+                icon={payloadMeta[p.split('/').pop()]?.icon || filenameMap[p.split('/').pop()]?.icon || null}
+                author={payloadMeta[p.split('/').pop()]?.author || filenameMap[p.split('/').pop()]?.author || null}
+                displayName={filenameMap[p.split('/').pop()]?.display_name || null}
                 isFavorite={favoritePayloads.includes(p)}
                 isLaunched={launchHistory.includes(p)}
                 isEditMode={isFavoriteEditMode}
@@ -867,7 +868,6 @@ function App() {
         </div>
       )}
     </div>
-    </RepositoryProvider>
   )
 }
 

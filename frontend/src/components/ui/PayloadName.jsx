@@ -3,11 +3,12 @@ import { Zap, Usb } from 'lucide-react'
 import { cn, parsePayloadName } from '../../utils/helpers'
 import { useTranslation } from 'react-i18next'
 
-const PayloadName = ({ path, version: repoVersion, className, versionClassName, stacked = false, hideIcon = false, lastUpdate = null, hideVersion = false, centered = false }) => {
+const PayloadName = ({ path, version: repoVersion, className, versionClassName, stacked = false, hideIcon = false, lastUpdate = null, hideVersion = false, centered = false, displayName: metaDisplayName = null }) => {
   const { t } = useTranslation();
   let { displayName, version, isDelay, delaySeconds } = parsePayloadName(path);
   const isUsb = path?.startsWith('/mnt/usb');
 
+  if (metaDisplayName) displayName = metaDisplayName;
   if (repoVersion) version = repoVersion;
   if (hideVersion) version = null;
   if (isDelay) {
