@@ -68,9 +68,18 @@ Fix applied:
   `icon`/`author`/`release_notes` yet (mirror tool out of scope), so dashboard icons still
   fall back to generated icons until the mirror adds them — but the wiring is now correct.
 
-### 4. No `SHOW_UPDATE_NOTIFICATIONS` UI toggle
+### 4. No `SHOW_UPDATE_NOTIFICATIONS` UI toggle — ✅ FIXED
 `show_update_notifications` is read/written in config.c (defaults on) and the server-side
-gate in `/update_check` works, but SettingsView has no toggle (plan required one).
+gate in `/update_check` works, but SettingsView had no toggle (plan required one).
+
+Fix applied:
+- Added a "Update Notifications" toggle row in SettingsView's Startup section
+  (`settings.update_notifications_title` / `_desc` keys), defaulting on via
+  `config.SHOW_UPDATE_NOTIFICATIONS !== false`, persisting through `onSaveConfig` →
+  `/set_config` (backend already applies the key via `extract_json_bool`).
+- `/get_config` already returned the key, so the toggle reflects the live state.
+- Ran `npm run extract` — also picked up previously-missing keys (`app.toasts.payload_installed`,
+  `app.toasts.install_failed`, `app.dashboard.removePayload`).
 
 ## Minor
 

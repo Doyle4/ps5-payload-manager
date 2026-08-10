@@ -46,6 +46,7 @@ const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate }) => {
   const autoInstall = config.AUTO_INSTALL_APP !== false
   const autoloadDelay = config.AUTOLOAD_DELAY || 5
   const multiSources = config.MULTI_SOURCES_ENABLED === true
+  const showUpdateNotifications = config.SHOW_UPDATE_NOTIFICATIONS !== false
   const [followBrowserLanguage, setFollowBrowserLanguage] = useState(isFollowingBrowserLanguage)
 
   const getLanguageDisplayName = (lang) => {
@@ -192,6 +193,24 @@ const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate }) => {
               <div className={cn(
                 "w-5 h-5 md:w-7 md:h-7 bg-white rounded-full transition-all",
                 config.SCAN_USB_PAYLOADS ? "translate-x-7 md:translate-x-10" : "translate-x-0"
+              )} />
+            </button>
+          </SettingRow>
+
+          <SettingRow
+            title={t("settings.update_notifications_title", "Update Notifications")}
+            description={t("settings.update_notifications_desc", "Show a banner when a new Payload Manager version is available.")}
+          >
+            <button
+              onClick={() => onSaveConfig({ SHOW_UPDATE_NOTIFICATIONS: !showUpdateNotifications })}
+              className={cn(
+                "w-14 h-7 md:w-20 md:h-10 rounded-full transition-all relative p-1 md:p-1.5",
+                showUpdateNotifications ? "bg-ps-blue" : "bg-white/10"
+              )}
+            >
+              <div className={cn(
+                "w-5 h-5 md:w-7 md:h-7 bg-white rounded-full transition-all",
+                showUpdateNotifications ? "translate-x-7 md:translate-x-10" : "translate-x-0"
               )} />
             </button>
           </SettingRow>
