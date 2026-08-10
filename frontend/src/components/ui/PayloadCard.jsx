@@ -13,7 +13,7 @@ const PayloadCard = ({ payload, onClick, isUpdate, isInstalled }) => {
       )}
     >
       <div className="flex justify-center mb-4 w-full">
-        <PayloadIcon icon={payload.icon} name={payload.filename} className="w-20 h-20 md:w-28 md:h-28 shadow-2xl" />
+        <PayloadIcon icon={payload.icon} name={payload.filename} className="w-20 h-20 md:w-28 md:h-28" />
       </div>
       <div className="flex flex-col flex-1 min-w-0 w-full text-center">
         <PayloadName path={payload.filename} hideVersion={true} centered={true} className="text-lg md:text-xl text-white font-extrabold truncate w-full flex justify-center" />

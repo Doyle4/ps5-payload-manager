@@ -24,7 +24,7 @@ const stringToHash = (str) => {
 const PayloadIcon = ({ icon, name, className }) => {
   if (icon) {
     return (
-      <div className={cn("rounded-2xl overflow-hidden shadow-lg border border-white/10 shrink-0 bg-white/5", className)}>
+      <div className={cn("rounded-2xl overflow-hidden border border-white/10 shrink-0 bg-white/5", className)}>
         <img src={icon} alt={name || 'Payload'} className="w-full h-full object-cover" />
       </div>
     );
@@ -36,13 +36,12 @@ const PayloadIcon = ({ icon, name, className }) => {
 
   return (
     <div 
-      className={cn("rounded-2xl flex flex-col items-center justify-center shadow-lg border border-white/10 shrink-0 text-white font-bold relative overflow-hidden", className)}
+      className={cn("rounded-2xl flex items-center justify-center border border-white/10 shrink-0 text-white relative overflow-hidden", className)}
       style={{
         background: `linear-gradient(135deg, ${colorStart}, ${colorEnd})`
       }}
     >
-      <div className="absolute inset-0 bg-black/20" />
-      <Package className="w-1/2 h-1/2 opacity-80 z-10 drop-shadow-md" />
+      <Package className="w-1/2 h-1/2 opacity-90" />
     </div>
   );
 };

@@ -20,7 +20,7 @@ const PayloadButton = ({ path, onClick, isLoading, sourceName, version, icon, au
     >
       <div className="flex items-start justify-between w-full z-10">
         <div className="flex items-center gap-4 min-w-0 pr-2">
-          <PayloadIcon icon={icon} name={path.split('/').pop()} className="w-12 h-12 text-xl shadow-md" />
+          <PayloadIcon icon={icon} name={path.split('/').pop()} className="w-12 h-12 text-xl" />
           <div className="min-w-0 flex-1">
             <PayloadName path={path} hideVersion={true} className="text-white text-xl" stacked={false} />
             <div className="flex items-center gap-2 mt-0.5">
