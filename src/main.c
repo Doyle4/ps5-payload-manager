@@ -87,8 +87,8 @@ int main(int argc, char *argv[]) {
 
     while ((pid = find_pid("pldmgr.elf")) > 0) {
         if (kill(pid, SIGKILL)) {
-            pldmgr_log("[PLDMGR] kill failed\n");
-            return EXIT_FAILURE;
+            pldmgr_log("[PLDMGR] kill failed for pid %d\n", pid);
+            break;
         }
         sleep(1);
     }

@@ -441,9 +441,10 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
 
         int fetch_ok = (ensure_source_fresh(sources[si].url, cache_path, force_refresh) == 0);
 
-        char id_e[128], name_e[512];
+        char id_e[128], name_e[512], url_e[2048];
         pldmgr_json_escape(sources[si].id,   id_e,   sizeof(id_e));
         pldmgr_json_escape(sources[si].name, name_e, sizeof(name_e));
+        pldmgr_json_escape(sources[si].url,  url_e,  sizeof(url_e));
 
         /* Read last_update timestamp */
         long last_update = 0;
@@ -452,8 +453,8 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
         FILE *tf = fopen(ts_path, "r");
         if (tf) { fscanf(tf, "%ld", &last_update); fclose(tf); }
 
-        if (json_append(&jb, "  {\"id\":\"%s\",\"name\":\"%s\",\"last_update\":%ld,\"error\":%s,\"payloads\":[\n",
-            id_e, name_e, last_update, fetch_ok ? "false" : "true") != 0) {
+        if (json_append(&jb, "  {\"id\":\"%s\",\"name\":\"%s\",\"url\":\"%s\",\"last_update\":%ld,\"error\":%s,\"payloads\":[\n",
+            id_e, name_e, url_e, last_update, fetch_ok ? "false" : "true") != 0) {
             break;
         }
 
@@ -468,11 +469,18 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 free(cached);
             }
 
+            char *icon_e = (char *)malloc(16384);
+            if (!icon_e) {
+                if (items) free(items);
+                free(sources);
+                return 0;
+            }
+
             for (size_t pi = 0; pi < count; pi++) {
                 char name_pe[256], filename_e[512], desc_e[2048];
                 char ver_e[128], url_e[2048], src_id_e[128], src_name_e[512];
                 char last_upd_e[128], cat_e[256];
-                char auth_e[256], det_url_e[2048], rn_e[4096], icon_e[16384];
+                char auth_e[256], det_url_e[2048], rn_e[4096];
 
                 pldmgr_json_escape(items[pi].name,        name_pe,    sizeof(name_pe));
                 pldmgr_json_escape(items[pi].filename,    filename_e, sizeof(filename_e));
@@ -486,7 +494,7 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 pldmgr_json_escape(items[pi].author,      auth_e,     sizeof(auth_e));
                 pldmgr_json_escape(items[pi].details_url, det_url_e,  sizeof(det_url_e));
                 pldmgr_json_escape(items[pi].release_notes,rn_e,      sizeof(rn_e));
-                pldmgr_json_escape(items[pi].icon,        icon_e,     sizeof(icon_e));
+                pldmgr_json_escape(items[pi].icon,        icon_e,     16384);
 
                 if (json_append(&jb, "    {\"name\":\"%s\",\"filename\":\"%s\",\"description\":\"%s\","
                     "\"version\":\"%s\",\"last_update\":\"%s\",\"url\":\"%s\","
@@ -499,6 +507,7 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 }
             }
 
+            free(icon_e);
             if (items) free(items);
         }
 

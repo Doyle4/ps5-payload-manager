@@ -1,9 +1,15 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Serve the locally generated details/ README folder (repo root)
+app.use('/details', express.static(path.resolve(process.cwd(), '..', 'details')));
+app.use('/test_repo.json', express.static(path.resolve(process.cwd(), '..', 'test_repo.json')));
 
 // Log all requests to terminal
 app.use((req, res, next) => {
@@ -19,24 +25,24 @@ let logs = [
   "[PLDMGR] Found 3 payloads on storage"
 ];
 
-const remoteRepository = [
-  {
-    name: "ftpsrv",
-    filename: "ftpsrv_v0.19.elf",
-    url: "https://itsplk.github.io/ps5_payloads/payloads/ftpsrv_v0.19.elf",
-    description: "A simple FTP server that accepts connections on port 2121",
-    version: "v0.19",
-    checksum: "e6c1babbfd5e1b766d12b659853b514b9faedf6333cbe8cb514b1a3e79b7ce39"
-  },
-  {
-    name: "kstuff-lite",
-    filename: "kstuff-lite_v1.03.elf",
-    url: "https://itsplk.github.io/ps5_payloads/payloads/kstuff-lite_v1.03.elf",
-    description: "Lite version of kstuff",
-    version: "v1.03",
-    checksum: "54df47a48d9c5ee4338ef70ba66093908a4f2845e53468bdd7c080b65d7488c1"
-  }
-];
+// Load the new-schema test repository (icons, author, release_notes, details_url)
+let remoteRepository = [];
+try {
+  const testRepo = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), '..', 'test_repo.json'), 'utf8'));
+  remoteRepository = testRepo.payloads || [];
+} catch (err) {
+  console.log('[Mock] Could not load ../test_repo.json — using built-in payloads');
+  remoteRepository = [
+    {
+      name: "ftpsrv",
+      filename: "ftpsrv_v0.19.elf",
+      url: "https://itsplk.github.io/ps5_payloads/payloads/ftpsrv_v0.19.elf",
+      description: "A simple FTP server that accepts connections on port 2121",
+      version: "v0.19",
+      checksum: "e6c1babbfd5e1b766d12b659853b514b9faedf6333cbe8cb514b1a3e79b7ce39"
+    }
+  ];
+}
 
 const communityRepository = [
   {
@@ -44,14 +50,20 @@ const communityRepository = [
     filename: "ps5_hen_test_v1.0.elf",
     url: "https://example.com/payloads/ps5_hen_test_v1.0.elf",
     description: "Community hen test payload — no checksum",
-    version: "v1.0"
+    version: "v1.0",
+    author: "hen-community",
+    release_notes: "## v1.0\n\n- No icon set — exercises the deterministic fake-icon fallback",
+    details_url: "details/etahen.md"
   },
   {
     name: "Debug Tool",
     filename: "debug_tool_v2.1.elf",
     url: "https://example.com/payloads/debug_tool_v2.1.elf",
     description: "Debug utility from community repo",
-    version: "v2.1"
+    version: "v2.1",
+    author: "ps5-payload-dev",
+    release_notes: "## v2.1\n\n- Second community payload",
+    details_url: "details/elfldr.md"
   }
 ];
 
@@ -146,6 +158,7 @@ app.get('/repository_payloads', (req, res) => {
       {
         id: 'default',
         name: 'Official Repository',
+        url: 'http://localhost:8081/test_repo.json',
         last_update: lastRepositoryUpdate,
         error: false,
         payloads: remoteRepository.map(p => ({ ...p, source_id: 'default', source_name: 'Official Repository' }))
@@ -153,6 +166,7 @@ app.get('/repository_payloads', (req, res) => {
       {
         id: 'source_community',
         name: 'Community Payloads',
+        url: 'https://example.com/community-payloads.json',
         last_update: lastRepositoryUpdate,
         error: false,
         payloads: communityRepository.map(p => ({ ...p, source_id: 'source_community', source_name: 'Community Payloads' }))
@@ -169,6 +183,7 @@ app.get('/repository_refresh', (req, res) => {
       {
         id: 'default',
         name: 'Official Repository',
+        url: 'http://localhost:8081/test_repo.json',
         last_update: lastRepositoryUpdate,
         error: false,
         payloads: remoteRepository.map(p => ({ ...p, source_id: 'default', source_name: 'Official Repository' }))
@@ -176,6 +191,7 @@ app.get('/repository_refresh', (req, res) => {
       {
         id: 'source_community',
         name: 'Community Payloads',
+        url: 'https://example.com/community-payloads.json',
         last_update: lastRepositoryUpdate,
         error: false,
         payloads: communityRepository.map(p => ({ ...p, source_id: 'source_community', source_name: 'Community Payloads' }))

@@ -244,48 +244,55 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
         if (!*end && depth > 0)
             break; /* Malformed JSON, no matching brace */
 
-        RepoPayload item;
+        RepoPayload *item = (RepoPayload *)malloc(sizeof(RepoPayload));
         RepoPayload *tmp;
-        
-        memset(&item, 0, sizeof(item));
-        if (json_extract_string(p, end, "name", item.name, sizeof(item.name)) != 0 ||
-            json_extract_string(p, end, "filename", item.filename, sizeof(item.filename)) != 0 ||
-            json_extract_string(p, end, "url", item.url, sizeof(item.url)) != 0) {
+        if (!item) {
+            free(items);
+            return -1;
+        }
+
+        memset(item, 0, sizeof(*item));
+        if (json_extract_string(p, end, "name", item->name, sizeof(item->name)) != 0 ||
+            json_extract_string(p, end, "filename", item->filename, sizeof(item->filename)) != 0 ||
+            json_extract_string(p, end, "url", item->url, sizeof(item->url)) != 0) {
+            free(item);
             p = end + 1;
             continue;
         }
 
-        json_extract_string(p, end, "source", item.source, sizeof(item.source));
-        json_extract_string(p, end, "source_direct", item.source_direct, sizeof(item.source_direct));
-        json_extract_string(p, end, "description", item.description, sizeof(item.description));
-        json_extract_string(p, end, "last_update", item.last_update, sizeof(item.last_update));
-        json_extract_string(p, end, "version", item.version, sizeof(item.version));
-        json_extract_string(p, end, "checksum", item.checksum, sizeof(item.checksum));
+        json_extract_string(p, end, "source", item->source, sizeof(item->source));
+        json_extract_string(p, end, "source_direct", item->source_direct, sizeof(item->source_direct));
+        json_extract_string(p, end, "description", item->description, sizeof(item->description));
+        json_extract_string(p, end, "last_update", item->last_update, sizeof(item->last_update));
+        json_extract_string(p, end, "version", item->version, sizeof(item->version));
+        json_extract_string(p, end, "checksum", item->checksum, sizeof(item->checksum));
         
-        json_extract_string(p, end, "author", item.author, sizeof(item.author));
-        json_extract_string(p, end, "details_url", item.details_url, sizeof(item.details_url));
+        json_extract_string(p, end, "author", item->author, sizeof(item->author));
+        json_extract_string(p, end, "details_url", item->details_url, sizeof(item->details_url));
         
-        json_extract_string(p, end, "release_notes", item.release_notes, sizeof(item.release_notes));
-        if (strlen(item.release_notes) == sizeof(item.release_notes) - 1) {
-            strcpy(item.release_notes + sizeof(item.release_notes) - 4, "...");
+        json_extract_string(p, end, "release_notes", item->release_notes, sizeof(item->release_notes));
+        if (strlen(item->release_notes) == sizeof(item->release_notes) - 1) {
+            strcpy(item->release_notes + sizeof(item->release_notes) - 4, "...");
         }
 
-        json_extract_string(p, end, "icon", item.icon, sizeof(item.icon));
-        if (strlen(item.icon) > 12288) {
-            item.icon[0] = '\0'; /* Drop if > 12KB */
+        json_extract_string(p, end, "icon", item->icon, sizeof(item->icon));
+        if (strlen(item->icon) > 12288) {
+            item->icon[0] = '\0'; /* Drop if > 12KB */
         }
         
-        if (json_extract_string(p, end, "category", item.category, sizeof(item.category)) != 0 || strlen(item.category) == 0) {
-            strncpy(item.category, "Uncategorized", sizeof(item.category) - 1);
+        if (json_extract_string(p, end, "category", item->category, sizeof(item->category)) != 0 || strlen(item->category) == 0) {
+            strncpy(item->category, "Uncategorized", sizeof(item->category) - 1);
         }
 
         tmp = (RepoPayload *)realloc(items, (count + 1) * sizeof(RepoPayload));
         if (!tmp) {
+            free(item);
             free(items);
             return -1;
         }
         items = tmp;
-        items[count] = item;
+        items[count] = *item;
+        free(item);
         count++;
         p = end + 1;
     }
@@ -318,10 +325,17 @@ int write_payload_details_json(const RepoPayload *item, const char *details_path
     char name[256], filename[384], url[1400], source[1400], source_direct[1400];
     char description[1400], last_update[128], version[128], checksum[128], category[256];
     char downloaded_at[64], i_src[256], i_detail[1400], i_src_name[256];
-    char icon[16384], release_notes[4096], author[256], details_url[1400];
-    char json_buf[40960];
+    char release_notes[4096], author[256], details_url[1400];
+    char *icon = (char *)malloc(16384);
+    char *json_buf = (char *)malloc(40960);
     time_t now = time(NULL);
     struct tm tmv;
+
+    if (!icon || !json_buf) {
+        free(icon);
+        free(json_buf);
+        return -1;
+    }
 
     memset(&tmv, 0, sizeof(tmv));
     localtime_r(&now, &tmv);
@@ -340,12 +354,12 @@ int write_payload_details_json(const RepoPayload *item, const char *details_path
     pldmgr_json_escape(install_source ? install_source : "unknown", i_src, sizeof(i_src));
     pldmgr_json_escape(install_source_detail ? install_source_detail : "", i_detail, sizeof(i_detail));
     pldmgr_json_escape(item->source_name[0] ? item->source_name : "", i_src_name, sizeof(i_src_name));
-    pldmgr_json_escape(item->icon, icon, sizeof(icon));
+    pldmgr_json_escape(item->icon, icon, 16384);
     pldmgr_json_escape(item->release_notes, release_notes, sizeof(release_notes));
     pldmgr_json_escape(item->author, author, sizeof(author));
     pldmgr_json_escape(item->details_url, details_url, sizeof(details_url));
 
-    snprintf(json_buf, sizeof(json_buf),
+    snprintf(json_buf, 40960,
              "{\n"
              "  \"name\": \"%s\",\n"
              "  \"filename\": \"%s\",\n"
@@ -371,9 +385,15 @@ int write_payload_details_json(const RepoPayload *item, const char *details_path
              i_src_name, icon, release_notes, author, details_url);
 
     FILE *f = fopen(details_path, "w");
-    if (!f) return -1;
+    if (!f) {
+        free(icon);
+        free(json_buf);
+        return -1;
+    }
     fwrite(json_buf, 1, strlen(json_buf), f);
     fclose(f);
+    free(icon);
+    free(json_buf);
     return 0;
 }
 

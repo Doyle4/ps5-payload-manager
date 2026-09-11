@@ -30,6 +30,7 @@
 #include "assets_icon_png.h"
 
 #define RESPONSE_BUFFER_SIZE 4194304
+#define SMALL_RESPONSE_BUFFER_SIZE 65536
 #define CORS_ORIGIN "*"
 
 /* Shared flag — set from main() shutdown route, read by main loop */
@@ -41,8 +42,8 @@ static void add_cors_headers(struct MHD_Response *resp) {
     MHD_add_response_header(resp, "Access-Control-Allow-Origin", CORS_ORIGIN);
 }
 
-static struct MHD_Response *alloc_response_buffer(char **out) {
-    *out = malloc(RESPONSE_BUFFER_SIZE);
+static struct MHD_Response *alloc_response_buffer_sized(char **out, size_t size) {
+    *out = malloc(size);
     if (*out)
         return NULL;
     static const char oom[] = "{\"error\":\"Out of memory\"}";
@@ -51,6 +52,14 @@ static struct MHD_Response *alloc_response_buffer(char **out) {
     MHD_add_response_header(resp, "Content-Type", "application/json");
     add_cors_headers(resp);
     return resp;
+}
+
+static struct MHD_Response *alloc_response_buffer(char **out) {
+    return alloc_response_buffer_sized(out, RESPONSE_BUFFER_SIZE);
+}
+
+static struct MHD_Response *alloc_response_buffer_small(char **out) {
+    return alloc_response_buffer_sized(out, SMALL_RESPONSE_BUFFER_SIZE);
 }
 
 static int has_supported_extension(const char *path) {
@@ -494,13 +503,13 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         const char *path = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "path");
         if (path) {
             char *resp_buf;
-            struct MHD_Response *oom_resp = alloc_response_buffer(&resp_buf);
+            struct MHD_Response *oom_resp = alloc_response_buffer_small(&resp_buf);
             if (oom_resp) {
                 ret = MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
                 MHD_destroy_response(oom_resp);
                 return ret;
             }
-            int rc = payload_mgr_usb_check(path, resp_buf, RESPONSE_BUFFER_SIZE);
+            int rc = payload_mgr_usb_check(path, resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
             resp = MHD_create_response_from_buffer(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
             MHD_add_response_header(resp, "Content-Type", "application/json");
             add_cors_headers(resp);
@@ -526,13 +535,13 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         int keep_original = (keep_original_str && strcmp(keep_original_str, "true") == 0) ? 1 : 0;
         if (path) {
             char *resp_buf;
-            struct MHD_Response *oom_resp = alloc_response_buffer(&resp_buf);
+            struct MHD_Response *oom_resp = alloc_response_buffer_small(&resp_buf);
             if (oom_resp) {
                 ret = MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
                 MHD_destroy_response(oom_resp);
                 return ret;
             }
-            int rc = payload_mgr_usb_move(path, overwrite, keep_original, resp_buf, RESPONSE_BUFFER_SIZE);
+            int rc = payload_mgr_usb_move(path, overwrite, keep_original, resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
             resp = MHD_create_response_from_buffer(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
             MHD_add_response_header(resp, "Content-Type", "application/json");
             add_cors_headers(resp);
@@ -578,11 +587,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
 
     /* ── API routes ────────────────────────────────────────── */
     } else if (strcmp(url, ROUTE_UPDATE_CHECK) == 0) {
-        char *resp_buf;
-        struct MHD_Response *oom_resp = alloc_response_buffer(&resp_buf);
-        if (oom_resp)
-            return MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
-            
+        char resp_buf[1024];
         char update_path[512] = {0};
         char update_version[64] = {0};
         char update_filename[512] = {0};
@@ -593,14 +598,14 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         config_read(&cfg);
         
         if (!cfg.show_update_notifications) {
-            snprintf(resp_buf, RESPONSE_BUFFER_SIZE, "{\"status\":\"none\"}");
+            snprintf(resp_buf, sizeof(resp_buf), "{\"status\":\"none\"}");
         } else if (repository_check_self_update(update_path, sizeof(update_path),
                                                 update_version, sizeof(update_version)) == 0) {
             char escaped_path[1024];
             char escaped_version[128];
             pldmgr_json_escape(update_path, escaped_path, sizeof(escaped_path));
             pldmgr_json_escape(update_version, escaped_version, sizeof(escaped_version));
-            snprintf(resp_buf, RESPONSE_BUFFER_SIZE,
+            snprintf(resp_buf, sizeof(resp_buf),
                      "{\"status\":\"ready-to-apply\",\"current_version\":\"%s\",\"new_version\":\"%s\",\"local_path\":\"%s\"}",
                      MENU_VERSION, escaped_version, escaped_path);
         } else if (repository_check_repo_update(update_filename, sizeof(update_filename),
@@ -612,14 +617,14 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             pldmgr_json_escape(update_filename, escaped_filename, sizeof(escaped_filename));
             pldmgr_json_escape(update_repo_version, escaped_version, sizeof(escaped_version));
             pldmgr_json_escape(update_source, escaped_source, sizeof(escaped_source));
-            snprintf(resp_buf, RESPONSE_BUFFER_SIZE,
+            snprintf(resp_buf, sizeof(resp_buf),
                      "{\"status\":\"update-available\",\"current_version\":\"%s\",\"new_version\":\"%s\",\"new_filename\":\"%s\",\"source\":\"%s\"}",
                      MENU_VERSION, escaped_version, escaped_filename, escaped_source);
         } else {
-            snprintf(resp_buf, RESPONSE_BUFFER_SIZE, "{\"status\":\"none\"}");
+            snprintf(resp_buf, sizeof(resp_buf), "{\"status\":\"none\"}");
         }
         
-        resp = MHD_create_response_from_buffer(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
+        resp = MHD_create_response_from_buffer(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_PERSISTENT);
         MHD_add_response_header(resp, "Content-Type", "application/json");
         add_cors_headers(resp);
         return MHD_queue_response(conn, MHD_HTTP_OK, resp);
@@ -640,28 +645,28 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             return MHD_queue_response(conn, MHD_HTTP_BAD_REQUEST, resp);
         }
         char *resp_buf;
-        struct MHD_Response *oom_resp = alloc_response_buffer(&resp_buf);
+        struct MHD_Response *oom_resp = alloc_response_buffer_small(&resp_buf);
         if (oom_resp)
             return MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
-        payload_mgr_check_existing(filename, resp_buf, RESPONSE_BUFFER_SIZE);
+        payload_mgr_check_existing(filename, resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
         resp = MHD_create_response_from_buffer(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         MHD_add_response_header(resp, "Content-Type", "application/json");
         add_cors_headers(resp);
         return MHD_queue_response(conn, MHD_HTTP_OK, resp);
     } else if (strcmp(url, ROUTE_LIST_PAYLOADS) == 0) {
         char *resp_buf;
-        struct MHD_Response *oom_resp = alloc_response_buffer(&resp_buf);
+        struct MHD_Response *oom_resp = alloc_response_buffer_small(&resp_buf);
         if (oom_resp)
             return MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
-        size_t len = payload_mgr_list_json(resp_buf, RESPONSE_BUFFER_SIZE);
+        size_t len = payload_mgr_list_json(resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
         resp = MHD_create_response_from_buffer(len, (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         MHD_add_response_header(resp, "Content-Type", "application/json");
     } else if (strcmp(url, ROUTE_PROCESSES_LIST) == 0) {
         char *resp_buf;
-        struct MHD_Response *oom_resp = alloc_response_buffer(&resp_buf);
+        struct MHD_Response *oom_resp = alloc_response_buffer_small(&resp_buf);
         if (oom_resp)
             return MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
-        size_t len = process_list_json(resp_buf, RESPONSE_BUFFER_SIZE);
+        size_t len = process_list_json(resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
         resp = MHD_create_response_from_buffer(len, (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         MHD_add_response_header(resp, "Content-Type", "application/json");
     } else if (strcmp(url, ROUTE_HISTORY_LIST) == 0) {
@@ -770,10 +775,10 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         return MHD_queue_response(conn, rc == 0 ? MHD_HTTP_OK : MHD_HTTP_INTERNAL_SERVER_ERROR, resp);
     } else if (strcmp(url, ROUTE_SOURCES_LIST) == 0) {
         char *resp_buf;
-        struct MHD_Response *oom_resp = alloc_response_buffer(&resp_buf);
+        struct MHD_Response *oom_resp = alloc_response_buffer_small(&resp_buf);
         if (oom_resp)
             return MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
-        sources_list_json(resp_buf, RESPONSE_BUFFER_SIZE);
+        sources_list_json(resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
         resp = MHD_create_response_from_buffer(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         MHD_add_response_header(resp, "Content-Type", "application/json");
     } else if (strcmp(url, ROUTE_SOURCES_ADD) == 0) {
@@ -890,9 +895,9 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         http_keep_running = 0;
     } else if (strcmp(url, ROUTE_LOG) == 0) {
         char *resp_buf;
-        resp = alloc_response_buffer(&resp_buf);
+        resp = alloc_response_buffer_small(&resp_buf);
         if (!resp) {
-            size_t pos = log_build_json(resp_buf, RESPONSE_BUFFER_SIZE);
+            size_t pos = log_build_json(resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
             resp = MHD_create_response_from_buffer(pos, (void *)resp_buf,
                                                    MHD_RESPMEM_MUST_FREE);
             MHD_add_response_header(resp, "Content-Type", "application/json");
@@ -941,9 +946,9 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         pldmgr_json_escape(list_buf, list_escaped, sizeof(list_escaped));
 
         char *resp_buf;
-        resp = alloc_response_buffer(&resp_buf);
+        resp = alloc_response_buffer_small(&resp_buf);
         if (!resp) {
-            snprintf(resp_buf, RESPONSE_BUFFER_SIZE,
+            snprintf(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
                      "{\"remaining\":%d,\"remaining_ms\":%lld,\"total\":%d,\"done\":%d,\"current\":\"%s\","
                      "\"list\":\"%s\",\"delay\":%d,\"KILL_DISC_PLAYER_ON_STARTUP\":%s,\"SCAN_USB_PAYLOADS\":%s}",
                      remaining, remaining_ms, total, done, current_escaped, list_escaped, cfg.autoload_delay,
@@ -999,9 +1004,9 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         pldmgr_json_escape(list_buf, list_escaped, sizeof(list_escaped));
 
         char *resp_buf;
-        resp = alloc_response_buffer(&resp_buf);
+        resp = alloc_response_buffer_small(&resp_buf);
         if (!resp) {
-            snprintf(resp_buf, RESPONSE_BUFFER_SIZE,
+            snprintf(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
                      "{\"AUTOLOAD_ENABLED\":%s,\"AUTOLOAD_LIST\":\"%s\",\"LAST_"
                      "REPOSITORY_UPDATE\":%ld,"
                      "\"AUTO_BROWSER_OPEN\":%s,\"AUTOLOAD_DELAY\":%d,\"KILL_DISC_"
