@@ -1,34 +1,75 @@
 import { useEffect, useRef, useCallback } from 'react'
 
 export function getRouteFromHash(hash) {
-  const clean = (hash || '').replace(/^#\/?/, '').split('?')[0].trim()
+  const clean = (hash || '').replace(/^#\/?/, '').trim()
   if (!clean || clean === 'dashboard') return { type: 'dashboard' }
-  if (clean === 'storage') return { type: 'storage' }
-  if (clean === 'autoload') return { type: 'autoload' }
-  if (clean === 'processes') return { type: 'processes' }
-  if (clean === 'settings') return { type: 'settings' }
-  if (clean === 'donate') return { type: 'donate' }
-  if (clean === 'sources') return { type: 'sources' }
-  if (clean === 'move-from-usb' || clean === 'move_from_usb') return { type: 'move_from_usb' }
+
+  const [rawPath, rawQuery] = clean.split('?')
+  const queryParams = new URLSearchParams(rawQuery || '')
+
+  if (rawPath === 'storage') return { type: 'storage' }
+
+  if (rawPath === 'payload' || rawPath === 'storage/payload') {
+    return { type: 'storage' }
+  }
+
+  if (rawPath.startsWith('payload/') || rawPath.startsWith('storage/payload/')) {
+    const slashIdx = rawPath.indexOf('payload/')
+    const filename = decodeURIComponent(rawPath.slice(slashIdx + 8).trim())
+    if (!filename) return { type: 'storage' }
+    const srcId = queryParams.get('src') || null
+    return { type: 'payload', filename, srcId }
+  }
+
+  if (rawPath === 'autoload') return { type: 'autoload' }
+  if (rawPath === 'processes') return { type: 'processes' }
+  if (rawPath === 'settings') return { type: 'settings' }
+  if (rawPath === 'donate') return { type: 'donate' }
+  if (rawPath === 'sources') return { type: 'sources' }
+
+  if (rawPath === 'move-from-usb' || rawPath === 'move_from_usb') {
+    const path = queryParams.get('path') || null
+    return { type: 'move_from_usb', path }
+  }
+
+  if (rawPath.startsWith('move-from-usb/') || rawPath.startsWith('move_from_usb/')) {
+    const slashIdx = rawPath.indexOf('/')
+    const path = decodeURIComponent(rawPath.slice(slashIdx + 1).trim())
+    return { type: 'move_from_usb', path }
+  }
+
   return { type: 'dashboard' }
 }
 
 export function formatHash(route) {
   if (!route || route.type === 'dashboard') return '#/'
   if (route.type === 'storage') return '#/storage'
+  if (route.type === 'payload') {
+    if (!route.filename) return '#/storage'
+    const encodedName = encodeURIComponent(route.filename)
+    if (route.srcId) {
+      return `#/payload/${encodedName}?src=${encodeURIComponent(route.srcId)}`
+    }
+    return `#/payload/${encodedName}`
+  }
   if (route.type === 'autoload') return '#/autoload'
   if (route.type === 'processes') return '#/processes'
   if (route.type === 'settings') return '#/settings'
   if (route.type === 'donate') return '#/donate'
   if (route.type === 'sources') return '#/sources'
-  if (route.type === 'move_from_usb') return '#/move-from-usb'
+  if (route.type === 'move_from_usb') {
+    if (route.path) {
+      return `#/move-from-usb?path=${encodeURIComponent(route.path)}`
+    }
+    return '#/move-from-usb'
+  }
   return '#/'
 }
 
 export function writeHistory(route, replace = false) {
-  if (!window.history || !window.history.pushState) return
+  if (typeof window === 'undefined' || !window.history || !window.history.pushState) return
   const hash = formatHash(route)
-  if (!replace && window.location.hash === hash && !route.isModal) return
+  if (!replace && window.location?.hash === hash && !route.isModal) return
   const state = { ...route, hash }
   try {
     if (replace && window.history.replaceState) {
@@ -52,6 +93,19 @@ export function getHistoryChain(route) {
       route,
     ]
   }
+  if (route.type === 'payload') {
+    if (!route.filename) {
+      return [
+        { type: 'dashboard' },
+        { type: 'storage' },
+      ]
+    }
+    return [
+      { type: 'dashboard' },
+      { type: 'storage' },
+      route,
+    ]
+  }
   if (route.type === 'move_from_usb') {
     return [
       { type: 'dashboard' },
@@ -66,7 +120,7 @@ export function getHistoryChain(route) {
 }
 
 export function seedHistory(route) {
-  if (!window.history || !window.history.pushState || !window.history.replaceState) return
+  if (typeof window === 'undefined' || !window.history || !window.history.pushState || !window.history.replaceState) return
 
   const chain = getHistoryChain(route)
   for (let i = 0; i < chain.length; i++) {
@@ -91,7 +145,6 @@ function getActiveModals(m, currentView) {
   if (m.downloadModal?.show) list.push('downloadModal')
   if (m.showLogs) list.push('showLogs')
   if (m.delayModal) list.push('delayModal')
-  if (m.selectedPayload) list.push('selectedPayload')
   if (currentView === 'dashboard') {
     if (m.isManageMode) list.push('manageMode')
     if (m.isFavoriteEditMode) list.push('favoriteEditMode')
@@ -120,7 +173,13 @@ export function useHistoryNavigation({
   setDelayModal,
 }) {
   const currentViewRef = useRef(view)
-  const currentRouteRef = useRef({ type: view })
+  const currentRouteRef = useRef(
+    selectedPayload
+      ? { type: 'payload', filename: selectedPayload.payload?.filename || selectedPayload.filename, srcId: selectedPayload.srcId || null }
+      : { type: view, ...(view === 'move_from_usb' ? { path: moveFromUsbPath } : {}) }
+  )
+  const selectedPayloadRef = useRef(selectedPayload)
+  const moveFromUsbPathRef = useRef(moveFromUsbPath)
   const historySeededRef = useRef(false)
   const modalPushedRef = useRef(false)
   const isProgrammaticModalCloseRef = useRef(false)
@@ -147,6 +206,14 @@ export function useHistoryNavigation({
   useEffect(() => {
     currentViewRef.current = view
   }, [view])
+
+  useEffect(() => {
+    selectedPayloadRef.current = selectedPayload
+  }, [selectedPayload])
+
+  useEffect(() => {
+    moveFromUsbPathRef.current = moveFromUsbPath
+  }, [moveFromUsbPath])
 
   useEffect(() => {
     modalStateRef.current = {
@@ -191,7 +258,6 @@ export function useHistoryNavigation({
     showLogs ||
     downloadModal?.show ||
     delayModal ||
-    selectedPayload ||
     (view === 'dashboard' && (isManageMode || isFavoriteEditMode))
   )
 
@@ -234,15 +300,55 @@ export function useHistoryNavigation({
     currentRouteRef.current = hashRoute
     seedHistory(hashRoute)
 
-    if (hashRoute.type !== 'dashboard') {
-      if (hashRoute.type === 'move_from_usb' && !modalStateRef.current.moveFromUsbPath) {
+    if (hashRoute.type === 'payload') {
+      setView('storage')
+      if (hashRoute.filename) {
+        setSelectedPayload({ filename: hashRoute.filename, srcId: hashRoute.srcId })
+      }
+    } else if (hashRoute.type === 'move_from_usb') {
+      if (hashRoute.path) {
+        setMoveFromUsbPath(hashRoute.path)
+        setView('move_from_usb')
+      } else if (!modalStateRef.current.moveFromUsbPath) {
         setView('storage')
         writeHistory({ type: 'storage' }, true)
       } else {
-        setView(hashRoute.type)
+        setView('move_from_usb')
       }
+    } else if (hashRoute.type !== 'dashboard') {
+      setView(hashRoute.type)
+    }
+  }, [setView, setSelectedPayload, setMoveFromUsbPath])
+
+  // Handlers for payload selection / closing
+  const handleClosePayload = useCallback(() => {
+    if (typeof window !== 'undefined' && window.history && window.history.length > 1 && currentRouteRef.current?.type === 'payload') {
+      window.history.back()
+    } else {
+      if (modalStateRef.current.setSelectedPayload) {
+        modalStateRef.current.setSelectedPayload(null)
+      }
+      selectedPayloadRef.current = null
+      const route = { type: 'storage' }
+      currentRouteRef.current = route
+      writeHistory(route, true)
+      setView('storage')
     }
   }, [setView])
+
+  const handleSelectPayload = useCallback((payloadData) => {
+    if (!payloadData) {
+      handleClosePayload()
+      return
+    }
+    const filename = payloadData.payload?.filename || payloadData.filename
+    const srcId = payloadData.srcId || null
+    const route = { type: 'payload', filename, srcId }
+    setSelectedPayload(payloadData)
+    selectedPayloadRef.current = payloadData
+    currentRouteRef.current = route
+    writeHistory(route, false)
+  }, [setSelectedPayload, handleClosePayload])
 
   // Listen to popstate (Circle button on PS5 controller or browser back/forward)
   useEffect(() => {
@@ -267,8 +373,6 @@ export function useHistoryNavigation({
           m.setShowLogs(false)
         } else if (top === 'delayModal') {
           if (m.setDelayModal) m.setDelayModal(false)
-        } else if (top === 'selectedPayload') {
-          if (m.setSelectedPayload) m.setSelectedPayload(null)
         } else if (top === 'manageMode') {
           if (m.setIsManageMode) m.setIsManageMode(false)
         } else if (top === 'favoriteEditMode') {
@@ -296,16 +400,8 @@ export function useHistoryNavigation({
       // 2. Read destination target
       const target = getRouteFromHash(window.location.hash)
 
-      // Fallback for move_from_usb if no path is loaded
-      if (target.type === 'move_from_usb' && !m.moveFromUsbPath) {
-        currentRouteRef.current = { type: 'storage' }
-        currentViewRef.current = 'storage'
-        setView('storage')
-        return
-      }
-
-      // 3. If user was ALREADY on dashboard and pressed Back, close PS5 browser
-      if (curView === 'dashboard' && target.type === 'dashboard') {
+      // 3. If user was ALREADY on dashboard and target is dashboard (Circle pressed on root), close PS5 browser
+      if (curView === 'dashboard' && target.type === 'dashboard' && !selectedPayloadRef.current) {
         try {
           window.close()
         } catch {
@@ -321,12 +417,50 @@ export function useHistoryNavigation({
 
       // 4. View transition
       currentRouteRef.current = target
-      currentViewRef.current = target.type
 
-      if (curView === 'move_from_usb' && target.type !== 'move_from_usb') {
-        if (m.setMoveFromUsbPath) m.setMoveFromUsbPath(null)
+      if (target.type === 'payload') {
+        currentViewRef.current = 'storage'
+        setView('storage')
+        if (m.setSelectedPayload) {
+          m.setSelectedPayload({ filename: target.filename, srcId: target.srcId })
+        }
+        return
       }
 
+      if (target.type === 'storage') {
+        if (m.setSelectedPayload) {
+          m.setSelectedPayload(null)
+        }
+        if (curView === 'move_from_usb' && m.setMoveFromUsbPath) {
+          m.setMoveFromUsbPath(null)
+        }
+        currentViewRef.current = 'storage'
+        setView('storage')
+        return
+      }
+
+      if (target.type === 'move_from_usb') {
+        if (target.path && m.setMoveFromUsbPath) {
+          m.setMoveFromUsbPath(target.path)
+        } else if (!m.moveFromUsbPath) {
+          currentRouteRef.current = { type: 'storage' }
+          currentViewRef.current = 'storage'
+          setView('storage')
+          return
+        }
+        if (m.setSelectedPayload) m.setSelectedPayload(null)
+        currentViewRef.current = 'move_from_usb'
+        setView('move_from_usb')
+        return
+      }
+
+      // Other views: clear payload & usb path
+      if (m.setSelectedPayload) m.setSelectedPayload(null)
+      if (curView === 'move_from_usb' && m.setMoveFromUsbPath) {
+        m.setMoveFromUsbPath(null)
+      }
+
+      currentViewRef.current = target.type
       setView(target.type)
     }
 
@@ -335,16 +469,28 @@ export function useHistoryNavigation({
   }, [setView])
 
   // Navigate between views
-  const navigate = useCallback((newView) => {
-    if (newView === currentViewRef.current) return
+  const navigate = useCallback((newView, options = {}) => {
+    if (newView === currentViewRef.current && !selectedPayloadRef.current) return
     const prevView = currentViewRef.current
 
+    // Returning to storage while viewing a payload detail should pop history back to storage
+    if (currentRouteRef.current?.type === 'payload' && newView === 'storage') {
+      handleClosePayload()
+      return
+    }
+
+    if (selectedPayloadRef.current) {
+      if (modalStateRef.current.setSelectedPayload) {
+        modalStateRef.current.setSelectedPayload(null)
+      }
+      selectedPayloadRef.current = null
+    }
+
     if (newView === 'dashboard') {
-      if (prevView !== 'dashboard') {
-        if (window.history && window.history.length > 1) {
-          window.history.back()
-          return
-        }
+      const curChain = getHistoryChain(currentRouteRef.current)
+      if (curChain.length > 1 && window.history && window.history.length > 1) {
+        window.history.go(-(curChain.length - 1))
+        return
       }
       writeHistory({ type: 'dashboard' }, true)
       setView('dashboard')
@@ -353,10 +499,19 @@ export function useHistoryNavigation({
       return
     }
 
+    let route = { type: newView }
+    if (newView === 'move_from_usb') {
+      const usbPath = options?.path || modalStateRef.current.moveFromUsbPath
+      route = { type: 'move_from_usb', path: usbPath }
+      if (options?.path && modalStateRef.current.setMoveFromUsbPath) {
+        modalStateRef.current.setMoveFromUsbPath(options.path)
+      }
+    }
+
     if (prevView === 'dashboard') {
-      writeHistory({ type: newView }, false)
+      writeHistory(route, false)
     } else if (newView === 'sources' || newView === 'move_from_usb') {
-      writeHistory({ type: newView }, false)
+      writeHistory(route, false)
     } else if (prevView === 'sources' && newView === 'settings') {
       if (window.history && window.history.length > 1) {
         window.history.back()
@@ -371,13 +526,13 @@ export function useHistoryNavigation({
       writeHistory({ type: 'storage' }, true)
     } else {
       // Switching between top-level pages replaces state so stack remains [0: dashboard, 1: current page]
-      writeHistory({ type: newView }, true)
+      writeHistory(route, true)
     }
 
     setView(newView)
-    currentRouteRef.current = { type: newView }
+    currentRouteRef.current = route
     currentViewRef.current = newView
-  }, [setView])
+  }, [setView, handleClosePayload])
 
-  return { navigate }
+  return { navigate, handleSelectPayload, handleClosePayload }
 }

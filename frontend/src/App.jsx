@@ -41,15 +41,31 @@ import MoveFromUsbView from './components/views/MoveFromUsbView'
 import LogViewer from './components/views/LogViewer'
 import ManageSourcesView from './components/views/ManageSourcesView'
 import ActiveProcessesView from './components/views/ActiveProcessesView'
-import { useHistoryNavigation } from './hooks/useHistoryNavigation'
+import { useHistoryNavigation, getRouteFromHash } from './hooks/useHistoryNavigation'
 
 function App() {
   const { t } = useTranslation();
   const { filenameMap } = useRepository()
-  const [view, setView] = useState('dashboard')
+  const [view, setView] = useState(() => {
+    if (typeof window !== 'undefined' && window.location?.hash) {
+      const route = getRouteFromHash(window.location.hash)
+      if (route.type === 'payload') return 'storage'
+      if (route.type === 'move_from_usb' && !route.path) return 'storage'
+      return route.type || 'dashboard'
+    }
+    return 'dashboard'
+  })
   const [isFavoriteEditMode, setIsFavoriteEditMode] = useState(false)
   const [isManageMode, setIsManageMode] = useState(false)
-  const [selectedPayload, setSelectedPayload] = useState(null)
+  const [selectedPayload, setSelectedPayload] = useState(() => {
+    if (typeof window !== 'undefined' && window.location?.hash) {
+      const route = getRouteFromHash(window.location.hash)
+      if (route.type === 'payload' && route.filename) {
+        return { filename: route.filename, srcId: route.srcId }
+      }
+    }
+    return null
+  })
   const [autoloadDelayModal, setAutoloadDelayModal] = useState(false)
   const mainRef = useRef(null)
 
@@ -81,12 +97,20 @@ function App() {
   const [loadingPayloads, setLoadingPayloads] = useState(true)
   const [downloadModal, setDownloadModal] = useState({ show: false, name: '', progress: 0 })
   const [confirmModal, setConfirmModal] = useState({ show: false, title: '', message: '', onConfirm: null })
-  const [moveFromUsbPath, setMoveFromUsbPath] = useState(null)
+  const [moveFromUsbPath, setMoveFromUsbPath] = useState(() => {
+    if (typeof window !== 'undefined' && window.location?.hash) {
+      const route = getRouteFromHash(window.location.hash)
+      if (route.type === 'move_from_usb') {
+        return route.path || null
+      }
+    }
+    return null
+  })
   const [storageScrollTarget, setStorageScrollTarget] = useState(null)
   const [showLogs, setShowLogs] = useState(false)
   const [payloadMeta, setPayloadMeta] = useState({})
 
-  const { navigate } = useHistoryNavigation({
+  const { navigate, handleSelectPayload, handleClosePayload } = useHistoryNavigation({
     view,
     setView,
     confirmModal,
@@ -393,7 +417,7 @@ function App() {
 
   const handleImportFromUsb = (path) => {
     setMoveFromUsbPath(path)
-    navigate('move_from_usb')
+    navigate('move_from_usb', { path })
   }
 
   const handleSaveConfig = async (newConfig) => {
@@ -805,7 +829,8 @@ function App() {
               scrollTarget={storageScrollTarget}
               onClearScrollTarget={() => setStorageScrollTarget(null)}
               selectedPayload={selectedPayload}
-              onSelectPayload={setSelectedPayload}
+              onSelectPayload={handleSelectPayload}
+              onClosePayload={handleClosePayload}
             />
           )}
 

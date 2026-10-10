@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useMemo, useLayoutEffect, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useLayoutEffect, useRef, useCallback } from 'react'
 import { CloudDownload, Upload, Package, Database, RefreshCw, Trash2, Loader2, AlertTriangle, HardDrive, Usb, ChevronDown, Globe, Search, ArrowUpDown, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { QRCodeSVG } from 'qrcode.react'
-import { cn, isPS5, isIOS, parsePayloadName } from '../../utils/helpers'
+import { cn, isPS5, isIOS } from '../../utils/helpers'
 import PayloadName from '../ui/PayloadName'
 import { useRepository } from '../../contexts/RepositoryContext'
 import PayloadCard from '../ui/PayloadCard'
 import PayloadDetailPanel from '../ui/PayloadDetailPanel'
 
-const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onImportFromUsb, config, ip, scrollTarget, onClearScrollTarget, selectedPayload: selectedPayloadProp, onSelectPayload }) => {
+const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onImportFromUsb, config, ip, scrollTarget, onClearScrollTarget, selectedPayload: selectedPayloadProp, onSelectPayload, onClosePayload }) => {
   const { t, i18n } = useTranslation()
   const multiSources = config?.MULTI_SOURCES_ENABLED === true
 
@@ -30,19 +30,20 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
   const handlePayloadSelect = (payloadData) => {
     const mainEl = document.querySelector('main')
     if (mainEl) setSavedScroll(mainEl.scrollTop)
-    setSelectedPayload(payloadData)
+    if (onSelectPayload) {
+      onSelectPayload(payloadData)
+    } else {
+      setSelectedPayload(payloadData)
+    }
   }
 
-  useLayoutEffect(() => {
-    const mainEl = document.querySelector('main')
-    if (!mainEl) return
-    
-    if (selectedPayload) {
-      mainEl.scrollTop = 0
+  const handleCloseDetail = useCallback(() => {
+    if (onClosePayload) {
+      onClosePayload()
     } else {
-      mainEl.scrollTop = savedScroll
+      setSelectedPayload(null)
     }
-  }, [selectedPayload, savedScroll])
+  }, [onClosePayload, setSelectedPayload])
 
   const handleSortChange = (mode) => {
     setSortMode(mode)
@@ -118,18 +119,98 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
     return meta?.source_name || meta?.install_source_detail || null
   }
 
-  if (selectedPayload) {
+  const resolvedPayloadData = useMemo(() => {
+    if (!selectedPayload) return null
+
+    // If it already contains the full payload object
+    if (selectedPayload.payload && (selectedPayload.payload.name || selectedPayload.payload.filename)) {
+      const fn = selectedPayload.payload.filename
+      const isInstalled = fn ? localFilenames.includes(fn) : selectedPayload.isInstalled
+      const baseName = getBaseName(fn)
+      const installedVersion = localFilenames.find(f => getBaseName(f) === baseName)
+      const isUpdate = !isInstalled && !!installedVersion
+      return {
+        ...selectedPayload,
+        isInstalled,
+        isUpdate,
+      }
+    }
+
+    // If it's a filename reference (e.g. from URL deep link or reload)
+    const targetFilename = selectedPayload.filename || selectedPayload.payload?.filename || (typeof selectedPayload === 'string' ? selectedPayload : null)
+    if (!targetFilename) return null
+
+    // If a specific source ID was requested in the URL (?src=...), check that source first
+    if (selectedPayload.srcId) {
+      const targetSrc = enrichedSources.find(s => s.id === selectedPayload.srcId)
+      if (targetSrc) {
+        const match = targetSrc.payloads?.find(p => p.filename === targetFilename)
+        if (match) {
+          return {
+            payload: match,
+            srcId: targetSrc.id === 'legacy-repo' ? null : targetSrc.id,
+            srcUrl: targetSrc.url,
+            isInstalled: match.isInstalled,
+            isUpdate: match.isUpdate,
+          }
+        }
+      }
+    }
+
+    for (const src of enrichedSources) {
+      const match = src.payloads?.find(p => p.filename === targetFilename)
+      if (match) {
+        return {
+          payload: match,
+          srcId: selectedPayload.srcId || (src.id === 'legacy-repo' ? null : src.id),
+          srcUrl: src.url,
+          isInstalled: match.isInstalled,
+          isUpdate: match.isUpdate,
+        }
+      }
+    }
+
+    return null
+  }, [selectedPayload, enrichedSources, localFilenames])
+
+  useLayoutEffect(() => {
+    const mainEl = document.querySelector('main')
+    if (!mainEl) return
+    
+    if (resolvedPayloadData) {
+      mainEl.scrollTop = 0
+    } else {
+      mainEl.scrollTop = savedScroll
+    }
+  }, [resolvedPayloadData, savedScroll])
+
+  useEffect(() => {
+    if (selectedPayload && !resolvedPayloadData && !loading && repoData) {
+      handleCloseDetail()
+    }
+  }, [selectedPayload, resolvedPayloadData, loading, repoData, handleCloseDetail])
+
+  if (selectedPayload && !resolvedPayloadData && (loading || !repoData)) {
+    return (
+      <div className="py-24 flex flex-col items-center justify-center space-y-4">
+        <Loader2 className="w-10 h-10 text-ps-blue animate-spin" />
+        <p className="text-zinc-400 font-medium">{t("storage_hub.loading", "Loading repository...")}</p>
+      </div>
+    )
+  }
+
+  if (resolvedPayloadData) {
     return (
       <PayloadDetailPanel
-        payload={selectedPayload.payload}
-        srcId={selectedPayload.srcId}
-        srcUrl={selectedPayload.srcUrl}
-        isInstalled={selectedPayload.isInstalled}
-        isUpdate={selectedPayload.isUpdate}
-        onClose={() => setSelectedPayload(null)}
+        payload={resolvedPayloadData.payload}
+        srcId={resolvedPayloadData.srcId}
+        srcUrl={resolvedPayloadData.srcUrl}
+        isInstalled={resolvedPayloadData.isInstalled}
+        isUpdate={resolvedPayloadData.isUpdate}
+        onClose={handleCloseDetail}
         onInstall={(p, sid, surl) => {
           onInstall(p, sid, surl)
-          setSelectedPayload(null)
+          handleCloseDetail()
         }}
       />
     )
@@ -374,7 +455,7 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
                         categories.map(cat => (
                           <div key={cat} className="space-y-4 mb-8 last:mb-0">
                             <h4 className="text-white/80 font-bold uppercase tracking-widest text-sm px-2">{cat}</h4>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                               {groupedPayloads[cat].map(p => (
                                 <PayloadCard
                                   key={p.filename}
@@ -394,7 +475,7 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
                           </div>
                         ))
                       ) : (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                           {availablePayloads.map(p => (
                             <PayloadCard
                               key={p.filename}

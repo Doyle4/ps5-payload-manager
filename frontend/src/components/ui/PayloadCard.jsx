@@ -1,48 +1,89 @@
 import React from 'react';
 import { cn } from '../../utils/helpers';
 import { useTranslation } from 'react-i18next';
+import { CheckCircle2, ArrowUpCircle } from 'lucide-react';
 import PayloadName from './PayloadName';
 import PayloadIcon from './PayloadIcon';
 
 const PayloadCard = ({ payload, onClick, isUpdate, isInstalled }) => {
   const { t } = useTranslation();
   const isInstalledUpToDate = isInstalled && !isUpdate;
+  const hasBadges = Boolean(isUpdate || payload?.version);
+
   return (
     <button
+      type="button"
       onClick={onClick}
       className={cn(
-        "group flex flex-col p-4 md:p-6 bg-white/[0.02] hover:bg-white/[0.05] border border-white/5 hover:border-ps-blue/30 rounded-3xl transition-all text-left relative",
-        isInstalledUpToDate && "opacity-60"
+        "group flex items-start gap-4 sm:gap-5 p-4 sm:p-5 bg-white/[0.025] hover:bg-white/[0.06] border rounded-2xl md:rounded-3xl transition-all text-left relative overflow-hidden focus:outline-none focus:border-ps-blue focus:bg-white/[0.08]",
+        isInstalledUpToDate ? "border-white/5 hover:border-ps-blue/40" : "border-white/10 hover:border-ps-blue/50"
       )}
     >
-      <div className="flex justify-center mb-4 w-full">
-        <PayloadIcon icon={payload.icon} name={payload.filename} className="w-20 h-20 md:w-28 md:h-28" />
+      {/* Icon on the left */}
+      <div className="shrink-0 self-start">
+        <PayloadIcon
+          icon={payload.icon}
+          name={payload.filename}
+          className="w-16 h-16 sm:w-20 sm:h-20 text-2xl shadow-md"
+        />
       </div>
-      <div className="flex flex-col flex-1 min-w-0 w-full text-center">
-        <PayloadName path={payload.filename} hideVersion={true} centered={true} displayName={payload.name} className="text-lg md:text-xl text-white font-extrabold truncate w-full flex justify-center" />
-        <div className="flex items-center justify-center gap-2 mt-1 w-full">
-          {payload.version && <span className="text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0">{payload.version}</span>}
-          {payload.author && (
-            <div className="text-zinc-500 font-medium text-[11px] md:text-xs truncate">
-              {payload.author}
+
+      {/* Content Column */}
+      <div className="flex-1 min-w-0 flex flex-col justify-start">
+        {/* Dynamic Header Row: Title on the left, Badges (Update / Version) on the right */}
+        <div className="flex items-center justify-between gap-2 sm:gap-3 w-full">
+          <PayloadName
+            path={payload.filename}
+            hideVersion={true}
+            displayName={payload.name}
+            className="text-base sm:text-lg text-white font-extrabold min-w-0 flex-1"
+          />
+
+          {hasBadges && (
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {isUpdate && (
+                <span className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 rounded-full bg-ps-blue/25 text-ps-blue font-extrabold text-[10px] sm:text-[11px] uppercase tracking-wider border border-ps-blue/50 shadow-sm backdrop-blur-md">
+                  <ArrowUpCircle className="w-3.5 h-3.5 text-ps-blue shrink-0" />
+                  <span>{t("storage_hub.update_badge", "Update")}</span>
+                </span>
+              )}
+              {payload.version && (
+                <span
+                  className="text-[10px] sm:text-[11px] text-zinc-400 font-bold bg-white/10 px-2 py-0.5 rounded-md uppercase tracking-wider shrink-0 max-w-[80px] sm:max-w-[90px] truncate text-center backdrop-blur-md border border-white/5"
+                  title={payload.version}
+                >
+                  {payload.version}
+                </span>
+              )}
             </div>
           )}
         </div>
-      </div>
-      
-      {/* Badges */}
-      <div className="absolute top-4 right-4 flex flex-col gap-2">
-        {isUpdate && (
-          <span className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold text-[10px] uppercase tracking-widest border border-emerald-500/20">
-            {t("storage_hub.update_badge", "Update")}
-          </span>
+
+        {/* Description (max 3 lines) */}
+        <p className={cn(
+          "text-xs sm:text-sm text-zinc-400 line-clamp-3 leading-relaxed mt-1 break-words",
+          isInstalledUpToDate && "pr-7 sm:pr-8"
+        )}>
+          {payload.description || t("storage_hub.no_description", "No description available")}
+        </p>
+
+        {/* Author */}
+        {payload.author && (
+          <div className={cn("text-[11px] text-zinc-500 font-medium truncate mt-2", isInstalledUpToDate && "pr-7 sm:pr-8")}>
+            {payload.author}
+          </div>
         )}
-        {isInstalledUpToDate && (
-          <span className="px-2 py-1 rounded-lg bg-white/10 text-zinc-400 font-bold text-[10px] uppercase tracking-widest border border-white/10">
-            {t("storage_hub.installed_badge", "Installed")}
-          </span>
-        )}
       </div>
+
+      {/* Installed Checkmark in bottom-right */}
+      {isInstalledUpToDate && (
+        <div
+          className="absolute bottom-3.5 right-3.5 sm:bottom-4 sm:right-4 flex items-center pointer-events-none z-10"
+          title={t("storage_hub.installed_badge", "Installed")}
+        >
+          <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 bg-black/40 rounded-full" />
+        </div>
+      )}
     </button>
   );
 };
