@@ -42,6 +42,13 @@ int download_to_file(const char *url, const char *out_path) {
     curl = curl_easy_init();
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_URL, url);
+
+        /* Prevent repository connection timeouts from delaying startup and autoload. */
+        if (strcmp(url, REPOSITORY_SOURCE_URL) == 0) {
+            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
+            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+        }
+
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
 
