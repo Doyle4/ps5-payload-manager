@@ -5,12 +5,14 @@ import { useTranslation } from 'react-i18next'
 import PayloadName from '../ui/PayloadName'
 import Modal from '../ui/Modal'
 
-const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect }) => {
+const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect, delayModal: delayModalProp, setDelayModal: setDelayModalProp }) => {
   const { t } = useTranslation()
   const [subView, setSubView] = useState('list')
   const [enabled, setEnabled] = useState(false)
   const [autoloadList, setAutoloadList] = useState([])
-  const [showDelayModal, setShowDelayModal] = useState(false)
+  const [localDelayModal, setLocalDelayModal] = useState(false)
+  const showDelayModal = delayModalProp !== undefined ? delayModalProp : localDelayModal
+  const setShowDelayModal = setDelayModalProp || setLocalDelayModal
   const [customDelay, setCustomDelay] = useState('')
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)

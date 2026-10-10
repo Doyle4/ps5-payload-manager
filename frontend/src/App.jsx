@@ -41,6 +41,7 @@ import MoveFromUsbView from './components/views/MoveFromUsbView'
 import LogViewer from './components/views/LogViewer'
 import ManageSourcesView from './components/views/ManageSourcesView'
 import ActiveProcessesView from './components/views/ActiveProcessesView'
+import { useHistoryNavigation } from './hooks/useHistoryNavigation'
 
 function App() {
   const { t } = useTranslation();
@@ -48,6 +49,8 @@ function App() {
   const [view, setView] = useState('dashboard')
   const [isFavoriteEditMode, setIsFavoriteEditMode] = useState(false)
   const [isManageMode, setIsManageMode] = useState(false)
+  const [selectedPayload, setSelectedPayload] = useState(null)
+  const [autoloadDelayModal, setAutoloadDelayModal] = useState(false)
   const mainRef = useRef(null)
 
   useEffect(() => {
@@ -82,6 +85,27 @@ function App() {
   const [storageScrollTarget, setStorageScrollTarget] = useState(null)
   const [showLogs, setShowLogs] = useState(false)
   const [payloadMeta, setPayloadMeta] = useState({})
+
+  const { navigate } = useHistoryNavigation({
+    view,
+    setView,
+    confirmModal,
+    setConfirmModal,
+    downloadModal,
+    setDownloadModal,
+    showLogs,
+    setShowLogs,
+    isManageMode,
+    setIsManageMode,
+    isFavoriteEditMode,
+    setIsFavoriteEditMode,
+    selectedPayload,
+    setSelectedPayload,
+    moveFromUsbPath,
+    setMoveFromUsbPath,
+    delayModal: autoloadDelayModal,
+    setDelayModal: setAutoloadDelayModal,
+  })
   const [favoritePayloads, setFavoritePayloads] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('favoritePayloads') || '[]')
@@ -369,7 +393,7 @@ function App() {
 
   const handleImportFromUsb = (path) => {
     setMoveFromUsbPath(path)
-    setView('move_from_usb')
+    navigate('move_from_usb')
   }
 
   const handleSaveConfig = async (newConfig) => {
@@ -537,11 +561,11 @@ function App() {
           </div>
 
           <nav className="flex-1 space-y-2">
-            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'dashboard'} onClick={() => setView('dashboard')} icon={LayoutDashboard} label={t("app.nav.dashboard", "Dashboard")} />
-            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'storage'} onClick={() => setView('storage')} icon={Database} label={t("app.nav.storage", "Get Payloads")} />
-            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'autoload'} onClick={() => setView('autoload')} icon={RefreshCw} label={t("app.nav.autoload", "Autoload")} />
-            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'processes'} onClick={() => setView('processes')} icon={Cpu} label={t("app.nav.processes", "Active Processes")} />
-            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'settings'} onClick={() => setView('settings')} icon={Settings} label={t("app.nav.settings", "Settings")} />
+            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'dashboard'} onClick={() => navigate('dashboard')} icon={LayoutDashboard} label={t("app.nav.dashboard", "Dashboard")} />
+            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'storage'} onClick={() => navigate('storage')} icon={Database} label={t("app.nav.storage", "Get Payloads")} />
+            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'autoload'} onClick={() => navigate('autoload')} icon={RefreshCw} label={t("app.nav.autoload", "Autoload")} />
+            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'processes'} onClick={() => navigate('processes')} icon={Cpu} label={t("app.nav.processes", "Active Processes")} />
+            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'settings'} onClick={() => navigate('settings')} icon={Settings} label={t("app.nav.settings", "Settings")} />
           </nav>
 
           <div className="pt-6 border-t border-white/5">
@@ -549,7 +573,7 @@ function App() {
               sidebar
               sidebarExpanded={sidebarExpanded}
               active={view === 'donate'}
-              onClick={() => setView('donate')}
+              onClick={() => navigate('donate')}
               icon={Heart}
               label={t("app.nav.donate", "Donate")}
               className={view === 'donate' ? "bg-red-600" : "text-red-500 hover:bg-red-600/10"}
@@ -564,15 +588,15 @@ function App() {
         "fixed bottom-0 inset-x-0 z-[100] bg-black/80 border-t border-white/5 h-[calc(5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex items-center overflow-x-auto hide-scrollbar",
         isPS5 ? "hidden" : "md:hidden"
       )}>
-        <NavButton active={view === 'dashboard'} onClick={() => setView('dashboard')} icon={LayoutDashboard} label={t("app.nav.dashboard", "Dashboard")} mobileLabel={t("app.nav.home_mobile", "Home")} />
-        <NavButton showSeparator active={view === 'storage'} onClick={() => setView('storage')} icon={Database} label={t("app.nav.storage", "Get Payloads")} mobileLabel={t("app.nav.manage_mobile", "Get")} />
-        <NavButton showSeparator active={view === 'autoload'} onClick={() => setView('autoload')} icon={RefreshCw} label={t("app.nav.autoload", "Autoload")} mobileLabel={t("app.nav.auto_mobile", "Auto")} />
-        <NavButton showSeparator active={view === 'processes'} onClick={() => setView('processes')} icon={Cpu} label={t("app.nav.processes", "Active Processes")} mobileLabel={t("app.nav.processes_mobile", "Processes")} />
-        <NavButton showSeparator active={view === 'settings'} onClick={() => setView('settings')} icon={Settings} label={t("app.nav.settings", "Settings")} mobileLabel={t("app.nav.settings", "Settings")} />
+        <NavButton active={view === 'dashboard'} onClick={() => navigate('dashboard')} icon={LayoutDashboard} label={t("app.nav.dashboard", "Dashboard")} mobileLabel={t("app.nav.home_mobile", "Home")} />
+        <NavButton showSeparator active={view === 'storage'} onClick={() => navigate('storage')} icon={Database} label={t("app.nav.storage", "Get Payloads")} mobileLabel={t("app.nav.manage_mobile", "Get")} />
+        <NavButton showSeparator active={view === 'autoload'} onClick={() => navigate('autoload')} icon={RefreshCw} label={t("app.nav.autoload", "Autoload")} mobileLabel={t("app.nav.auto_mobile", "Auto")} />
+        <NavButton showSeparator active={view === 'processes'} onClick={() => navigate('processes')} icon={Cpu} label={t("app.nav.processes", "Active Processes")} mobileLabel={t("app.nav.processes_mobile", "Processes")} />
+        <NavButton showSeparator active={view === 'settings'} onClick={() => navigate('settings')} icon={Settings} label={t("app.nav.settings", "Settings")} mobileLabel={t("app.nav.settings", "Settings")} />
         <NavButton
           showSeparator
           active={view === 'donate'}
-          onClick={() => setView('donate')}
+          onClick={() => navigate('donate')}
           icon={Heart}
           label={t("app.nav.donate", "Donate")}
           mobileLabel={t("app.nav.donate", "Donate")}
@@ -735,7 +759,7 @@ function App() {
                         <p className="text-white font-extrabold tracking-tight text-2xl">{t("app.dashboard.empty.title", "Empty Library")}</p>
                         <p className="text-zinc-500 font-medium">{t("app.dashboard.empty.message", "Add payloads from the Cloud Hub to get started.")}</p>
                       </div>
-                      <button onClick={() => { setStorageScrollTarget('cloud-repository'); setView('storage'); }} className="px-8 py-3 bg-ps-blue text-white rounded-xl font-bold tracking-tight">{t("app.dashboard.empty.button", "Open Repository")}</button>
+                      <button onClick={() => { setStorageScrollTarget('cloud-repository'); navigate('storage'); }} className="px-8 py-3 bg-ps-blue text-white rounded-xl font-bold tracking-tight">{t("app.dashboard.empty.button", "Open Repository")}</button>
                     </div>
                   </div>
                 ) : (
@@ -780,16 +804,18 @@ function App() {
               ip={ip}
               scrollTarget={storageScrollTarget}
               onClearScrollTarget={() => setStorageScrollTarget(null)}
+              selectedPayload={selectedPayload}
+              onSelectPayload={setSelectedPayload}
             />
           )}
 
           {view === 'move_from_usb' && moveFromUsbPath && (
             <MoveFromUsbView
               path={moveFromUsbPath}
-              onBack={() => setView('storage')}
+              onBack={() => navigate('storage')}
               onComplete={() => {
                 refreshPayloads()
-                setView('storage')
+                navigate('storage')
                 setMoveFromUsbPath(null)
               }}
               addToast={addToast}
@@ -804,8 +830,10 @@ function App() {
               onToast={addToast}
               onRedirect={(v, target) => {
                 if (target) setStorageScrollTarget(target)
-                setView(v)
+                navigate(v)
               }}
+              delayModal={autoloadDelayModal}
+              setDelayModal={setAutoloadDelayModal}
             />
           )}
 
@@ -818,13 +846,13 @@ function App() {
               setLogs={setLogs}
               showLogs={showLogs}
               setShowLogs={setShowLogs}
-              onNavigate={(v) => setView(v)}
+              onNavigate={(v) => navigate(v)}
             />
           )}
 
           {view === 'sources' && (
             <ManageSourcesView
-              onBack={() => setView('settings')}
+              onBack={() => navigate('settings')}
               ip={ip}
               addToast={addToast}
               showConfirm={showConfirm}

@@ -8,7 +8,7 @@ import { useRepository } from '../../contexts/RepositoryContext'
 import PayloadCard from '../ui/PayloadCard'
 import PayloadDetailPanel from '../ui/PayloadDetailPanel'
 
-const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onImportFromUsb, config, ip, scrollTarget, onClearScrollTarget }) => {
+const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onImportFromUsb, config, ip, scrollTarget, onClearScrollTarget, selectedPayload: selectedPayloadProp, onSelectPayload }) => {
   const { t, i18n } = useTranslation()
   const multiSources = config?.MULTI_SOURCES_ENABLED === true
 
@@ -22,7 +22,9 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
     return localStorage.getItem('repoSortMode') || 'name'
   })
   
-  const [selectedPayload, setSelectedPayload] = useState(null)
+  const [localSelectedPayload, setLocalSelectedPayload] = useState(null)
+  const selectedPayload = selectedPayloadProp !== undefined ? selectedPayloadProp : localSelectedPayload
+  const setSelectedPayload = onSelectPayload || setLocalSelectedPayload
   const [savedScroll, setSavedScroll] = useState(0)
 
   const handlePayloadSelect = (payloadData) => {
