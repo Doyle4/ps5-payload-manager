@@ -8,10 +8,23 @@ import { cn } from '../../utils/helpers'
 const PayloadButton = ({ path, onClick, onDelete, isLoading, sourceName, version, icon, author, displayName, isFavorite, isLaunched, isEditMode, isManageMode, onMoveFavorite, canMoveLeft, canMoveRight }) => {
   const { t } = useTranslation()
   const isUsb = path.startsWith('/mnt/usb')
+
+  const handleClick = (e) => {
+    if (isManageMode) {
+      if (!isUsb) {
+        if (onDelete) onDelete()
+        else if (onClick) onClick(e)
+      }
+    } else if (onClick) {
+      onClick(e)
+    }
+  }
+
   return (
     <button
-      onClick={onClick}
+      onClick={handleClick}
       disabled={isLoading || (isManageMode && isUsb)}
+      title={isManageMode && !isUsb ? t("app.dashboard.removePayload", "Remove Payload") : undefined}
       className={cn(
         "group glass-card pl-4 pr-3 py-4 rounded-ps-xl flex flex-col border transition-all text-left relative",
         isManageMode ? "border-red-500/20 hover:border-red-500 hover:bg-red-500/10" : "border-white/5 hover:border-ps-blue hover:bg-ps-blue/5",
@@ -46,13 +59,7 @@ const PayloadButton = ({ path, onClick, onDelete, isLoading, sourceName, version
           )}
           {isManageMode && !isUsb && (
             <div
-              role="button"
-              tabIndex={-1}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onDelete) onDelete();
-              }}
-              className="p-1.5 rounded-lg text-red-500 transition-all opacity-50 group-hover:opacity-100 hover:bg-red-500/10 hover:opacity-100 cursor-pointer"
+              className="p-1.5 rounded-lg text-red-500 transition-all opacity-50 group-hover:opacity-100"
             >
               <Trash2 className="w-5 h-5" />
             </div>

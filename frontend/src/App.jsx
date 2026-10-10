@@ -653,7 +653,10 @@ function App() {
                 key={p}
                 path={p}
                 onClick={() => {
-                  if (isManageMode) return
+                  if (isManageMode) {
+                    if (!p.startsWith('/mnt/usb')) handleDelete(p.split('/').pop())
+                    return
+                  }
                   if (isFavoriteEditMode) toggleFavorite(p)
                   else loadPayload(p)
                 }}
