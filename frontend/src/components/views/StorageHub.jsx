@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useLayoutEffect } from 'react'
-import { CloudDownload, Upload, Package, Database, RefreshCw, Trash2, Loader2, AlertTriangle, HardDrive, Usb, ChevronDown, Globe, Search } from 'lucide-react'
+import React, { useState, useEffect, useMemo, useLayoutEffect, useRef } from 'react'
+import { CloudDownload, Upload, Package, Database, RefreshCw, Trash2, Loader2, AlertTriangle, HardDrive, Usb, ChevronDown, Globe, Search, ArrowUpDown, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { QRCodeSVG } from 'qrcode.react'
 import { cn, isPS5, isIOS, parsePayloadName } from '../../utils/helpers'
@@ -16,6 +16,8 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
 
   const [expandedSource, setExpandedSource] = useState(null) // id of expanded catalog
   const [search, setSearch] = useState('')
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const searchInputRef = useRef(null)
   const [sortMode, setSortMode] = useState(() => {
     return localStorage.getItem('repoSortMode') || 'name'
   })
@@ -133,66 +135,119 @@ const StorageHub = ({ payloads, payloadMeta, onInstall, onDelete, onUpload, onIm
 
   return (
     <div className="space-y-12 animate-in fade-in duration-300">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
-        <h2 className="text-4xl font-extrabold text-white tracking-tight">
-          {t("storage_hub.title_1", "Payload")} <span className="text-ps-blue">{t("storage_hub.title_2", "Management")}</span>
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight shrink-0">
+          {t("storage_hub.title_1", "Get")} <span className="text-ps-blue">{t("storage_hub.title_2", "Payloads")}</span>
         </h2>
 
-        {!isPS5 && (
-          <label className="inline-flex items-center space-x-4 px-10 py-5 bg-ps-blue hover:bg-ps-blue/80 text-white rounded-[1.25rem] font-bold tracking-tight text-xl cursor-pointer transition-all shrink-0 transform active:scale-95">
-            <Upload className="w-7 h-7" />
-            <span>{t("storage_hub.upload_btn", "Upload ELF Payload")}</span>
-            <input type="file" className="hidden" onChange={onUpload} accept={isIOS ? undefined : ".elf,.bin"} />
-          </label>
-        )}
+        <div className="flex items-center space-x-2 sm:space-x-3">
+          {isSearchOpen ? (
+            <div className="flex items-center bg-black/40 border border-white/10 rounded-full px-3 py-1.5 sm:px-4 sm:py-2 focus-within:border-ps-blue/50 transition-all w-40 sm:w-64 md:w-80">
+              <Search className="w-4 h-4 sm:w-5 sm:h-5 text-ps-blue mr-2 shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder={t("storage_hub.search_placeholder", "Search payloads by name or description...")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="bg-transparent border-none outline-none text-white w-full text-xs sm:text-sm font-medium placeholder:text-zinc-600 min-w-0"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIsSearchOpen(false)
+                    setSearch('')
+                  }
+                }}
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="p-1 hover:text-white text-zinc-500 shrink-0"
+                  title={t("app.buttons.clear", "Clear")}
+                >
+                  <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSearchOpen(false)
+                  setSearch('')
+                }}
+                className="p-1 hover:text-white text-zinc-500 ml-1 shrink-0"
+                title={t("app.buttons.close", "Close")}
+              >
+                <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsSearchOpen(true)}
+              className={cn(
+                "p-3 rounded-full transition-colors flex items-center justify-center",
+                search ? "bg-ps-blue/20 text-ps-blue" : "bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
+              )}
+              title={t("storage_hub.search_placeholder", "Search payloads by name or description...")}
+            >
+              <Search className="w-6 h-6" />
+            </button>
+          )}
+
+          <div className="relative">
+            <button
+              type="button"
+              className={cn(
+                "p-3 rounded-full transition-colors flex items-center justify-center",
+                sortMode !== 'name' ? "bg-ps-blue/20 text-ps-blue" : "bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
+              )}
+              title={`${t("storage_hub.sort_by", "Sort by:")} ${
+                sortMode === 'category'
+                  ? t("storage_hub.sort_category", "Category")
+                  : sortMode === 'update_time'
+                  ? t("storage_hub.sort_time", "Update Time")
+                  : t("storage_hub.sort_name", "Name")
+              }`}
+            >
+              <ArrowUpDown className="w-6 h-6" />
+            </button>
+            <select 
+              value={sortMode}
+              onChange={e => handleSortChange(e.target.value)}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              title={t("storage_hub.sort_by", "Sort by:")}
+            >
+              <option value="name" className="bg-[#121214] text-white">{t("storage_hub.sort_name", "Name")}</option>
+              <option value="category" className="bg-[#121214] text-white">{t("storage_hub.sort_category", "Category")}</option>
+              <option value="update_time" className="bg-[#121214] text-white">{t("storage_hub.sort_time", "Update Time")}</option>
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => fetchRemote(true)}
+            disabled={loading}
+            className="p-3 rounded-full transition-colors flex items-center justify-center bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 disabled:opacity-50"
+            title={t("storage_hub.refresh", "Refresh Repository")}
+          >
+            <RefreshCw className={cn("w-6 h-6", loading && "animate-spin text-ps-blue")} />
+          </button>
+
+          {!isPS5 && (
+            <label
+              className="p-3 rounded-full transition-colors flex items-center justify-center bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer"
+              title={t("storage_hub.upload_btn", "Upload ELF Payload")}
+            >
+              <Upload className="w-6 h-6" />
+              <input type="file" className="hidden" onChange={onUpload} accept={isIOS ? undefined : ".elf,.bin"} />
+            </label>
+          )}
+        </div>
       </div>
 
       {/* Cloud Repository Section */}
       <section id="cloud-repository" className="space-y-6">
-        <div className="flex items-center justify-between px-2">
-          <h3 className="label-caps !text-white flex items-center space-x-4 text-lg" >
-            <CloudDownload className="w-6 h-6 text-ps-blue" />
-            <span>{t("storage_hub.cloud_repo_title", "Cloud Repository")}</span>
-          </h3>
-          <button onClick={() => fetchRemote(true)} className="p-2 hover:bg-white/5 rounded-lg transition-colors text-zinc-500 hover:text-ps-blue">
-            <RefreshCw className={cn("w-5 h-5", loading && "animate-spin")} />
-          </button>
-        </div>
-
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 flex items-center bg-black/40 border border-white/10 rounded-2xl px-4 py-3 focus-within:border-ps-blue/50 transition-colors">
-            <Search className="w-5 h-5 text-zinc-500 mr-3" />
-            <input
-              type="text"
-              placeholder={t("storage_hub.search_placeholder", "Search payloads by name or description...")}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="bg-transparent border-none outline-none text-white w-full font-medium placeholder:text-zinc-600"
-            />
-          </div>
-          <div className="relative flex-shrink-0 flex items-center bg-black/40 border border-white/10 rounded-2xl pl-4 pr-10 py-3 focus-within:border-ps-blue/50 transition-colors cursor-pointer">
-            <span className="text-zinc-500 text-xs md:text-sm font-bold uppercase tracking-wider mr-2 whitespace-nowrap">
-              {t("storage_hub.sort_by", "Sort by:")}
-            </span>
-            <span className="text-white font-bold text-xs md:text-sm">
-              {sortMode === 'category' && t("storage_hub.sort_category", "Category")}
-              {sortMode === 'update_time' && t("storage_hub.sort_time", "Update Time")}
-              {sortMode === 'name' && t("storage_hub.sort_name", "Name")}
-            </span>
-            <select 
-               value={sortMode}
-               onChange={e => handleSortChange(e.target.value)}
-               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-             >
-               <option value="category" className="bg-[#121214]">{t("storage_hub.sort_category", "Category")}</option>
-               <option value="update_time" className="bg-[#121214]">{t("storage_hub.sort_time", "Update Time")}</option>
-               <option value="name" className="bg-[#121214]">{t("storage_hub.sort_name", "Name")}</option>
-            </select>
-            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-zinc-500">
-              <ChevronDown className="w-5 h-5" />
-            </div>
-          </div>
-        </div>
 
         {loading && !repoData ? (
           <div className="py-24 glass-panel rounded-ps-3xl border-white/5 flex flex-col items-center justify-center space-y-6">

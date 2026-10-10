@@ -538,7 +538,7 @@ function App() {
 
           <nav className="flex-1 space-y-2">
             <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'dashboard'} onClick={() => setView('dashboard')} icon={LayoutDashboard} label={t("app.nav.dashboard", "Dashboard")} />
-            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'storage'} onClick={() => setView('storage')} icon={Database} label={t("app.nav.storage", "Manage Payloads")} />
+            <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'storage'} onClick={() => setView('storage')} icon={Database} label={t("app.nav.storage", "Get Payloads")} />
             <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'autoload'} onClick={() => setView('autoload')} icon={RefreshCw} label={t("app.nav.autoload", "Autoload")} />
             <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'processes'} onClick={() => setView('processes')} icon={Cpu} label={t("app.nav.processes", "Active Processes")} />
             <NavButton sidebar sidebarExpanded={sidebarExpanded} active={view === 'settings'} onClick={() => setView('settings')} icon={Settings} label={t("app.nav.settings", "Settings")} />
@@ -565,7 +565,7 @@ function App() {
         isPS5 ? "hidden" : "md:hidden"
       )}>
         <NavButton active={view === 'dashboard'} onClick={() => setView('dashboard')} icon={LayoutDashboard} label={t("app.nav.dashboard", "Dashboard")} mobileLabel={t("app.nav.home_mobile", "Home")} />
-        <NavButton showSeparator active={view === 'storage'} onClick={() => setView('storage')} icon={Database} label={t("app.nav.storage", "Manage Payloads")} mobileLabel={t("app.nav.manage_mobile", "Manage")} />
+        <NavButton showSeparator active={view === 'storage'} onClick={() => setView('storage')} icon={Database} label={t("app.nav.storage", "Get Payloads")} mobileLabel={t("app.nav.manage_mobile", "Get")} />
         <NavButton showSeparator active={view === 'autoload'} onClick={() => setView('autoload')} icon={RefreshCw} label={t("app.nav.autoload", "Autoload")} mobileLabel={t("app.nav.auto_mobile", "Auto")} />
         <NavButton showSeparator active={view === 'processes'} onClick={() => setView('processes')} icon={Cpu} label={t("app.nav.processes", "Active Processes")} mobileLabel={t("app.nav.processes_mobile", "Processes")} />
         <NavButton showSeparator active={view === 'settings'} onClick={() => setView('settings')} icon={Settings} label={t("app.nav.settings", "Settings")} mobileLabel={t("app.nav.settings", "Settings")} />
