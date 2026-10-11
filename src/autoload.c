@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -18,6 +19,7 @@ long long get_current_time_ms() {
 #include "pldmgr.h"
 #include "autoload.h"
 #include "payload_mgr.h"
+#include "slot.h"
 #include "ps5_launcher.h"
 
 static volatile int abort_flag = 0;
@@ -171,18 +173,23 @@ void* pldmgr_autoload_worker(void* arg) {
     char line[256];
     while (fgets(line, sizeof(line), f)) {
         line[strcspn(line, "\r\n")] = 0;
-        if (strlen(line) == 0) continue;
+        char *start = line;
+        while (*start && isspace((unsigned char)*start)) start++;
+        char *end = start + strlen(start);
+        while (end > start && isspace((unsigned char)*(end - 1))) end--;
+        *end = '\0';
+        if (strlen(start) == 0) continue;
 
-        if (line[0] == '!') {
-            int delay = atoi(line + 1);
+        if (start[0] == '!') {
+            int delay = atoi(start + 1);
             if (delay > 0) {
                 pldmgr_log("[Autoload] Delaying for %d ms...\n", delay);
                 usleep(delay * 1000);
             }
         } else {
             char full_path[512];
-            if (payload_mgr_resolve_path(line, full_path, sizeof(full_path)) == 0) {
-                strncpy(autoload_current_name, line, sizeof(autoload_current_name) - 1);
+            if (slot_resolve(start, full_path, sizeof(full_path)) == 0) {
+                strncpy(autoload_current_name, start, sizeof(autoload_current_name) - 1);
                 pldmgr_log("[Autoload] Launching: %s\n", full_path);
                 ps5_launch_elf(full_path);
                 autoload_done_count++;
@@ -248,8 +255,13 @@ void pldmgr_autoload_update_config_entry(const char *old_filename, const char *n
         char clean_line[256];
         strcpy(clean_line, lines[line_count]);
         clean_line[strcspn(clean_line, "\r\n")] = 0;
+        char *start = clean_line;
+        while (*start && isspace((unsigned char)*start)) start++;
+        char *end = start + strlen(start);
+        while (end > start && isspace((unsigned char)*(end - 1))) end--;
+        *end = '\0';
         
-        if (strcmp(clean_line, old_filename) == 0) {
+        if (strcmp(start, old_filename) == 0) {
             modified = 1;
             if (new_filename) {
                 snprintf(lines[line_count], sizeof(lines[0]), "%s\n", new_filename);

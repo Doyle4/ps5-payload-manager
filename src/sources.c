@@ -5,14 +5,17 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 #include "sources.h"
 #include "repository.h"
+#include "slot.h"
 #include "sha256.h"
 #include "json_helpers.h"
 #include "config.h"
 #include "pldmgr.h"
 #include "payload_mgr.h"
+#include "autoload.h"
 
 /* ── Source entry type ─────────────────────────────────────── */
 
@@ -45,7 +48,6 @@ static int load_sources(SourceEntry *out, int *out_count) {
         return 0;
     }
 
-    /* Find "sources": [...] array */
     const char *arr_start = strstr(json, "\"sources\"");
     if (!arr_start) { free(json); *out_count = count; return 0; }
 
@@ -65,7 +67,6 @@ static int load_sources(SourceEntry *out, int *out_count) {
         json_extract_string(p, end, "url",  url,  sizeof(url));
         json_extract_string(p, end, "removable", removable_str, sizeof(removable_str));
 
-        /* Skip the default entry stored in file — we already added it */
         if (strcmp(id, "default") == 0) { p = end + 1; continue; }
 
         if (name[0] && url[0] && id[0]) {
@@ -146,7 +147,7 @@ int sources_save(const char *json, size_t len) {
         return -1;
     }
 
-    /* Always put default at slot 0 */
+    /* Default at slot 0 */
     strncpy(sources[0].id,   "default",             sizeof(sources[0].id) - 1);
     strncpy(sources[0].name, "Official Repository", sizeof(sources[0].name) - 1);
     strncpy(sources[0].url,  REPOSITORY_SOURCE_URL, sizeof(sources[0].url) - 1);
@@ -214,9 +215,7 @@ int sources_add(const char *url, char *msg_buf, size_t msg_size) {
     }
     remove(tmp_path);
 
-    /* Read top-level "name" field.
-     * Only search BEFORE the "payloads" key to avoid picking up individual
-     * payload items' own "name" fields. */
+    /* Read top-level name before payloads key */
     {
         const char *payloads_key = strstr(json, "\"payloads\"");
         if (payloads_key) {
@@ -243,7 +242,6 @@ int sources_add(const char *url, char *msg_buf, size_t msg_size) {
                 }
             }
         }
-        /* If still empty, fall back to the hostname portion of the URL */
         if (!source_name[0]) {
             const char *host = strstr(url, "://");
             host = host ? host + 3 : url;
@@ -264,7 +262,6 @@ int sources_add(const char *url, char *msg_buf, size_t msg_size) {
     free(items);
     free(json);
 
-    /* Load current sources and append */
     SourceEntry *sources = calloc(MAX_SOURCES, sizeof(SourceEntry));
     if (!sources) {
         snprintf(msg_buf, msg_size, "Memory allocation failed");
@@ -279,7 +276,6 @@ int sources_add(const char *url, char *msg_buf, size_t msg_size) {
         return -1;
     }
 
-    /* Check for duplicate URL */
     for (int i = 0; i < src_count; i++) {
         if (strcmp(sources[i].url, url) == 0) {
             free(sources);
@@ -288,7 +284,6 @@ int sources_add(const char *url, char *msg_buf, size_t msg_size) {
         }
     }
 
-    /* Assign a unique ID */
     char new_id[64];
     snprintf(new_id, sizeof(new_id), "source_%d", (int)time(NULL));
 
@@ -305,7 +300,6 @@ int sources_add(const char *url, char *msg_buf, size_t msg_size) {
     }
 
     free(sources);
-    /* Return the source name in msg_buf for the caller to forward to the UI */
     snprintf(msg_buf, msg_size, "%s", source_name);
     return 0;
 }
@@ -330,7 +324,6 @@ int sources_remove(int index, char *msg_buf, size_t msg_size) {
         return -1;
     }
 
-    /* Shift entries down */
     for (int i = index; i < count - 1; i++) {
         sources[i] = sources[i + 1];
     }
@@ -347,31 +340,27 @@ int sources_remove(int index, char *msg_buf, size_t msg_size) {
     return 0;
 }
 
-/* ── Multi-source repository ───────────────────────────────── */
+/* ── Hash-based cache paths ────────────────────────────────── */
 
-static void get_source_cache_path(int index, char *out, size_t out_size) {
-    if (index == 0) {
-        strncpy(out, REPOSITORY_CACHE_PATH, out_size - 1);
-        out[out_size - 1] = '\0';
-    } else {
-        snprintf(out, out_size, "%s.src%d.json", REPOSITORY_CACHE_PATH, index);
-    }
+static void get_cache_paths(const char *url, char *cache_path, size_t csize,
+                            char *ts_path, size_t tsize) {
+    char h8[16];
+    slot_source_hash(url, h8, sizeof(h8));
+    snprintf(cache_path, csize, "%s/repo_cache_%s.json", BASE_DATA_DIR, h8);
+    snprintf(ts_path, tsize, "%s/repo_cache_%s.json.ts", BASE_DATA_DIR, h8);
 }
 
-static int ensure_source_fresh(const char *url, const char *cache_path, int force_refresh) {
+int sources_ensure_fresh(const char *url, int force_refresh) {
+    if (!url || !url[0]) return -1;
+
+    char cache_path[512], ts_path[512];
+    get_cache_paths(url, cache_path, sizeof(cache_path), ts_path, sizeof(ts_path));
+
     long last_update = 0;
     time_t now = time(NULL);
-    char tmp_path[512];
-    char *json = NULL;
-    size_t json_size = 0;
-    RepoPayload *items = NULL;
-    size_t count = 0;
 
     ensure_dir_recursive(BASE_DATA_DIR);
 
-    /* Read last update time from the cache file's companion .ts file */
-    char ts_path[512];
-    snprintf(ts_path, sizeof(ts_path), "%s.ts", cache_path);
     FILE *tf = fopen(ts_path, "r");
     if (tf) {
         fscanf(tf, "%ld", &last_update);
@@ -385,18 +374,22 @@ static int ensure_source_fresh(const char *url, const char *cache_path, int forc
         }
     }
 
+    char tmp_path[512];
     snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", cache_path);
     if (download_to_file(url, tmp_path) != 0) {
         return -1;
     }
 
-    if (read_file_text(tmp_path, &json, &json_size) != 0 || json_size == 0) {
+    char *json = NULL;
+    size_t json_size = 0;
+    if (read_file_text(tmp_path, &json, &json_size) != 0 || !json || json_size == 0) {
         if (json) free(json);
         remove(tmp_path);
         return -1;
     }
 
-    /* Validate: must have at least 1 payload */
+    RepoPayload *items = NULL;
+    size_t count = 0;
     if (parse_repository_payloads(json, &items, &count) != 0 || count == 0) {
         free(items);
         free(json);
@@ -411,11 +404,14 @@ static int ensure_source_fresh(const char *url, const char *cache_path, int forc
         return -1;
     }
 
-    /* Write timestamp */
     tf = fopen(ts_path, "w");
     if (tf) {
         fprintf(tf, "%ld", (long)now);
         fclose(tf);
+    }
+
+    if (strcmp(url, REPOSITORY_SOURCE_URL) == 0) {
+        config_write_last_update((long)now);
     }
 
     return 0;
@@ -424,11 +420,18 @@ static int ensure_source_fresh(const char *url, const char *cache_path, int forc
 size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refresh) {
     SourceEntry *sources = calloc(MAX_SOURCES, sizeof(SourceEntry));
     if (!sources) {
-        buf[0] = '\0';
+        if (buf && size > 0) buf[0] = '\0';
         return 0;
     }
     int src_count = 0;
     load_sources(sources, &src_count);
+
+    /* Single-source mode: if multi_sources is off, only use source 0 */
+    PldmgrConfig cfg;
+    config_read(&cfg);
+    if (!cfg.multi_sources_enabled && src_count > 1) {
+        src_count = 1;
+    }
 
     JsonListBuilder jb = { buf, size, 0, 1 };
     buf[0] = '\0';
@@ -436,20 +439,17 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
     json_append(&jb, "{\"sources\":[\n");
 
     for (int si = 0; si < src_count; si++) {
-        char cache_path[512];
-        get_source_cache_path(si, cache_path, sizeof(cache_path));
+        int fetch_ok = (sources_ensure_fresh(sources[si].url, force_refresh) == 0);
 
-        int fetch_ok = (ensure_source_fresh(sources[si].url, cache_path, force_refresh) == 0);
+        char cache_path[512], ts_path[512];
+        get_cache_paths(sources[si].url, cache_path, sizeof(cache_path), ts_path, sizeof(ts_path));
 
         char id_e[128], name_e[512], url_e[2048];
         pldmgr_json_escape(sources[si].id,   id_e,   sizeof(id_e));
         pldmgr_json_escape(sources[si].name, name_e, sizeof(name_e));
         pldmgr_json_escape(sources[si].url,  url_e,  sizeof(url_e));
 
-        /* Read last_update timestamp */
         long last_update = 0;
-        char ts_path[512];
-        snprintf(ts_path, sizeof(ts_path), "%s.ts", cache_path);
         FILE *tf = fopen(ts_path, "r");
         if (tf) { fscanf(tf, "%ld", &last_update); fclose(tf); }
 
@@ -477,16 +477,18 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
             }
 
             for (size_t pi = 0; pi < count; pi++) {
-                char name_pe[256], filename_e[512], desc_e[2048];
+                char id_pe[128], name_pe[256], filename_e[512], desc_e[2048];
                 char ver_e[128], url_e[2048], src_id_e[128], src_name_e[512];
-                char last_upd_e[128], cat_e[256];
+                char last_upd_e[128], cat_e[256], csum_e[128];
                 char auth_e[256], det_url_e[2048], rn_e[4096];
 
+                pldmgr_json_escape(items[pi].id,          id_pe,      sizeof(id_pe));
                 pldmgr_json_escape(items[pi].name,        name_pe,    sizeof(name_pe));
                 pldmgr_json_escape(items[pi].filename,    filename_e, sizeof(filename_e));
                 pldmgr_json_escape(items[pi].description, desc_e,     sizeof(desc_e));
                 pldmgr_json_escape(items[pi].version,     ver_e,      sizeof(ver_e));
                 pldmgr_json_escape(items[pi].url,         url_e,      sizeof(url_e));
+                pldmgr_json_escape(items[pi].checksum,    csum_e,     sizeof(csum_e));
                 pldmgr_json_escape(items[pi].last_update, last_upd_e, sizeof(last_upd_e));
                 pldmgr_json_escape(items[pi].category,    cat_e,      sizeof(cat_e));
                 pldmgr_json_escape(sources[si].id,        src_id_e,   sizeof(src_id_e));
@@ -496,11 +498,11 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 pldmgr_json_escape(items[pi].release_notes,rn_e,      sizeof(rn_e));
                 pldmgr_json_escape(items[pi].icon,        icon_e,     16384);
 
-                if (json_append(&jb, "    {\"name\":\"%s\",\"filename\":\"%s\",\"description\":\"%s\","
-                    "\"version\":\"%s\",\"last_update\":\"%s\",\"url\":\"%s\","
+                if (json_append(&jb, "    {\"id\":\"%s\",\"name\":\"%s\",\"filename\":\"%s\",\"description\":\"%s\","
+                    "\"version\":\"%s\",\"checksum\":\"%s\",\"last_update\":\"%s\",\"url\":\"%s\","
                     "\"source_id\":\"%s\",\"source_name\":\"%s\",\"category\":\"%s\","
                     "\"author\":\"%s\",\"details_url\":\"%s\",\"release_notes\":\"%s\",\"icon\":\"%s\"}%s\n",
-                    name_pe, filename_e, desc_e, ver_e, last_upd_e, url_e,
+                    id_pe, name_pe, filename_e, desc_e, ver_e, csum_e, last_upd_e, url_e,
                     src_id_e, src_name_e, cat_e, auth_e, det_url_e, rn_e, icon_e,
                     (pi < count - 1) ? "," : "") != 0) {
                     break;
@@ -521,155 +523,308 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
     return jb.pos;
 }
 
-int sources_multi_repository_install(const char *filename, const char *source_id,
-                                     const char *repo_url, char *msg, size_t msg_size) {
+int sources_repo_install(const char *source_url, const char *id,
+                         const char *mode, const char *replace_slot,
+                         char *out_json, size_t out_size) {
+    char safe_id[128];
+    slot_slug(id, safe_id, sizeof(safe_id));
+    if (safe_id[0] == '\0') {
+        snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Missing payload id\"}");
+        return -1;
+    }
+
     SourceEntry *sources = calloc(MAX_SOURCES, sizeof(SourceEntry));
     if (!sources) {
-        snprintf(msg, msg_size, "Memory allocation failed");
+        snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Memory error\"}");
         return -1;
     }
     int src_count = 0;
     load_sources(sources, &src_count);
 
-    /* Find the matching source */
-    int si = -1;
-    for (int i = 0; i < src_count; i++) {
-        if (strcmp(sources[i].id, source_id) == 0) { si = i; break; }
-    }
-
-    if (si < 0) {
-        /* Fall back to matching by URL */
+    /* Match source */
+    SourceEntry src;
+    memset(&src, 0, sizeof(src));
+    if (source_url && source_url[0]) {
+        int found = 0;
+        char h_req[16];
+        slot_source_hash(source_url, h_req, sizeof(h_req));
         for (int i = 0; i < src_count; i++) {
-            if (repo_url && strcmp(sources[i].url, repo_url) == 0) { si = i; break; }
+            if (strcmp(sources[i].url, source_url) == 0 || strcmp(sources[i].id, source_url) == 0) {
+                src = sources[i];
+                found = 1;
+                break;
+            }
+            char h_src[16];
+            slot_source_hash(sources[i].url, h_src, sizeof(h_src));
+            if (strcmp(h_req, h_src) == 0) {
+                src = sources[i];
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            strncpy(src.id, "custom", sizeof(src.id) - 1);
+            strncpy(src.name, "Custom Repository", sizeof(src.name) - 1);
+            strncpy(src.url, source_url, sizeof(src.url) - 1);
+        }
+    } else {
+        src = sources[0];
+    }
+    free(sources);
+
+    char h8[16];
+    slot_source_hash(src.url, h8, sizeof(h8));
+
+    char target_slot[128];
+    slot_repo_key(safe_id, src.url, target_slot, sizeof(target_slot));
+
+    /* Conflict check if mode not specified */
+    int is_mode_replace = (mode && strcmp(mode, "replace") == 0);
+    int is_mode_keep_both = (mode && strcmp(mode, "keep_both") == 0);
+
+    if (!is_mode_replace && !is_mode_keep_both) {
+        SlotMeta *existing_slots = NULL;
+        size_t existing_count = 0;
+        if (slot_list_all(&existing_slots, &existing_count) == 0 && existing_slots) {
+            for (size_t i = 0; i < existing_count; i++) {
+                if (strcmp(existing_slots[i].kind, SLOT_KIND_REPO) == 0 &&
+                    strcmp(existing_slots[i].id, safe_id) == 0 &&
+                    strcmp(existing_slots[i].slot_key, target_slot) != 0) {
+                    /* Conflict found with another source! */
+                    char c_slot[128], c_name[256], c_ver[64];
+                    pldmgr_json_escape(existing_slots[i].slot_key, c_slot, sizeof(c_slot));
+                    pldmgr_json_escape(existing_slots[i].source_name, c_name, sizeof(c_name));
+                    pldmgr_json_escape(existing_slots[i].version, c_ver, sizeof(c_ver));
+
+                    snprintf(out_json, out_size,
+                             "{\"ok\":false,\"conflict\":{\"slot\":\"%s\",\"source_name\":\"%s\",\"version\":\"%s\"}}",
+                             c_slot, c_name, c_ver);
+                    slot_free_all(existing_slots);
+                    return 0; /* Handled conflict, return 200 JSON with conflict object */
+                }
+            }
+            slot_free_all(existing_slots);
         }
     }
 
-    if (si < 0) {
-        /* Last resort: use default */
-        si = 0;
-    }
+    /* Load cached repository */
+    char cache_path[512], ts_path[512];
+    get_cache_paths(src.url, cache_path, sizeof(cache_path), ts_path, sizeof(ts_path));
 
-    char cache_path[512];
-    get_source_cache_path(si, cache_path, sizeof(cache_path));
-
-    /* Ensure cache is fresh */
-    if (access(cache_path, F_OK) != 0) {
-        if (ensure_source_fresh(sources[si].url, cache_path, 1) != 0) {
-            free(sources);
-            snprintf(msg, msg_size, "Failed to fetch source repository");
-            return -1;
-        }
-    }
-
-    /* Load cached payloads for this source */
-    char *cached = NULL;
-    size_t cached_size = 0;
     RepoPayload *items = NULL;
     size_t count = 0;
+    int refreshed = 0;
 
-    if (read_file_text(cache_path, &cached, &cached_size) != 0 || !cached) {
-        free(sources);
-        snprintf(msg, msg_size, "Repository cache unavailable");
-        return -1;
+    char *cached = NULL;
+    size_t csize = 0;
+    if (read_file_text(cache_path, &cached, &csize) == 0 && cached) {
+        parse_repository_payloads(cached, &items, &count);
+        free(cached);
     }
 
-    parse_repository_payloads(cached, &items, &count);
-    free(cached);
-
-    /* Find the requested payload */
-    int found = -1;
+    int found_idx = -1;
     for (size_t i = 0; i < count; i++) {
-        if (strcmp(items[i].filename, filename) == 0) { found = (int)i; break; }
-    }
-
-    if (found < 0) {
-        if (items) free(items);
-        free(sources);
-        snprintf(msg, msg_size, "Payload not found in source");
-        return -1;
-    }
-
-    /* Download */
-    ensure_dir_recursive(PAYLOADS_STORAGE_DIR);
-    char tmp_path[512];
-    snprintf(tmp_path, sizeof(tmp_path), "%s/%s.part", PAYLOADS_STORAGE_DIR, items[found].filename);
-
-    if (download_to_file(items[found].url, tmp_path) != 0) {
-        if (items) free(items);
-        free(sources);
-        remove(tmp_path);
-        snprintf(msg, msg_size, "Download failed");
-        return -1;
-    }
-
-    /* Commit */
-    const char *detail = (repo_url && repo_url[0]) ? repo_url : sources[si].url;
-
-    char folder_name[128];
-    char payload_dir[512];
-    char final_path[640];
-    char details_path[700];
-
-    pldmgr_utils_get_payload_folder_name(items[found].filename, folder_name, sizeof(folder_name));
-    snprintf(payload_dir, sizeof(payload_dir), "%s/%s", PAYLOADS_STORAGE_DIR, folder_name);
-
-    if (ensure_dir_recursive(payload_dir) != 0) {
-        if (items) free(items);
-        free(sources);
-        remove(tmp_path);
-        snprintf(msg, msg_size, "Failed to create payload directory");
-        return -1;
-    }
-
-    snprintf(final_path,   sizeof(final_path),   "%s/%s",      payload_dir, items[found].filename);
-    snprintf(details_path, sizeof(details_path), "%s/%s.json", payload_dir, items[found].filename);
-
-    /* Checksum verification (optional — skip if checksum absent) */
-    if (strlen(items[found].checksum) == 64) {
-        char calculated[65];
-        if (compute_sha256_file(tmp_path, calculated) != 0) {
-            if (items) free(items);
-            free(sources);
-            remove(tmp_path);
-            snprintf(msg, msg_size, "Checksum computation failed");
-            return -1;
-        }
-        if (strcasecmp(calculated, items[found].checksum) != 0) {
-            pldmgr_log("[PLDMGR] !!! Checksum mismatch for %s\n", items[found].filename);
-            if (items) free(items);
-            free(sources);
-            remove(tmp_path);
-            snprintf(msg, msg_size, "Checksum mismatch");
-            return -1;
+        if (strcmp(items[i].id, safe_id) == 0) {
+            found_idx = (int)i;
+            break;
         }
     }
 
-    payload_mgr_remove_old_files(payload_dir, items[found].filename);
-
-    if (rename(tmp_path, final_path) != 0) {
+    if (found_idx < 0) {
+        /* Missing from cache, force refresh */
         if (items) free(items);
-        free(sources);
-        remove(tmp_path);
-        snprintf(msg, msg_size, "Failed to finalize payload file");
+        items = NULL;
+        count = 0;
+        sources_ensure_fresh(src.url, 1);
+        refreshed = 1;
+
+        if (read_file_text(cache_path, &cached, &csize) == 0 && cached) {
+            parse_repository_payloads(cached, &items, &count);
+            free(cached);
+            for (size_t i = 0; i < count; i++) {
+                if (strcmp(items[i].id, safe_id) == 0) {
+                    found_idx = (int)i;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (found_idx < 0) {
+        if (items) free(items);
+        snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Payload no longer in repository\"}");
         return -1;
     }
 
-    /* Attach source_id and source_name to the item so metadata captures them */
-    strncpy(items[found].source,        sources[si].id,   sizeof(items[found].source) - 1);
-    strncpy(items[found].source_direct, sources[si].name, sizeof(items[found].source_direct) - 1);
-    strncpy(items[found].source_name,   sources[si].name, sizeof(items[found].source_name) - 1);
+    RepoPayload entry = items[found_idx];
+    free(items);
 
-    if (write_payload_details_json(&items[found], details_path, "repository", detail) != 0) {
-        if (items) free(items);
-        free(sources);
-        snprintf(msg, msg_size, "Failed to write payload metadata");
+    /* Validate filename */
+    if (entry.filename[0] == '\0' || strstr(entry.filename, "/") || strstr(entry.filename, "..")) {
+        snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Invalid payload filename in repository\"}");
+        return -1;
+    }
+    const char *ext = strrchr(entry.filename, '.');
+    if (!ext || (strcasecmp(ext, ".elf") != 0 && strcasecmp(ext, ".bin") != 0)) {
+        snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Unsupported file extension in repository\"}");
         return -1;
     }
 
-    pldmgr_log("[PLDMGR] Multi-source install complete: %s (source: %s)\n",
-               items[found].filename, sources[si].name);
-    snprintf(msg, msg_size, "Installed %s", items[found].filename);
-    if (items) free(items);
-    free(sources);
+    /* Prepare slot directory */
+    char slot_dir[640];
+    snprintf(slot_dir, sizeof(slot_dir), "%s/%s", PAYLOADS_STORAGE_DIR, target_slot);
+    if (ensure_dir_recursive(slot_dir) != 0) {
+        snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Failed to create slot directory\"}");
+        return -1;
+    }
+
+    char part_path[768];
+    snprintf(part_path, sizeof(part_path), "%s/.part", slot_dir);
+
+    /* Download attempt */
+    int dl_ok = (download_to_file(entry.url, part_path) == 0);
+    if (!dl_ok && !refreshed) {
+        /* Retry after refresh */
+        sources_ensure_fresh(src.url, 1);
+        refreshed = 1;
+        int ref_found = 0;
+        if (read_file_text(cache_path, &cached, &csize) == 0 && cached) {
+            if (parse_repository_payloads(cached, &items, &count) == 0) {
+                for (size_t i = 0; i < count; i++) {
+                    if (strcmp(items[i].id, safe_id) == 0) {
+                        entry = items[i];
+                        ref_found = 1;
+                        break;
+                    }
+                }
+                free(items);
+            }
+            free(cached);
+        }
+        if (!ref_found) {
+            remove(part_path);
+            snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Payload no longer in repository\"}");
+            return -1;
+        }
+        dl_ok = (download_to_file(entry.url, part_path) == 0);
+    }
+
+    if (!dl_ok) {
+        remove(part_path);
+        snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Download failed\"}");
+        return -1;
+    }
+
+    /* Checksum verification */
+    if (strlen(entry.checksum) == 64) {
+        char calc[65];
+        if (compute_sha256_file(part_path, calc) != 0 || strcasecmp(calc, entry.checksum) != 0) {
+            pldmgr_log("[PLDMGR] Checksum mismatch for %s. Expected: %s, Got: %s\n",
+                       entry.filename, entry.checksum, calc);
+            if (!refreshed) {
+                /* Retry after refresh */
+                sources_ensure_fresh(src.url, 1);
+                refreshed = 1;
+                int ref_found = 0;
+                if (read_file_text(cache_path, &cached, &csize) == 0 && cached) {
+                    if (parse_repository_payloads(cached, &items, &count) == 0) {
+                        for (size_t i = 0; i < count; i++) {
+                            if (strcmp(items[i].id, safe_id) == 0) {
+                                entry = items[i];
+                                ref_found = 1;
+                                break;
+                            }
+                        }
+                        free(items);
+                    }
+                    free(cached);
+                }
+                if (ref_found && download_to_file(entry.url, part_path) == 0) {
+                    if (compute_sha256_file(part_path, calc) == 0 &&
+                        strcasecmp(calc, entry.checksum) == 0) {
+                        goto checksum_passed;
+                    }
+                }
+            }
+            remove(part_path);
+            snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Checksum verification failed\"}");
+            return -1;
+        }
+    }
+
+checksum_passed:
+
+    /* Handle mode=replace for conflicting slot */
+    if (is_mode_replace && replace_slot && replace_slot[0] && strcmp(replace_slot, target_slot) != 0) {
+        pldmgr_autoload_update_config_entry(replace_slot, target_slot);
+        slot_delete(replace_slot);
+    }
+
+    /* Remove any old payload in target slot */
+    DIR *sd = opendir(slot_dir);
+    if (sd) {
+        struct dirent *se;
+        while ((se = readdir(sd)) != NULL) {
+            if (se->d_name[0] == '.') continue;
+            if (strcmp(se->d_name, "meta.json") == 0) continue;
+            char old_file[768];
+            snprintf(old_file, sizeof(old_file), "%s/%s", slot_dir, se->d_name);
+            remove(old_file);
+        }
+        closedir(sd);
+    }
+
+    /* Commit .part -> entry.filename */
+    char final_file[768];
+    snprintf(final_file, sizeof(final_file), "%s/%s", slot_dir, entry.filename);
+    if (rename(part_path, final_file) != 0) {
+        remove(part_path);
+        snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Failed to commit payload file\"}");
+        return -1;
+    }
+
+    /* Write meta.json */
+    SlotMeta meta;
+    memset(&meta, 0, sizeof(meta));
+    meta.schema = PAYLOAD_SLOT_SCHEMA;
+    strcpy(meta.kind, SLOT_KIND_REPO);
+    strncpy(meta.slot_key, target_slot, sizeof(meta.slot_key) - 1);
+    strncpy(meta.slot_dir, slot_dir, sizeof(meta.slot_dir) - 1);
+    strncpy(meta.payload_path, final_file, sizeof(meta.payload_path) - 1);
+    strncpy(meta.filename, entry.filename, sizeof(meta.filename) - 1);
+
+    time_t now = time(NULL);
+    struct tm tmv;
+    localtime_r(&now, &tmv);
+    strftime(meta.installed_at, sizeof(meta.installed_at), "%Y-%m-%dT%H:%M:%S%z", &tmv);
+
+    strncpy(meta.id, safe_id, sizeof(meta.id) - 1);
+    strncpy(meta.source_url, src.url, sizeof(meta.source_url) - 1);
+    strncpy(meta.source_name, src.name, sizeof(meta.source_name) - 1);
+    strncpy(meta.name, entry.name, sizeof(meta.name) - 1);
+    strncpy(meta.version, entry.version, sizeof(meta.version) - 1);
+    strncpy(meta.checksum, entry.checksum, sizeof(meta.checksum) - 1);
+    strncpy(meta.last_update, entry.last_update, sizeof(meta.last_update) - 1);
+    strncpy(meta.url, entry.url, sizeof(meta.url) - 1);
+    strncpy(meta.source, entry.source, sizeof(meta.source) - 1);
+    strncpy(meta.source_direct, entry.source_direct, sizeof(meta.source_direct) - 1);
+    strncpy(meta.category, entry.category, sizeof(meta.category) - 1);
+    strncpy(meta.description, entry.description, sizeof(meta.description) - 1);
+    strncpy(meta.author, entry.author, sizeof(meta.author) - 1);
+    strncpy(meta.details_url, entry.details_url, sizeof(meta.details_url) - 1);
+
+    slot_write_meta(slot_dir, &meta);
+
+    char sk_e[256], id_e[256], ver_e[128], fn_e[512];
+    pldmgr_json_escape(target_slot, sk_e, sizeof(sk_e));
+    pldmgr_json_escape(safe_id, id_e, sizeof(id_e));
+    pldmgr_json_escape(entry.version, ver_e, sizeof(ver_e));
+    pldmgr_json_escape(entry.filename, fn_e, sizeof(fn_e));
+
+    snprintf(out_json, out_size,
+             "{\"ok\":true,\"slot\":\"%s\",\"id\":\"%s\",\"version\":\"%s\",\"filename\":\"%s\",\"refreshed\":%s}",
+             sk_e, id_e, ver_e, fn_e, refreshed ? "true" : "false");
+
+    pldmgr_log("[PLDMGR] Repo install success: slot=%s id=%s ver=%s\n", target_slot, id, entry.version);
     return 0;
 }

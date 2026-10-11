@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react'
 import { Zap, Usb } from 'lucide-react'
-import { cn, parsePayloadName } from '../../utils/helpers'
+import { cn, parsePayloadName, cleanDisplayName } from '../../utils/helpers'
 import { useTranslation } from 'react-i18next'
 
 const PayloadName = ({ path, version: repoVersion, className, versionClassName, stacked = false, hideIcon = false, lastUpdate = null, hideVersion = false, centered = false, displayName: metaDisplayName = null }) => {
@@ -9,6 +9,12 @@ const PayloadName = ({ path, version: repoVersion, className, versionClassName, 
   const isUsb = path?.startsWith('/mnt/usb');
 
   if (metaDisplayName) displayName = metaDisplayName;
+
+  const activeVersion = repoVersion || version;
+  if (displayName && activeVersion) {
+    displayName = cleanDisplayName(displayName, activeVersion);
+  }
+
   if (repoVersion) version = repoVersion;
   if (hideVersion) version = null;
   if (isDelay) {

@@ -5,6 +5,7 @@
 
 /* Payload entry from a repository JSON */
 typedef struct RepoPayload {
+    char id[128];
     char name[128];
     char filename[256];
     char url[1024];
@@ -29,54 +30,26 @@ int download_to_file(const char *url, const char *out_path);
  * Caller must free *out_items. Returns 0 on success, -1 on failure. */
 int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t *out_count);
 
-/* Write a .json sidecar file with payload metadata.
- * Returns 0 on success. */
-int write_payload_details_json(const RepoPayload *item, const char *details_path,
-                               const char *install_source, const char *install_source_detail);
-
-/* Write a minimal sidecar file when full RepoPayload info isn't available. */
-int write_simple_payload_details_json(const char *filename, const char *details_path,
-                                      const char *install_source, const char *install_source_detail);
-
 /* ── Repository cache management ────────────────────────── */
-
-/* Accept a full JSON blob pushed by the browser and replace the cache. */
-int repository_push_json(const char *json, size_t len);
 
 /* Ensure the repository cache is up-to-date. If force_refresh, always re-download. */
 int repository_ensure_fresh(int force_refresh);
 
-/* Build the /repository_payloads JSON response.
- * Returns bytes written. */
+/* Build the /repository_payloads JSON response. Returns bytes written. */
 size_t repository_list_json(char *json_buf, size_t buf_size, int force_refresh);
-
-/* Download and install a payload from the default repository.
- * msg_buf receives a human-readable status message. */
-int repository_install_download(const char *filename, const char *install_source_detail,
-                                char *msg_buf, size_t msg_buf_size);
-
-/* Verify a previously-uploaded file against the repository and commit it.
- * msg_buf receives a human-readable status message. */
-int repository_install_commit(const char *filename, const char *uploaded_temp_path,
-                              const char *install_source, const char *install_source_detail,
-                              char *msg_buf, size_t msg_buf_size);
 
 /* ── Self-update ────────────────────────────────────────── */
 
-/* Read the PLDMGR_VER: signature from an ELF binary.
- * Returns 0 on success. */
+/* Read the PLDMGR_VER: signature from an ELF binary. Returns 0 on success. */
 int get_elf_pldmgr_version(const char *path, char *out_version, size_t out_size);
 
 /* Scan the payload storage for a newer pldmgr.elf.
- * If found, writes the path to out_path and returns 0.
- * out_version (optional) receives the detected ELF version. */
+ * If found, writes the path to out_path and returns 0. */
 int repository_check_self_update(char *out_path, size_t out_size,
                                  char *out_version, size_t out_version_size);
 
 /* Check if a newer version of the payload manager is available in the repo cache.
- * Returns 0 if an update is available, -1 otherwise.
- * out_filename / out_version / out_source (optional) receive the matching
- * repository entry's details. */
+ * Returns 0 if an update is available, -1 otherwise. */
 int repository_check_repo_update(char *out_filename, size_t out_size,
                                  char *out_version, size_t out_version_size,
                                  char *out_source, size_t out_source_size);

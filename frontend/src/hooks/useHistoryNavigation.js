@@ -341,7 +341,7 @@ export function useHistoryNavigation({
       handleClosePayload()
       return
     }
-    const filename = payloadData.payload?.filename || payloadData.filename
+    const filename = payloadData.payload?.id || payloadData.id || payloadData.payload?.filename || payloadData.filename
     const srcId = payloadData.srcId || null
     const route = { type: 'payload', filename, srcId }
     setSelectedPayload(payloadData)

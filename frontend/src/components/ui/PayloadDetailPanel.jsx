@@ -9,10 +9,9 @@ import {
   ExternalLink,
   FileText,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
-import { cn } from '../../utils/helpers';
+import { parseMarkdown } from '../../utils/markdown';
 import { useTranslation } from 'react-i18next';
 import PayloadIcon from './PayloadIcon';
 
@@ -65,7 +64,7 @@ const getReadmeUrls = (payload, srcUrl) => {
   return urls;
 };
 
-const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate, srcUrl, srcId }) => {
+const PayloadDetailPanel = ({ payload, onClose, onInstall, statusInfo, isInstalled, isUpdate, srcUrl, srcId }) => {
   const { t } = useTranslation();
   const [detailsHtml, setDetailsHtml] = useState(null);
   const [detailsError, setDetailsError] = useState(false);
@@ -105,10 +104,7 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate
       if (cancelled) return;
 
       if (foundText) {
-        // Strip images to avoid broken links and maintain clean typography
-        const cleanHtml = DOMPurify.sanitize(marked.parse(foundText), {
-          FORBID_TAGS: ['img', 'picture', 'video', 'audio', 'source'],
-        });
+        const cleanHtml = parseMarkdown(foundText);
         setDetailsHtml(cleanHtml);
       } else {
         setDetailsError(true);
@@ -208,38 +204,65 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate
               {payload.description}
             </p>
           )}
+          {statusInfo?.alsoInstalledFrom && (
+            <p className="text-xs sm:text-sm text-amber-400/90 font-medium pt-1">
+              {t("storage_hub.also_installed_hint", "Also installed from {{source}}", { source: statusInfo.alsoInstalledFrom })}
+            </p>
+          )}
         </div>
 
         {/* Action Button: Compact, nicely proportioned */}
         <div className="shrink-0 w-full sm:w-auto md:self-start pt-1">
-          <button
-            type="button"
-            onClick={() => onInstall(payload, srcId, srcUrl)}
-            className={cn(
-              "w-full sm:w-auto inline-flex items-center justify-center space-x-2.5 px-7 py-3.5 rounded-2xl font-extrabold text-base transition-all active:scale-95 shadow-lg",
-              isUpdate
-                ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40"
-                : isInstalled
-                ? "bg-white/10 text-zinc-400 border border-white/10 cursor-not-allowed shadow-none"
-                : "bg-ps-blue hover:bg-ps-blue/80 text-white shadow-ps-blue/20"
-            )}
-            disabled={isInstalled && !isUpdate}
-          >
-            {isUpdate ? (
-              <ArrowUpCircle className="w-5 h-5 shrink-0" />
-            ) : isInstalled ? (
-              <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
-            ) : (
-              <CloudDownload className="w-5 h-5 shrink-0" />
-            )}
-            <span>
-              {isUpdate
-                ? t("payload_detail.update", "Update")
-                : isInstalled
-                ? t("payload_detail.installed", "Installed")
-                : t("payload_detail.install", "Install")}
-            </span>
-          </button>
+          {(() => {
+            const buttonAction = statusInfo ? statusInfo.buttonAction : (isUpdate ? 'update' : (isInstalled ? 'reinstall' : 'install'));
+
+            if (buttonAction === 'update') {
+              return (
+                <button
+                  type="button"
+                  onClick={() => onInstall(payload, srcId, srcUrl, statusInfo)}
+                  className="w-full sm:w-auto inline-flex items-center justify-center space-x-2.5 px-7 py-3.5 rounded-2xl font-extrabold text-base transition-all active:scale-95 shadow-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40"
+                >
+                  <ArrowUpCircle className="w-5 h-5 shrink-0" />
+                  <span>{t("payload_detail.update", "Update")}</span>
+                </button>
+              );
+            }
+
+            if (buttonAction === 'reinstall') {
+              return (
+                <button
+                  type="button"
+                  onClick={() => onInstall(payload, srcId, srcUrl, statusInfo)}
+                  className="w-full sm:w-auto inline-flex items-center justify-center space-x-2.5 px-7 py-3.5 rounded-2xl font-extrabold text-base transition-all active:scale-95 shadow-lg bg-white/10 hover:bg-white/20 text-white border border-white/20"
+                >
+                  <RefreshCw className="w-5 h-5 shrink-0" />
+                  <span>{t("payload_detail.reinstall", "Reinstall")}</span>
+                </button>
+              );
+            }
+
+            if (buttonAction === 'install') {
+              return (
+                <button
+                  type="button"
+                  onClick={() => onInstall(payload, srcId, srcUrl, statusInfo)}
+                  className="w-full sm:w-auto inline-flex items-center justify-center space-x-2.5 px-7 py-3.5 rounded-2xl font-extrabold text-base transition-all active:scale-95 shadow-lg bg-ps-blue hover:bg-ps-blue/80 text-white shadow-ps-blue/20"
+                >
+                  <CloudDownload className="w-5 h-5 shrink-0" />
+                  <span>{t("payload_detail.install", "Install")}</span>
+                </button>
+              );
+            }
+
+            // Older version in repo -> show Installed state, no action button
+            return (
+              <div className="w-full sm:w-auto inline-flex items-center justify-center space-x-2.5 px-7 py-3.5 rounded-2xl font-extrabold text-base bg-white/5 text-zinc-400 border border-white/10">
+                <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
+                <span>{t("payload_detail.installed", "Installed")}</span>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -250,8 +273,11 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate
             <Sparkles className="w-5 h-5 text-ps-blue" />
             <span>{t("payload_detail.whats_new", "What's New")}</span>
           </h3>
-          <div className="text-zinc-300 leading-relaxed text-sm whitespace-pre-wrap bg-white/[0.03] p-5 rounded-2xl border border-white/5">
-            {payload.release_notes}
+          <div className="glass-panel p-5 sm:p-6 rounded-2xl border border-white/5 bg-black/20">
+            <div
+              className="markdown-body text-sm"
+              dangerouslySetInnerHTML={{ __html: parseMarkdown(payload.release_notes) }}
+            />
           </div>
         </div>
       )}
@@ -287,7 +313,7 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, isInstalled, isUpdate
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-white/5 bg-black/20">
             <div
               ref={detailsRef}
-              className="prose prose-invert max-w-none prose-a:text-ps-blue hover:prose-a:underline prose-headings:text-white prose-p:text-zinc-300 prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 prose-code:text-ps-blue"
+              className="markdown-body"
               dangerouslySetInnerHTML={{ __html: detailsHtml }}
             />
           </div>

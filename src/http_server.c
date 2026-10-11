@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <ctype.h>
 #include <sys/stat.h>
 #include <microhttpd.h>
 
@@ -23,6 +24,7 @@
 #include "history_mgr.h"
 #include "process_mgr.h"
 #include "ps5_launcher.h"
+#include "slot.h"
 
 #include "assets_index_html.h"
 #include "assets_cache_appcache.h"
@@ -99,6 +101,26 @@ static int is_allowed_payload_path(const char *path) {
     return 0;
 }
 
+static void url_decode_in_place(char *str) {
+    char *src = str, *dst = str;
+    while (*src) {
+        if (*src == '%' && src[1] && src[2] && isxdigit((unsigned char)src[1]) && isxdigit((unsigned char)src[2])) {
+            int h1 = tolower((unsigned char)src[1]);
+            int h2 = tolower((unsigned char)src[2]);
+            int v1 = isdigit(h1) ? (h1 - '0') : (h1 - 'a' + 10);
+            int v2 = isdigit(h2) ? (h2 - '0') : (h2 - 'a' + 10);
+            *dst++ = (char)((v1 << 4) | v2);
+            src += 3;
+        } else if (*src == '+') {
+            *dst++ = ' ';
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+}
+
 /* ── POST request state ────────────────────────────────────── */
 
 struct PostStatus {
@@ -113,6 +135,7 @@ struct UploadStatus {
     int error;
     char filename[256];
     char temp_path[512];
+    char mode[32];
     char repo_url[512];
 };
 
@@ -170,6 +193,12 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             status->fp = NULL;
             status->total_size = 0;
             status->error = 0;
+            status->mode[0] = '\0';
+
+            const char *mode =
+                MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "mode");
+            strncpy(status->mode, mode ? mode : "new", sizeof(status->mode) - 1);
+            status->mode[sizeof(status->mode) - 1] = '\0';
 
             const char *filename =
                 MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "filename");
@@ -189,7 +218,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
                     pldmgr_log("[PLDMGR] !!! FAILED to open temp file: %s\n", path);
                     status->error = 1;
                 } else {
-                    pldmgr_log("[PLDMGR] Starting upload to temp: %s\n", path);
+                    pldmgr_log("[PLDMGR] Starting upload to temp: %s (mode: %s)\n", path, status->mode);
                 }
             } else {
                 pldmgr_log("[PLDMGR] !!! Upload failed: Missing filename parameter\n");
@@ -208,63 +237,11 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             return MHD_YES;
         }
 
-        if (strcmp(url, ROUTE_REPO_PUSH) == 0 && strcmp(method, "POST") == 0) {
-            struct PostStatus *status = malloc(sizeof(struct PostStatus));
-            status->data = NULL;
-            status->size = 0;
-            status->error = 0;
-            *con_cls = status;
-            return MHD_YES;
-        }
-
         if (strcmp(url, ROUTE_SOURCES_SET) == 0 && strcmp(method, "POST") == 0) {
             struct PostStatus *status = malloc(sizeof(struct PostStatus));
             status->data = NULL;
             status->size = 0;
             status->error = 0;
-            *con_cls = status;
-            return MHD_YES;
-        }
-
-        if (strncmp(url, ROUTE_REPO_INSTALL_PUSH,
-                    strlen(ROUTE_REPO_INSTALL_PUSH)) == 0 &&
-            strcmp(method, "POST") == 0) {
-            struct UploadStatus *status = malloc(sizeof(struct UploadStatus));
-            status->fp = NULL;
-            status->total_size = 0;
-            status->error = 0;
-            const char *filename =
-                MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "filename");
-            if (filename && !strstr(filename, "/") && !strstr(filename, "..")) {
-                char path[512];
-                mkdir(BASE_DATA_DIR, 0777);
-                mkdir(PAYLOADS_STORAGE_DIR, 0777);
-                snprintf(path, sizeof(path), "%s/%s.part", PAYLOADS_STORAGE_DIR, filename);
-                strncpy(status->filename, filename, sizeof(status->filename) - 1);
-                status->filename[sizeof(status->filename) - 1] = '\0';
-                strncpy(status->temp_path, path, sizeof(status->temp_path) - 1);
-                status->temp_path[sizeof(status->temp_path) - 1] = '\0';
-
-                const char *repo_url = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "repo_url");
-                if (repo_url) {
-                    strncpy(status->repo_url, repo_url, sizeof(status->repo_url) - 1);
-                    status->repo_url[sizeof(status->repo_url) - 1] = '\0';
-                } else {
-                    strncpy(status->repo_url, REPOSITORY_SOURCE_URL, sizeof(status->repo_url) - 1);
-                    status->repo_url[sizeof(status->repo_url) - 1] = '\0';
-                }
-
-                status->fp = fopen(path, "wb");
-                if (!status->fp) {
-                    pldmgr_log("[PLDMGR] !!! Failed to open for install: %s\n", path);
-                    status->error = 1;
-                } else {
-                    pldmgr_log("[PLDMGR] Installing payload: %s\n", path);
-                }
-            } else {
-                pldmgr_log("[PLDMGR] !!! install_push: invalid filename\n");
-                status->error = 1;
-            }
             *con_cls = status;
             return MHD_YES;
         }
@@ -311,50 +288,6 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         }
     }
 
-    /* ── Handle POST data for /repository_push ─────────────── */
-    if (strcmp(url, ROUTE_REPO_PUSH) == 0 && strcmp(method, "POST") == 0) {
-        struct PostStatus *status = (struct PostStatus *)*con_cls;
-        if (*upload_data_size != 0) {
-            char *nd = realloc(status->data, status->size + *upload_data_size + 1);
-            if (!nd) {
-                status->error = 1;
-            } else {
-                status->data = nd;
-                memcpy(status->data + status->size, upload_data, *upload_data_size);
-                status->size += *upload_data_size;
-                status->data[status->size] = '\0';
-            }
-            *upload_data_size = 0;
-            return MHD_YES;
-        } else {
-            int ok = -1;
-            if (status->data && !status->error)
-                ok = repository_push_json(status->data, status->size);
-            if (status->data)
-                free(status->data);
-            free(status);
-            *con_cls = NULL;
-
-            /* Return the current list JSON so the frontend refreshes in one trip */
-            char *resp_buf;
-            struct MHD_Response *oom_resp = alloc_response_buffer(&resp_buf);
-            if (oom_resp) {
-                enum MHD_Result ret2 = MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
-                MHD_destroy_response(oom_resp);
-                return ret2;
-            }
-
-            size_t len = repository_list_json(resp_buf, RESPONSE_BUFFER_SIZE, 0);
-            struct MHD_Response *resp = MHD_create_response_from_buffer(
-                len, (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
-            MHD_add_response_header(resp, "Content-Type", "application/json");
-            add_cors_headers(resp);
-            enum MHD_Result ret2 = MHD_queue_response(
-                conn, ok == 0 ? MHD_HTTP_OK : MHD_HTTP_BAD_REQUEST, resp);
-            MHD_destroy_response(resp);
-            return ret2;
-        }
-    }
 
     /* ── Handle POST data for /sources_set ─────────────────── */
     if (strcmp(url, ROUTE_SOURCES_SET) == 0 && strcmp(method, "POST") == 0) {
@@ -415,7 +348,11 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
 
                 if (!status->error) {
                     char msg[256];
-                    if (payload_mgr_import_to_storage(status->filename, status->temp_path, "web_upload", "", msg, sizeof(msg)) != 0) {
+                    char out_slot[128];
+                    if (payload_mgr_import_to_storage_mode(status->filename, status->temp_path,
+                                                          status->mode, "web_upload", "",
+                                                          msg, sizeof(msg),
+                                                          out_slot, sizeof(out_slot)) != 0) {
                         pldmgr_log("[PLDMGR] !!! Failed to commit upload: %s\n", msg);
                         status->error = 1;
                     }
@@ -436,56 +373,6 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
                 conn, err ? MHD_HTTP_INTERNAL_SERVER_ERROR : MHD_HTTP_OK, resp);
             MHD_destroy_response(resp);
             return ret;
-        }
-    }
-
-    /* ── Chunked upload for /repository_install_push ────────── */
-    if (strncmp(url, ROUTE_REPO_INSTALL_PUSH, strlen(ROUTE_REPO_INSTALL_PUSH)) == 0) {
-        struct UploadStatus *status = (struct UploadStatus *)*con_cls;
-        if (*upload_data_size != 0) {
-            if (status->fp && !status->error) {
-                size_t written = fwrite(upload_data, 1, *upload_data_size, status->fp);
-                if (written != *upload_data_size) {
-                    status->error = 1;
-                }
-                status->total_size += written;
-            }
-            *upload_data_size = 0;
-            return MHD_YES;
-        } else {
-            if (status->fp) {
-                fflush(status->fp);
-                fclose(status->fp);
-            }
-            int err = status->error;
-
-            char msg_buf[1024] = "";
-            if (!err) {
-                if (repository_install_commit(
-                        status->filename, status->temp_path, "repository", status->repo_url, msg_buf,
-                        sizeof(msg_buf)) != 0) {
-                    err = 1;
-                }
-            }
-
-            pldmgr_log("[PLDMGR] Payload install %s (%zu bytes)\n",
-                       err ? "FAILED" : "complete", status->total_size);
-            free(status);
-            *con_cls = NULL;
-            if (err && msg_buf[0] == '\0') {
-                snprintf(msg_buf, sizeof(msg_buf), "Write error");
-            }
-            char json_resp[1024];
-            snprintf(json_resp, sizeof(json_resp), "{\"ok\":%s,\"message\":\"%s\"}",
-                     err ? "false" : "true", err ? msg_buf : "Installed");
-            struct MHD_Response *resp2 = MHD_create_response_from_buffer(
-                strlen(json_resp), (void *)json_resp, MHD_RESPMEM_MUST_COPY);
-            MHD_add_response_header(resp2, "Content-Type", "application/json");
-            add_cors_headers(resp2);
-            enum MHD_Result ret2 = MHD_queue_response(
-                conn, err ? MHD_HTTP_INTERNAL_SERVER_ERROR : MHD_HTTP_OK, resp2);
-            MHD_destroy_response(resp2);
-            return ret2;
         }
     }
 
@@ -529,8 +416,12 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
 
     if (strcmp(url, ROUTE_USB_MOVE_PERFORM) == 0) {
         const char *path = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "path");
+        const char *mode = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "mode");
         const char *overwrite_str = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "overwrite");
-        int overwrite = (overwrite_str && strcmp(overwrite_str, "true") == 0) ? 1 : 0;
+        if (!mode) {
+            int overwrite = (overwrite_str && strcmp(overwrite_str, "true") == 0) ? 1 : 0;
+            mode = overwrite ? "replace" : "new";
+        }
         const char *keep_original_str = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "keep_original");
         int keep_original = (keep_original_str && strcmp(keep_original_str, "true") == 0) ? 1 : 0;
         if (path) {
@@ -541,7 +432,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
                 MHD_destroy_response(oom_resp);
                 return ret;
             }
-            int rc = payload_mgr_usb_move(path, overwrite, keep_original, resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
+            int rc = payload_mgr_usb_move(path, mode, keep_original, resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
             resp = MHD_create_response_from_buffer(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
             MHD_add_response_header(resp, "Content-Type", "application/json");
             add_cors_headers(resp);
@@ -734,45 +625,40 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         resp = MHD_create_response_from_buffer(len2, (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         MHD_add_response_header(resp, "Content-Type", "application/json");
     } else if (strcmp(url, ROUTE_REPO_INSTALL) == 0) {
+        const char *id = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "id");
         const char *filename = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "filename");
-        const char *repo_url = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "repo_url");
-        const char *source_id = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "source_id");
-        if (!filename) {
-            const char *err = "{\"ok\":false,\"message\":\"Missing filename\"}";
-            resp = MHD_create_response_from_buffer(strlen(err), (void *)err, MHD_RESPMEM_MUST_COPY);
-            MHD_add_response_header(resp, "Content-Type", "application/json");
-            add_cors_headers(resp);
-            return MHD_queue_response(conn, MHD_HTTP_BAD_REQUEST, resp);
+        const char *source_url = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "source_url");
+        if (!source_url) {
+            source_url = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "repo_url");
         }
-        if (!is_safe_filename(filename)) {
-            const char *err = "{\"ok\":false,\"message\":\"Invalid filename\"}";
-            resp = MHD_create_response_from_buffer(strlen(err), (void *)err, MHD_RESPMEM_MUST_COPY);
-            MHD_add_response_header(resp, "Content-Type", "application/json");
-            add_cors_headers(resp);
-            return MHD_queue_response(conn, MHD_HTTP_BAD_REQUEST, resp);
+        const char *mode = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "mode");
+        const char *replace_slot = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "replace_slot");
+
+        char derived_id[128] = "";
+        if (!id || id[0] == '\0') {
+            if (filename && filename[0]) {
+                slot_local_key(filename, derived_id, sizeof(derived_id));
+                id = derived_id;
+            } else {
+                const char *err = "{\"ok\":false,\"message\":\"Missing id parameter\"}";
+                resp = MHD_create_response_from_buffer(strlen(err), (void *)err, MHD_RESPMEM_MUST_COPY);
+                MHD_add_response_header(resp, "Content-Type", "application/json");
+                add_cors_headers(resp);
+                return MHD_queue_response(conn, MHD_HTTP_BAD_REQUEST, resp);
+            }
         }
 
-        char msg_buf[1024] = "";
-        int rc;
-        if (source_id && source_id[0]) {
-            rc = sources_multi_repository_install(filename, source_id,
-                                                  repo_url ? repo_url : "",
-                                                  msg_buf, sizeof(msg_buf));
-        } else {
-            const char *detail = (repo_url && repo_url[0]) ? repo_url : REPOSITORY_SOURCE_URL;
-            rc = repository_install_download(filename, detail, msg_buf, sizeof(msg_buf));
-        }
-        if (msg_buf[0] == '\0') {
-            snprintf(msg_buf, sizeof(msg_buf), rc == 0 ? "Installed" : "Install failed");
+        char *resp_buf;
+        struct MHD_Response *oom_resp = alloc_response_buffer_small(&resp_buf);
+        if (oom_resp) {
+            return MHD_queue_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, oom_resp);
         }
 
-        char json_resp[1024];
-        snprintf(json_resp, sizeof(json_resp), "{\"ok\":%s,\"message\":\"%s\"}",
-                 rc == 0 ? "true" : "false", msg_buf);
-        resp = MHD_create_response_from_buffer(strlen(json_resp), (void *)json_resp, MHD_RESPMEM_MUST_COPY);
+        int rc = sources_repo_install(source_url, id, mode, replace_slot, resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
+        resp = MHD_create_response_from_buffer(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         MHD_add_response_header(resp, "Content-Type", "application/json");
         add_cors_headers(resp);
-        return MHD_queue_response(conn, rc == 0 ? MHD_HTTP_OK : MHD_HTTP_INTERNAL_SERVER_ERROR, resp);
+        return MHD_queue_response(conn, rc == 0 ? MHD_HTTP_OK : MHD_HTTP_BAD_REQUEST, resp);
     } else if (strcmp(url, ROUTE_SOURCES_LIST) == 0) {
         char *resp_buf;
         struct MHD_Response *oom_resp = alloc_response_buffer_small(&resp_buf);
@@ -830,60 +716,62 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         add_cors_headers(resp);
         return MHD_queue_response(conn, rc_rm == 0 ? MHD_HTTP_OK : MHD_HTTP_BAD_REQUEST, resp);
     } else if (strncmp(url, ROUTE_LOAD_PAYLOAD, strlen(ROUTE_LOAD_PAYLOAD)) == 0) {
-        const char *path = url + strlen(ROUTE_LOAD_PAYLOAD);
-        const char *final_path = NULL;
-        char resolved_path[512];
-        if (is_allowed_payload_path(path)) {
-            final_path = path;
-        } else {
-            const char *filename = strrchr(path, '/');
-            filename = filename ? filename + 1 : path;
-            if (is_safe_filename(filename) &&
-                payload_mgr_resolve_path(filename, resolved_path,
-                                         sizeof(resolved_path)) == 0) {
-                final_path = resolved_path;
-            }
-        }
+        const char *arg = url + strlen(ROUTE_LOAD_PAYLOAD);
+        char clean_arg[512];
+        strncpy(clean_arg, arg, sizeof(clean_arg) - 1);
+        clean_arg[sizeof(clean_arg) - 1] = '\0';
+        url_decode_in_place(clean_arg);
 
-        if (!final_path) {
-            pldmgr_log("[PLDMGR] !!! Payload path rejected: %s\n", path);
+        char resolved_path[512];
+        if (slot_resolve(clean_arg, resolved_path, sizeof(resolved_path)) == 0 &&
+            (is_allowed_payload_path(resolved_path) ||
+             strncmp(resolved_path, PAYLOADS_STORAGE_DIR, strlen(PAYLOADS_STORAGE_DIR)) == 0)) {
+            if (ps5_launch_elf(resolved_path) == 0) {
+                resp = MHD_create_response_from_buffer(strlen(MSG_OK), (void *)MSG_OK,
+                                                       MHD_RESPMEM_PERSISTENT);
+            } else {
+                const char *err = "Failed to launch payload\n";
+                resp = MHD_create_response_from_buffer(strlen(err), (void *)err,
+                                                       MHD_RESPMEM_PERSISTENT);
+                http_status = MHD_HTTP_INTERNAL_SERVER_ERROR;
+            }
+        } else {
+            pldmgr_log("[PLDMGR] !!! Payload slot/path rejected or not found: %s (raw: %s)\n", clean_arg, arg);
             const char *err = "Invalid payload name\n";
             resp = MHD_create_response_from_buffer(strlen(err), (void *)err,
                                                    MHD_RESPMEM_PERSISTENT);
             http_status = MHD_HTTP_BAD_REQUEST;
-        } else if (ps5_launch_elf(final_path) == 0) {
-            resp = MHD_create_response_from_buffer(strlen(MSG_OK), (void *)MSG_OK,
-                                                   MHD_RESPMEM_PERSISTENT);
-        } else {
-            const char *err = "Failed to launch payload\n";
-            resp = MHD_create_response_from_buffer(strlen(err), (void *)err,
-                                                   MHD_RESPMEM_PERSISTENT);
-            http_status = MHD_HTTP_INTERNAL_SERVER_ERROR;
         }
         MHD_add_response_header(resp, "Content-Type", "text/plain");
     } else if (strncmp(url, ROUTE_DELETE, strlen(ROUTE_DELETE)) == 0) {
+        const char *slot =
+            MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "slot");
         const char *filename =
             MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "filename");
-        if (filename) {
-            if (strstr(filename, "/") || strstr(filename, "..")) {
-                const char *err = "Invalid filename\n";
+        const char *target = slot ? slot : filename;
+        if (target) {
+            if (strstr(target, "..")) {
+                const char *err = "Invalid payload identifier\n";
                 resp = MHD_create_response_from_buffer(strlen(err), (void *)err,
                                                        MHD_RESPMEM_PERSISTENT);
+                http_status = MHD_HTTP_BAD_REQUEST;
             } else {
-                if (payload_mgr_delete_payload_file(filename) == 0) {
-                    pldmgr_log("[PLDMGR] Deleted payload: %s\n", filename);
+                if (payload_mgr_delete_payload(target) == 0) {
+                    pldmgr_log("[PLDMGR] Deleted payload: %s\n", target);
                     resp = MHD_create_response_from_buffer(strlen(MSG_OK), (void *)MSG_OK,
                                                            MHD_RESPMEM_PERSISTENT);
                 } else {
-                    const char *err = "Failed to delete file\n";
+                    const char *err = "Failed to delete payload\n";
                     resp = MHD_create_response_from_buffer(strlen(err), (void *)err,
                                                            MHD_RESPMEM_PERSISTENT);
+                    http_status = MHD_HTTP_INTERNAL_SERVER_ERROR;
                 }
             }
         } else {
-            const char *err = "Missing filename\n";
+            const char *err = "Missing slot parameter\n";
             resp = MHD_create_response_from_buffer(strlen(err), (void *)err,
                                                    MHD_RESPMEM_PERSISTENT);
+            http_status = MHD_HTTP_BAD_REQUEST;
         }
         MHD_add_response_header(resp, "Content-Type", "text/plain");
     } else if (strcmp(url, ROUTE_SHUTDOWN) == 0) {

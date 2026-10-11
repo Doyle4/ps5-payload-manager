@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Settings,
   CloudDownload,
@@ -22,7 +22,8 @@ import './App.css'
 import { useRepository } from './contexts/RepositoryContext'
 
 // Utilities
-import { cn, isPS5, isSystemPayload } from './utils/helpers'
+import { cn, isPS5, isSystemPayload, parsePayloadName } from './utils/helpers'
+import { slug } from './utils/versions'
 
 // UI Components
 import Toast from './components/ui/Toast'
@@ -43,9 +44,14 @@ import ManageSourcesView from './components/views/ManageSourcesView'
 import ActiveProcessesView from './components/views/ActiveProcessesView'
 import { useHistoryNavigation, getRouteFromHash } from './hooks/useHistoryNavigation'
 
+let toastSeq = 0
+
 function App() {
   const { t } = useTranslation();
-  const { filenameMap } = useRepository()
+  const { getRepoEntry, findRepoEntryById, fetchRemote } = useRepository()
+  const [items, setItems] = useState([])
+  const [usbPayloads, setUsbPayloads] = useState([])
+  const [uploadConflictModal, setUploadConflictModal] = useState({ show: false, file: null, folderName: '' })
   const [view, setView] = useState(() => {
     if (typeof window !== 'undefined' && window.location?.hash) {
       const route = getRouteFromHash(window.location.hash)
@@ -89,7 +95,6 @@ function App() {
   const [payloads, setPayloads] = useState([])
   const [config, setConfig] = useState({})
   const [ip, setIp] = useState('0.0.0.0')
-  const [version, setVersion] = useState('Loading...')
   const [loading, setLoading] = useState(false)
   const [activeLoadingName, setActiveLoadingName] = useState('')
   const [launchHistory, setLaunchHistory] = useState([])
@@ -108,7 +113,7 @@ function App() {
   })
   const [storageScrollTarget, setStorageScrollTarget] = useState(null)
   const [showLogs, setShowLogs] = useState(false)
-  const [payloadMeta, setPayloadMeta] = useState({})
+  const payloadMeta = useMemo(() => ({}), [])
 
   const { navigate, handleSelectPayload, handleClosePayload } = useHistoryNavigation({
     view,
@@ -171,26 +176,40 @@ function App() {
 
   const [updateStatus, setUpdateStatus] = useState(null)
   const [updateBusy, setUpdateBusy] = useState(false)
-
-  const checkUpdates = async () => {
+  const api = useCallback(async (endpoint, options = {}) => {
     try {
-      const data = await api('/update_check')
-      if (data && data.status !== 'none') {
-        setUpdateStatus(data)
-      } else {
-        setUpdateStatus(null)
-      }
-    } catch (e) {
-      setUpdateStatus(null)
-    }
-  }
-
-  useEffect(() => {
-    checkUpdates()
+      const response = await fetch(endpoint, options)
+      if (options.method === 'POST') return response.text()
+      try {
+        const text = await response.text()
+        if (text.toLowerCase().includes('<!doctype')) return null
+        return JSON.parse(text)
+      } catch { return null }
+    } catch { return null }
   }, [])
 
+  const checkUpdates = useCallback(async () => {
+    try {
+      const data = await api('/update_check')
+      setUpdateStatus(data && data.status !== 'none' ? data : null)
+    } catch {
+      setUpdateStatus(null)
+    }
+  }, [api])
 
-
+  useEffect(() => {
+    let ignore = false
+    void (async () => {
+      try {
+        const data = await api('/update_check')
+        if (ignore) return
+        setUpdateStatus(data && data.status !== 'none' ? data : null)
+      } catch {
+        if (!ignore) setUpdateStatus(null)
+      }
+    })()
+    return () => { ignore = true }
+  }, [api])
 
   const showConfirm = (title, message, onConfirm) => {
     setConfirmModal({
@@ -204,32 +223,69 @@ function App() {
     })
   }
 
-  const addToast = (message, type = 'success') => {
-    const id = Date.now()
+  const addToast = useCallback((message, type = 'success') => {
+    toastSeq += 1
+    const id = `${Date.now()}-${toastSeq}`
     setToasts(prev => [...prev, { id, message, type }])
-  }
+  }, [])
 
   const removeToast = (id) => {
     setToasts(prev => prev.filter(t => t.id !== id))
   }
 
-  const api = async (endpoint, options = {}) => {
-    try {
-      const response = await fetch(endpoint, options)
-      if (options.method === 'POST') return response.text()
-      try {
-        const text = await response.text()
-        if (text.toLowerCase().includes('<!doctype')) return null
-        return JSON.parse(text)
-      } catch (e) { return null }
-    } catch (e) { return null }
-  }
+  const dashboardItems = useMemo(() => {
+    const list = items
+      .filter((it) => it && it.slot && !isSystemPayload(it.filename))
+      .map((it) => ({
+        key: it.slot,
+        slot: it.slot,
+        path: it.path,
+        kind: it.kind,
+        filename: it.filename,
+        id: it.id,
+        source_url: it.source_url,
+        source_name: it.source_name,
+        name: it.name,
+        version: it.version,
+        isUsb: false,
+      }))
+
+    const idCounts = {}
+    for (const it of list) {
+      if (it.kind === 'repo' && it.id) {
+        idCounts[it.id] = (idCounts[it.id] || 0) + 1
+      }
+    }
+    for (const it of list) {
+      it.hasDuplicateId = Boolean(it.id && idCounts[it.id] > 1)
+    }
+
+    for (const usbPath of usbPayloads) {
+      list.push({
+        key: usbPath,
+        slot: null,
+        path: usbPath,
+        kind: 'usb',
+        filename: usbPath.split('/').pop(),
+        id: null,
+        isUsb: true,
+      })
+    }
+
+    return list
+  }, [items, usbPayloads])
 
   const refreshPayloads = async (retryCount = 0) => {
     setLoadingPayloads(true)
     const data = await api('/list_payloads')
-    if (data?.payloads) {
-      const sorted = [...data.payloads].sort((a, b) => {
+    if (data?.items || data?.payloads) {
+      const rawItems = data.items || []
+      setItems(rawItems)
+
+      const rawUsb = data.usb || (data.payloads ? data.payloads.filter(p => p.startsWith('/mnt/usb')) : [])
+      setUsbPayloads(rawUsb)
+
+      const sorted = [...(data.payloads || [])].sort((a, b) => {
         const aIsUsb = a.startsWith('/mnt/usb')
         const bIsUsb = b.startsWith('/mnt/usb')
         if (aIsUsb && !bIsUsb) return 1
@@ -237,14 +293,38 @@ function App() {
         return a.localeCompare(b)
       })
       setPayloads(sorted)
-      // Build metadata map: filename -> meta object
-      if (data.meta && typeof data.meta === 'object') {
-        setPayloadMeta(data.meta)
+
+      // Handle legacy_paths migration for favorites
+      if (data.legacy_paths && typeof data.legacy_paths === 'object') {
+        const lMap = data.legacy_paths
+        setFavoritePayloads((prev) => {
+          let modified = false
+          const mapped = prev.map((fav) => {
+            if (lMap[fav]) {
+              modified = true
+              return lMap[fav]
+            }
+            const fn = fav.split('/').pop()
+            if (lMap[fn]) {
+              modified = true
+              return lMap[fn]
+            }
+            return fav
+          })
+          if (modified) {
+            localStorage.setItem('favoritePayloads', JSON.stringify(mapped))
+            return mapped
+          }
+          return prev
+        })
       }
+
       setLoadingPayloads(false)
     } else if (retryCount < 5) {
       setTimeout(() => refreshPayloads(retryCount + 1), 1000)
     } else {
+      setItems([])
+      setUsbPayloads([])
       setPayloads([])
       setLoadingPayloads(false)
     }
@@ -274,17 +354,20 @@ function App() {
     window.location.reload()
   }
 
-  const loadPayload = async (path) => {
-    const name = path.split('/').pop().replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')
+  const loadPayload = async (slotOrPath, customName) => {
+    if (!slotOrPath) return
+    const name = customName || slotOrPath.split('/').pop().replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')
     setLoading(true)
     setActiveLoadingName(name)
     try {
-      const safePath = encodeURI(path)
-      const res = await fetch(`/loadpayload:${safePath}`)
+      const safeParam = encodeURI(slotOrPath)
+      const res = await fetch(`/loadpayload:${safeParam}`)
       if (!res.ok) throw new Error(`${t("app.toasts.launch_failed", "Launch failed")} (${res.status})`)
       addToast(t("app.toasts.payload_launched", "{{name}} launched", { name }))
       refreshHistory()
-    } catch (e) { addToast(e.message || t("app.toasts.launch_failed", "Launch failed"), "error") }
+    } catch (e) {
+      addToast(e.message || t("app.toasts.launch_failed", "Launch failed"), "error")
+    }
     setTimeout(() => {
       setLoading(false)
       setActiveLoadingName('')
@@ -297,14 +380,14 @@ function App() {
     loadPayload(localPath)
   }
 
-  const handleInstallUpdate = async (filename) => {
-    if (!filename || updateBusy) return
+  const handleInstallUpdate = async () => {
+    if (updateBusy) return
     setUpdateBusy(true)
     try {
-      const res = await fetch(`/repository_install?filename=${encodeURIComponent(filename)}`)
+      const res = await fetch(`/repository_install?id=pldmgr`)
       const data = await res.json().catch(() => null)
       if (res.ok && data?.ok) {
-        addToast(t("app.toasts.payload_installed", "{{fileName}} installed", { fileName: filename }))
+        addToast(t("app.toasts.payload_installed", "{{fileName}} installed", { fileName: "pldmgr" }))
         refreshPayloads()
         await checkUpdates()
       } else {
@@ -316,18 +399,20 @@ function App() {
     setUpdateBusy(false)
   }
 
-  const handleDelete = (fileName) => {
+  const handleDelete = (slotOrFilename, customName) => {
+    if (!slotOrFilename) return
+    const name = customName || slotOrFilename
     showConfirm(
       t("app.modals.delete_payload.title", "Delete Payload"),
-      t("app.modals.delete_payload.message", "Are you sure you want to remove {{fileName}}?", { fileName }),
+      t("app.modals.delete_payload.message", "Are you sure you want to remove {{fileName}}?", { fileName: name }),
       async () => {
-        const res = await fetch(`/manage:delete?filename=${encodeURIComponent(fileName)}`)
+        const res = await fetch(`/manage:delete?slot=${encodeURIComponent(slotOrFilename)}`)
         if (!res.ok) {
           addToast(`Delete failed (${res.status})`, 'error')
           return
         }
         refreshPayloads()
-        addToast(t("app.toasts.payload_removed", "{{fileName}} removed", { fileName }))
+        addToast(t("app.toasts.payload_removed", "{{fileName}} removed", { fileName: name }))
       }
     )
   }
@@ -338,80 +423,114 @@ function App() {
     input.value = ''
     if (!file) return
 
-    const ext = file.name.split('.').pop().toLowerCase();
+    const ext = file.name.split('.').pop().toLowerCase()
     if (ext !== 'elf' && ext !== 'bin') {
-      addToast(t("app.toasts.unsupported_file", "Unsupported file type. Only .elf and .bin files are allowed."), "error");
-      return;
+      addToast(
+        t("app.toasts.unsupported_file", "Unsupported file type. Only .elf and .bin files are allowed."),
+        "error"
+      )
+      return
     }
 
     try {
       const res = await fetch(`/manage:check?filename=${encodeURIComponent(file.name)}`)
       const data = await res.json()
-      if (data.file_exists || data.folder_exists) {
-        setConfirmModal({
+      if (data?.existing || data?.file_exists || data?.folder_exists) {
+        setUploadConflictModal({
           show: true,
-          title: t("app.modals.overwrite.title", "Overwrite Payload"),
-          message: data.file_exists
-            ? t("app.modals.overwrite.file_exists", "The file {{fileName}} already exists. Overwrite it?", { fileName: file.name })
-            : t("app.modals.overwrite.folder_exists", "A different version of this payload exists in the \"{{folderName}}\" folder. Overwrite it?", { folderName: data.folder_name }),
-          onConfirm: () => performUpload(file)
+          file,
+          folderName: data.key || data.folder_name || file.name,
         })
       } else {
-        performUpload(file)
+        performUpload(file, 'new')
       }
-    } catch (err) {
-      performUpload(file)
+    } catch {
+      performUpload(file, 'new')
     }
   }
 
-  const performUpload = async (file) => {
-    setConfirmModal({ show: false })
+  const performUpload = async (file, mode = 'new') => {
+    setUploadConflictModal({ show: false, file: null, folderName: '' })
     setDownloadModal({ show: true, name: file.name, progress: 20 })
     try {
-      const res = await fetch(`/manage:upload?filename=${encodeURIComponent(file.name)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: file
-      })
+      const res = await fetch(
+        `/manage:upload?filename=${encodeURIComponent(file.name)}&mode=${encodeURIComponent(mode)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: file,
+        }
+      )
       if (!res.ok) throw new Error(`${t("app.toasts.upload_failed", "Upload failed")} (${res.status})`)
-      setDownloadModal(prev => ({ ...prev, progress: 100 }))
+      setDownloadModal((prev) => ({ ...prev, progress: 100 }))
       addToast(t("app.toasts.payload_uploaded", "{{fileName}} uploaded", { fileName: file.name }))
       refreshPayloads()
-    } catch (e) { addToast(e.message || t("app.toasts.upload_failed", "Upload failed"), "error") }
+    } catch (e) {
+      addToast(e.message || t("app.toasts.upload_failed", "Upload failed"), "error")
+    }
     setTimeout(() => setDownloadModal({ show: false }), 800)
   }
 
-  const handleInstall = async (p, sourceId, repoUrl) => {
-    if (p.isUpdate || p.isInstalled) {
-      setConfirmModal({
-        show: true,
-        title: p.isUpdate ? t("app.modals.reinstall.update_title", "Update Payload") : t("app.modals.reinstall.reinstall_title", "Reinstall Payload"),
-        message: t("app.modals.reinstall.message", "A version of {{name}} is already installed. Do you want to replace it with the repository version?", { name: p.name || p.filename }),
-        onConfirm: () => performInstall(p, sourceId, repoUrl)
-      })
-    } else {
-      performInstall(p, sourceId, repoUrl)
-    }
+  const handleInstall = async (p, sourceId, repoUrl, options = {}) => {
+    performInstall(p, sourceId, repoUrl, options)
   }
 
-  const performInstall = async (p, sourceId, repoUrl) => {
+  const performInstall = async (p, sourceId, repoUrl, options = {}) => {
     setConfirmModal({ show: false })
-    setDownloadModal({ show: true, name: p.filename, progress: 10 })
+    const displayName = p.name || p.filename
+    setDownloadModal({ show: true, name: displayName, progress: 10 })
     try {
-      setDownloadModal(prev => ({ ...prev, progress: 30 }))
-      let url = `/repository_install?filename=${encodeURIComponent(p.filename)}`
-      if (sourceId) url += `&source_id=${encodeURIComponent(sourceId)}`
-      if (repoUrl) url += `&repo_url=${encodeURIComponent(repoUrl)}`
+      setDownloadModal((prev) => ({ ...prev, progress: 30 }))
+      const payloadId = p.id || slug(p.name || p.filename)
+      let url = `/repository_install?id=${encodeURIComponent(payloadId)}`
+      if (repoUrl) url += `&source_url=${encodeURIComponent(repoUrl)}`
+      if (options.mode) url += `&mode=${encodeURIComponent(options.mode)}`
+      if (options.replaceSlot) url += `&replace_slot=${encodeURIComponent(options.replaceSlot)}`
+
       const res = await fetch(url)
-      setDownloadModal(prev => ({ ...prev, progress: 80 }))
+      setDownloadModal((prev) => ({ ...prev, progress: 80 }))
 
       const data = await res.json().catch(() => null)
       if (res.ok && data?.ok) {
-        setDownloadModal(prev => ({ ...prev, progress: 100 }))
-        addToast(t("app.toasts.payload_installed", "{{fileName}} installed", { fileName: p.filename }))
+        setDownloadModal((prev) => ({ ...prev, progress: 100 }))
+        addToast(
+          t("app.toasts.payload_installed", "{{fileName}} installed", {
+            fileName: displayName,
+          })
+        )
         refreshPayloads()
-      } else throw new Error(data?.message || t("app.toasts.install_failed", "Installation failed"))
-    } catch (e) { addToast(e.message || t("app.toasts.install_failed", "Installation failed"), 'error') }
+        if (data.refreshed) {
+          fetchRemote(true)
+        }
+      } else if (data?.conflict) {
+        setDownloadModal({ show: false, name: '', progress: 0 })
+        const conflict = data.conflict
+        setConfirmModal({
+          show: true,
+          title: t("storage_hub.conflict_title", "Payload Conflict"),
+          message: t(
+            "storage_hub.conflict_message",
+            "\"{{name}}\" is already installed from {{otherSource}} ({{version}}). Install from {{thisSource}} too?",
+            {
+              name: displayName,
+              otherSource: conflict.source_name || "another repository",
+              version: conflict.version || "",
+              thisSource: repoUrl || "this repository",
+            }
+          ),
+          onConfirm: () =>
+            performInstall(p, sourceId, repoUrl, {
+              mode: 'replace',
+              replaceSlot: conflict.slot,
+            }),
+        })
+        return
+      } else {
+        throw new Error(data?.message || t("app.toasts.install_failed", "Installation failed"))
+      }
+    } catch (e) {
+      addToast(e.message || t("app.toasts.install_failed", "Installation failed"), 'error')
+    }
     setTimeout(() => setDownloadModal({ show: false }), 800)
   }
 
@@ -443,15 +562,14 @@ function App() {
         const ipRes = await fetch('/getip').then(r => r.text())
         if (ipRes.toLowerCase().includes('<!doctype')) offline = true
         else setIp(ipRes)
-      } catch (e) {
+      } catch {
         offline = true
       }
 
       try {
         const verRes = await fetch('/version').then(r => r.text())
         if (verRes.toLowerCase().includes('<!doctype')) offline = true
-        else setVersion(verRes)
-      } catch (e) {
+      } catch {
         offline = true
       }
 
@@ -471,8 +589,11 @@ function App() {
 
   useEffect(() => {
     if (view === 'autoload' || view === 'storage') {
-      refreshConfig()
-      refreshPayloads()
+      const timer = setTimeout(() => {
+        refreshConfig()
+        refreshPayloads()
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [view])
 
@@ -494,7 +615,9 @@ function App() {
           }
           return
         }
-      } catch (e) { }
+      } catch {
+        // network or server transient error
+      }
       statusTimeout = setTimeout(poll, 5000)
     }
     poll()
@@ -561,6 +684,45 @@ function App() {
         }
       >
         {confirmModal.message}
+      </Modal>
+
+      <Modal
+        show={uploadConflictModal.show}
+        title={t("app.modals.overwrite.title", "Upload Payload")}
+        onClose={() => setUploadConflictModal({ show: false, file: null, folderName: '' })}
+        footer={
+          <div className="flex flex-col sm:flex-row w-full gap-3">
+            <button
+              type="button"
+              onClick={() => setUploadConflictModal({ show: false, file: null, folderName: '' })}
+              className="flex-1 py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold uppercase text-sm transition-all"
+            >
+              {t("app.buttons.cancel", "Cancel")}
+            </button>
+            <button
+              type="button"
+              onClick={() => performUpload(uploadConflictModal.file, 'replace')}
+              className="flex-1 py-3 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-black uppercase text-sm transition-all shadow-lg"
+            >
+              {t("storage_hub.conflict_replace", "Replace")}
+            </button>
+            <button
+              type="button"
+              onClick={() => performUpload(uploadConflictModal.file, 'keep_both')}
+              className="flex-1 py-3 px-4 rounded-xl bg-ps-blue hover:bg-ps-blue/80 text-white font-black uppercase text-sm transition-all shadow-lg"
+            >
+              {t("storage_hub.conflict_keep_both", "Keep both")}
+            </button>
+          </div>
+        }
+      >
+        <p>
+          {t(
+            "app.modals.overwrite.folder_exists",
+            "A version of this payload exists in internal storage ({{folderName}}). Replace the existing version or keep both?",
+            { folderName: uploadConflictModal.folderName }
+          )}
+        </p>
       </Modal>
 
       <aside className={cn(
@@ -684,9 +846,9 @@ function App() {
           isPS5 ? "pt-16 px-16 pb-12 flex-1 overflow-y-auto" : "pt-6 px-6 pb-36 md:pt-16 md:px-16 md:pb-12 md:flex-1 md:overflow-y-auto"
         )}>
           {view === 'dashboard' && (() => {
-            const visiblePayloads = payloads.filter(p => !isSystemPayload(p))
-            const activeFavorites = favoritePayloads.filter(p => visiblePayloads.includes(p))
-            const unfavorited = visiblePayloads.filter(p => !favoritePayloads.includes(p))
+            const visibleKeys = dashboardItems.map(d => d.key)
+            const activeFavorites = favoritePayloads.filter(k => visibleKeys.includes(k))
+            const unfavorited = dashboardItems.filter(d => !favoritePayloads.includes(d.key))
             
             // Extract translations to variables for i18next-parser compatibility
             const txtFavorites = t("app.dashboard.favorites", "Favorites")
@@ -696,34 +858,63 @@ function App() {
               "grid gap-4 md:gap-6 transition-all",
               isPS5 ? "grid-cols-3 xl:grid-cols-4" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
             )
-            const makeCard = (p) => (
-              <PayloadButton
-                key={p}
-                path={p}
-                onClick={() => {
-                  if (isManageMode) {
-                    if (!p.startsWith('/mnt/usb')) handleDelete(p.split('/').pop())
-                    return
-                  }
-                  if (isFavoriteEditMode) toggleFavorite(p)
-                  else loadPayload(p)
-                }}
-                onDelete={() => handleDelete(p.split('/').pop())}
-                isLoading={loading && activeLoadingName === p.split('/').pop().replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')}
-                sourceName={config.MULTI_SOURCES_ENABLED ? (payloadMeta[p.split('/').pop()]?.source_name || null) : null}
-                version={payloadMeta[p.split('/').pop()]?.version || null}
-                icon={payloadMeta[p.split('/').pop()]?.icon || filenameMap[p.split('/').pop()]?.icon || null}
-                author={payloadMeta[p.split('/').pop()]?.author || filenameMap[p.split('/').pop()]?.author || null}
-                displayName={filenameMap[p.split('/').pop()]?.display_name || null}
-                isFavorite={favoritePayloads.includes(p)}
-                isLaunched={launchHistory.includes(p)}
-                isEditMode={isFavoriteEditMode}
-                isManageMode={isManageMode}
-                onMoveFavorite={moveFavorite}
-                canMoveLeft={activeFavorites.indexOf(p) > 0}
-                canMoveRight={activeFavorites.indexOf(p) < activeFavorites.length - 1}
-              />
-            )
+            const makeCard = (item) => {
+              const isUsb = Boolean(item.isUsb)
+              let displayName = item.name || item.filename
+              let version = item.version || null
+              let author = null
+              let icon = null
+              let sourceName = null
+
+              if (isUsb) {
+                const parsed = parsePayloadName(item.filename)
+                displayName = parsed.displayName
+                version = parsed.version
+              } else if (item.kind === 'local') {
+                const parsed = parsePayloadName(item.filename)
+                displayName = parsed.displayName
+                version = item.version || parsed.version
+                sourceName = t("app.dashboard.manual_badge", "Manual")
+              } else {
+                const repoMeta = getRepoEntry(item.source_url, item.id) || findRepoEntryById(item.id)
+                displayName = repoMeta?.name || item.name || item.id
+                version = item.version || repoMeta?.version || null
+                author = repoMeta?.author || item.author || null
+                icon = repoMeta?.icon || null
+                if (item.hasDuplicateId || config.MULTI_SOURCES_ENABLED) {
+                  sourceName = item.source_name || repoMeta?.source_name || null
+                }
+              }
+
+              return (
+                <PayloadButton
+                  key={item.key}
+                  path={item.isUsb ? item.path : item.filename}
+                  onClick={() => {
+                    if (isManageMode) {
+                      if (!isUsb) handleDelete(item.slot, displayName)
+                      return
+                    }
+                    if (isFavoriteEditMode) toggleFavorite(item.key)
+                    else loadPayload(item.isUsb ? item.path : item.slot, displayName)
+                  }}
+                  onDelete={() => handleDelete(item.slot, displayName)}
+                  isLoading={loading && activeLoadingName === (displayName || '').replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')}
+                  sourceName={sourceName}
+                  version={version}
+                  icon={icon}
+                  author={author}
+                  displayName={displayName}
+                  isFavorite={favoritePayloads.includes(item.key)}
+                  isLaunched={launchHistory.includes(item.key) || launchHistory.includes(item.path)}
+                  isEditMode={isFavoriteEditMode}
+                  isManageMode={isManageMode}
+                  onMoveFavorite={moveFavorite}
+                  canMoveLeft={favoritePayloads.indexOf(item.key) > 0}
+                  canMoveRight={favoritePayloads.indexOf(item.key) < favoritePayloads.length - 1}
+                />
+              )
+            }
             return (
               <div className={cn(
                 "space-y-8 md:space-y-12 transition-all",
@@ -775,7 +966,7 @@ function App() {
                       </div>
                     ))}
                   </div>
-                ) : visiblePayloads.length === 0 ? (
+                ) : dashboardItems.length === 0 ? (
                   <div className={gridCols}>
                     <div className="col-span-full py-20 border-2 border-dashed border-white/5 rounded-ps-xl flex flex-col items-center justify-center space-y-6 bg-white/[0.01]">
                       <Package className="w-16 h-16 text-white/10" />
@@ -807,7 +998,7 @@ function App() {
                     )}
                     {activeFavorites.length === 0 && (
                       <div className={gridCols}>
-                        {visiblePayloads.map(makeCard)}
+                        {dashboardItems.map(makeCard)}
                       </div>
                     )}
                   </div>
@@ -818,6 +1009,7 @@ function App() {
 
           {view === 'storage' && (
             <StorageHub
+              items={items}
               payloads={payloads}
               payloadMeta={payloadMeta}
               onInstall={handleInstall}
@@ -849,6 +1041,7 @@ function App() {
 
           {view === 'autoload' && (
             <AutoloadView
+              items={items}
               payloads={payloads}
               config={config}
               onSaveConfig={handleSaveConfig}

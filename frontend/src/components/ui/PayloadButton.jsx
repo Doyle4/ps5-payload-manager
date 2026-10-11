@@ -35,7 +35,7 @@ const PayloadButton = ({ path, onClick, onDelete, isLoading, sourceName, version
         <div className="flex items-center gap-4 min-w-0 pr-2">
           <PayloadIcon icon={icon} name={path.split('/').pop()} className="w-12 h-12 text-xl" />
           <div className="min-w-0 flex-1">
-            <PayloadName path={path} hideVersion={true} displayName={displayName} className="text-white text-xl" stacked={false} />
+            <PayloadName path={path} version={version} hideVersion={true} displayName={displayName} className="text-white text-xl" stacked={false} />
             <div className="flex items-center gap-2 mt-0.5">
               {version && <span className="text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0">{version}</span>}
               {author && (

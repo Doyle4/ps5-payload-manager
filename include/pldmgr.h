@@ -24,8 +24,6 @@
 #define ROUTE_REPO_LIST "/repository_payloads"
 #define ROUTE_REPO_REFRESH "/repository_refresh"
 #define ROUTE_REPO_INSTALL "/repository_install"
-#define ROUTE_REPO_PUSH "/repository_push"
-#define ROUTE_REPO_INSTALL_PUSH "/repository_install_push"
 #define ROUTE_UPDATE_CHECK "/update_check"
 #define ROUTE_SOURCES_LIST "/sources_list"
 #define ROUTE_SOURCES_SET "/sources_set"

@@ -1,11 +1,20 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { RefreshCw, ArrowLeft, ArrowRight, Activity, Zap, ChevronUp, ChevronDown, Trash2, CheckCircle2 } from 'lucide-react'
 import { cn, isPS5, isSystemPayload } from '../../utils/helpers'
 import { useTranslation } from 'react-i18next'
 import PayloadName from '../ui/PayloadName'
 import Modal from '../ui/Modal'
 
-const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect, delayModal: delayModalProp, setDelayModal: setDelayModalProp }) => {
+const AutoloadView = ({
+  items = [],
+  payloads = [],
+  config,
+  onSaveConfig,
+  onToast,
+  onRedirect,
+  delayModal: delayModalProp,
+  setDelayModal: setDelayModalProp,
+}) => {
   const { t } = useTranslation()
   const [subView, setSubView] = useState('list')
   const [enabled, setEnabled] = useState(false)
@@ -17,7 +26,7 @@ const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect, del
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [isInitialized, setIsInitialized] = useState(false)
-  const lastSyncedRef = React.useRef('')
+  const lastSyncedRef = useRef('')
 
   // Load initial config
   useEffect(() => {
@@ -25,7 +34,7 @@ const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect, del
       const en = config.AUTOLOAD_ENABLED === true || config.AUTOLOAD_ENABLED === "true"
       const listStr = config.AUTOLOAD_LIST || ''
       setEnabled(en)
-      setAutoloadList(listStr.split(',').filter(x => x))
+      setAutoloadList(listStr.split(',').filter(Boolean))
       lastSyncedRef.current = `${en}:${listStr}`
       setIsInitialized(true)
     }
@@ -40,13 +49,13 @@ const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect, del
 
     const timer = setTimeout(async () => {
       const shouldEnable = enabled
-      const finalList = autoloadList.map(p => p === 'DELAY' ? '!1000' : p)
+      const finalList = autoloadList.map((p) => (p === 'DELAY' ? '!1000' : p))
       const finalStr = finalList.join(',')
 
       setSaving(true)
       const success = await onSaveConfig({
         AUTOLOAD_ENABLED: shouldEnable,
-        AUTOLOAD_LIST: finalStr
+        AUTOLOAD_LIST: finalStr,
       })
 
       if (success) {
@@ -60,23 +69,50 @@ const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect, del
     return () => clearTimeout(timer)
   }, [autoloadList, enabled, isInitialized, onSaveConfig])
 
-  const internalPayloads = payloads.filter(p => !p.includes('/mnt/usb') && !isSystemPayload(p)).map(p => p.split('/').pop())
-  const availablePayloads = internalPayloads.filter(p => !autoloadList.includes(p))
+  const availableSlots = useMemo(() => {
+    if (items && items.length > 0) {
+      return items.filter(
+        (it) => it.slot && !isSystemPayload(it.filename) && !autoloadList.includes(it.slot)
+      )
+    }
+    // Fallback if items not loaded yet
+    return payloads
+      .filter((p) => !p.includes('/mnt/usb') && !isSystemPayload(p))
+      .map((p) => {
+        const fn = p.split('/').pop()
+        return { slot: fn, filename: fn, name: fn }
+      })
+      .filter((it) => !autoloadList.includes(it.slot))
+  }, [items, payloads, autoloadList])
+
+  const getItemInfo = useCallback(
+    (key) => {
+      if (!key) return null
+      if (items && items.length > 0) {
+        const match = items.find(
+          (it) => it.slot === key || it.filename === key || it.path === key
+        )
+        if (match) return match
+      }
+      return null
+    },
+    [items]
+  )
 
   const handleToggle = (val) => {
     setEnabled(val)
   }
 
-  const addPayload = (p) => {
-    const isKstuff = p.toLowerCase().includes('kstuff');
+  const addPayload = (slotKey) => {
+    const isKstuff = slotKey.toLowerCase().includes('kstuff')
     if (isKstuff) {
-      const existing = autoloadList.find(x => x.toLowerCase().includes('kstuff'));
+      const existing = autoloadList.find((x) => x.toLowerCase().includes('kstuff'))
       if (existing) {
-        onToast(t("autoload.conflict_kstuff", "Conflict: Multiple KStuff payloads detected."), 'error');
-        return;
+        onToast(t("autoload.conflict_kstuff", "Conflict: Multiple KStuff payloads detected."), 'error')
+        return
       }
     }
-    setAutoloadList([...autoloadList, p]);
+    setAutoloadList([...autoloadList, slotKey])
     setSubView('list')
   }
 
@@ -89,14 +125,14 @@ const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect, del
   const moveUp = (index) => {
     if (index === 0) return
     const newList = [...autoloadList]
-      ;[newList[index - 1], newList[index]] = [newList[index], newList[index - 1]]
+    ;[newList[index - 1], newList[index]] = [newList[index], newList[index - 1]]
     setAutoloadList(newList)
   }
 
   const moveDown = (index) => {
     if (index === autoloadList.length - 1) return
     const newList = [...autoloadList]
-      ;[newList[index + 1], newList[index]] = [newList[index], newList[index + 1]]
+    ;[newList[index + 1], newList[index]] = [newList[index], newList[index + 1]]
     setAutoloadList(newList)
   }
 
@@ -114,22 +150,28 @@ const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect, del
       </div>
       <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar min-h-0 pb-6">
         <div className="grid grid-cols-1 gap-4">
-          {availablePayloads.map(p => {
-            const isKstuff = p.toLowerCase().includes('kstuff');
-            const hasKstuff = autoloadList.some(x => x.toLowerCase().includes('kstuff'));
-            const isBlocked = isKstuff && hasKstuff;
+          {availableSlots.map((item) => {
+            const isKstuff = (item.id || item.filename || item.slot || '').toLowerCase().includes('kstuff')
+            const hasKstuff = autoloadList.some((x) => x.toLowerCase().includes('kstuff'))
+            const isBlocked = isKstuff && hasKstuff
 
             return (
               <button
-                key={p}
-                onClick={() => !isBlocked && addPayload(p)}
+                key={item.slot}
+                onClick={() => !isBlocked && addPayload(item.slot)}
                 disabled={isBlocked}
                 className={cn(
                   "flex items-start justify-between p-6 glass-card rounded-2xl border-white/20 transition-all text-left",
                   isBlocked ? "opacity-40 cursor-not-allowed" : "bg-white/[0.03] hover:border-ps-blue group"
                 )}
               >
-                <PayloadName path={p} className={cn("text-xl", isBlocked ? "text-zinc-500" : "text-white")} stacked />
+                <PayloadName
+                  path={item.filename || item.slot}
+                  displayName={item.name || item.filename}
+                  version={item.version}
+                  className={cn("text-xl", isBlocked ? "text-zinc-500" : "text-white")}
+                  stacked
+                />
                 <ArrowRight className={cn("w-6 h-6 transition-all shrink-0 mt-1", isBlocked ? "text-zinc-800" : "text-zinc-500 group-hover:text-ps-blue group-hover:translate-x-2")} />
               </button>
             )
@@ -194,27 +236,36 @@ const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect, del
 
       <div className="glass-panel p-6 rounded-ps-3xl border-white/10 flex-1 overflow-hidden flex flex-col min-h-0">
         <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2 mb-2 pb-6">
-          {autoloadList.map((p, i) => (
-            <div key={`${p}-${i}`} className="relative flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10 animate-in slide-in-from-left duration-200">
-              <div className="absolute top-0 left-0 w-6 h-6 rounded-full bg-dark flex items-center justify-center z-20">
-                <span className="text-gray-500 text-[12px] font-black">{i + 1}</span>
+          {autoloadList.map((p, i) => {
+            const item = getItemInfo(p)
+            return (
+              <div key={`${p}-${i}`} className="relative flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10 animate-in slide-in-from-left duration-200">
+                <div className="absolute top-0 left-0 w-6 h-6 rounded-full bg-dark flex items-center justify-center z-20">
+                  <span className="text-gray-500 text-[12px] font-black">{i + 1}</span>
+                </div>
+                <div className="flex items-center min-w-0 pl-2">
+                  <PayloadName
+                    path={item?.filename || p}
+                    displayName={item?.name || item?.filename}
+                    version={item?.version}
+                    className="text-white"
+                    stacked
+                  />
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button onClick={() => moveUp(i)} disabled={i === 0} className="p-2 bg-white/10 text-zinc-400 hover:bg-ps-blue hover:text-white rounded-xl disabled:opacity-20">
+                    <ChevronUp className="w-5 h-5" />
+                  </button>
+                  <button onClick={() => moveDown(i)} disabled={i === autoloadList.length - 1} className="p-2 bg-white/10 text-zinc-400 hover:bg-ps-blue hover:text-white rounded-xl disabled:opacity-20">
+                    <ChevronDown className="w-5 h-5" />
+                  </button>
+                  <button onClick={() => setAutoloadList(autoloadList.filter((_, idx) => idx !== i))} className="p-2 bg-white/10 text-zinc-400 hover:bg-red-600 hover:text-white rounded-xl">
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center min-w-0 pl-2">
-                <PayloadName path={p} className="text-white" stacked />
-              </div>
-              <div className="flex items-center space-x-2">
-                <button onClick={() => moveUp(i)} disabled={i === 0} className="p-2 bg-white/10 text-zinc-400 hover:bg-ps-blue hover:text-white rounded-xl disabled:opacity-20">
-                  <ChevronUp className="w-5 h-5" />
-                </button>
-                <button onClick={() => moveDown(i)} disabled={i === autoloadList.length - 1} className="p-2 bg-white/10 text-zinc-400 hover:bg-ps-blue hover:text-white rounded-xl disabled:opacity-20">
-                  <ChevronDown className="w-5 h-5" />
-                </button>
-                <button onClick={() => setAutoloadList(autoloadList.filter((_, idx) => idx !== i))} className="p-2 bg-white/10 text-zinc-400 hover:bg-red-600 hover:text-white rounded-xl">
-                  <Trash2 className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
           {autoloadList.length === 0 && (
             <div className="flex-1 flex flex-col items-center justify-center opacity-10 italic py-20">
               <RefreshCw className="w-16 h-16 mb-4" />
@@ -264,66 +315,50 @@ const AutoloadView = ({ payloads, config, onSaveConfig, onToast, onRedirect, del
   }
 
   return (
-    <div className="h-full flex flex-col min-h-0">
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className={cn(
-          "gap-12 h-full min-h-0",
-          isPS5 ? "grid grid-cols-2" : "hidden lg:grid lg:grid-cols-2"
-        )}>
-          {renderAvailable()}
+    <div className="flex-1 flex flex-col h-full min-h-0 animate-fade-in">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 min-h-0 pb-12">
+        <div className={cn("h-full min-h-0", isPS5 ? "col-span-12 lg:col-span-8" : subView === 'list' ? "col-span-12 lg:col-span-8" : "hidden lg:block lg:col-span-8")}>
           {renderSequence()}
         </div>
-        <div className={cn(
-          "h-full flex flex-col min-h-0",
-          isPS5 ? "hidden" : "lg:hidden"
-        )}>
-          {subView === 'list' ? renderSequence() : renderAvailable()}
+        <div className={cn("h-full min-h-0", isPS5 ? "col-span-12 lg:col-span-4" : subView === 'add' ? "col-span-12 lg:col-span-4" : "hidden lg:block lg:col-span-4")}>
+          {renderAvailable()}
         </div>
       </div>
 
-      <Modal
-        show={showDelayModal}
-        title={t("autoload.delay_modal.title", "Configure Delay")}
-        onClose={() => setShowDelayModal(false)}
-        footer={
-          <button
-            onClick={() => setShowDelayModal(false)}
-            className="w-full py-4 bg-white/5 hover:bg-white/10 text-white rounded-2xl font-bold uppercase tracking-tight transition-all"
-          >
-            {t("autoload.delay_modal.cancel", "Cancel")}
-          </button>
-        }
-      >
-        <div className="space-y-6 md:space-y-8">
-          <div className="grid grid-cols-3 gap-3 md:gap-4">
-            {[1, 3, 5].map(s => (
+      <Modal show={showDelayModal} title={t("autoload.add_delay_modal_title", "Add Delay")} onClose={() => setShowDelayModal(false)}>
+        <div className="space-y-6">
+          <p className="text-zinc-400 font-medium text-sm">
+            {t("autoload.add_delay_modal_desc", "Add a pause between payloads to allow background services to initialize properly.")}
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            {[1, 2, 3, 5, 10, 15].map((s) => (
               <button
                 key={s}
                 onClick={() => addDelay(s * 1000)}
-                className="py-4 md:py-6 bg-ps-blue/20 hover:bg-ps-blue border border-ps-blue/30 text-white rounded-2xl font-black text-xl md:text-2xl transition-all shadow-lg"
+                className="p-4 bg-white/5 hover:bg-ps-blue text-white rounded-xl font-bold text-center border border-white/10 hover:border-ps-blue transition-all"
               >
                 {s}s
               </button>
             ))}
           </div>
-
-          <div className="space-y-3 md:space-y-4">
-            <p className="label-caps !text-zinc-500 text-sm md:text-base">{t("autoload.delay_modal.custom_delay_label", "Custom Delay (ms)")}</p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                type="number"
-                placeholder={t("autoload.delay_modal.placeholder", "e.g. 2500")}
-                value={customDelay}
-                onChange={(e) => setCustomDelay(e.target.value)}
-                className="flex-1 bg-white/5 border border-white/10 rounded-2xl p-4 md:p-5 text-white font-mono text-xl md:text-2xl focus:border-ps-blue outline-none transition-all"
-              />
-              <button
-                onClick={() => customDelay && addDelay(parseInt(customDelay))}
-                className="py-4 md:py-0 px-8 md:px-10 bg-ps-blue text-white rounded-2xl font-black uppercase italic tracking-tighter text-lg md:text-xl shadow-2xl hover:bg-ps-blue/80 transition-all shrink-0"
-              >
-                {t("autoload.delay_modal.add_btn", "Add")}
-              </button>
-            </div>
+          <div className="flex space-x-2 pt-2">
+            <input
+              type="number"
+              placeholder={t("autoload.custom_seconds", "Custom seconds...")}
+              value={customDelay}
+              onChange={(e) => setCustomDelay(e.target.value)}
+              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-ps-blue"
+            />
+            <button
+              onClick={() => {
+                const val = parseFloat(customDelay)
+                if (val > 0) addDelay(val * 1000)
+              }}
+              disabled={!customDelay || parseFloat(customDelay) <= 0}
+              className="px-6 bg-ps-blue text-white rounded-xl font-bold disabled:opacity-50"
+            >
+              {t("autoload.add_btn", "Add")}
+            </button>
           </div>
         </div>
       </Modal>

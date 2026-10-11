@@ -22,6 +22,7 @@
 #include "config.h"
 #include "http_server.h"
 #include "repository.h"
+#include "slot.h"
 #include "ps5_launcher.h"
 #include "app_installer.h"
 
@@ -95,6 +96,9 @@ int main(int argc, char *argv[]) {
 
     pldmgr_log("[PLDMGR] Starting Payload Manager v%s on port %d...\n",
                pldmgr_version_sig + 11, port);
+
+    /* Run one-time migration to layout v2 if needed */
+    slot_migrate_legacy();
 
     /* Check for Self-Update */
     char new_payload_path[512];

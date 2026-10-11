@@ -1,4 +1,7 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { slug } from '../utils/versions';
+import { normalizeUrl } from '../utils/payloadStatus';
 
 const RepositoryContext = createContext();
 
@@ -22,52 +25,152 @@ export const RepositoryProvider = ({ children }) => {
     } catch (err) {
       console.error(err);
       setError(true);
-      setRepoData([]);
+      setRepoData({ sources: [] });
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Fetch only once on mount
+  // Fetch once on mount
   useEffect(() => {
     if (repoData === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchRemote();
     }
   }, [fetchRemote, repoData]);
 
-  // filename -> { icon, author, release_notes, details_url, display_name }
-  // built from all payload entries in the fetched repository data.
-  const filenameMap = useMemo(() => {
-    const map = {};
-    if (!repoData) return map;
-
-    const collect = (entries) => {
-      if (!Array.isArray(entries)) return;
-      for (const e of entries) {
-        if (e && e.filename) {
-          map[e.filename] = {
-            icon: e.icon || null,
-            author: e.author || null,
-            release_notes: e.release_notes || null,
-            details_url: e.details_url || null,
-            display_name: e.name || null,
-          };
-        }
-      }
-    };
-
+  // Normalized sources list
+  const sources = useMemo(() => {
+    if (!repoData) return [];
     if (Array.isArray(repoData.sources)) {
-      repoData.sources.forEach((src) => collect(src && src.payloads));
-    } else if (Array.isArray(repoData.payloads)) {
-      collect(repoData.payloads);
-    } else if (repoData.payloads && Array.isArray(repoData.payloads.payloads)) {
-      collect(repoData.payloads.payloads);
+      return repoData.sources.map((src) => ({
+        id: src.id || src.url,
+        name: src.name || 'Repository',
+        url: src.url || '',
+        last_update: src.last_update || 0,
+        error: src.error || null,
+        payloads: Array.isArray(src.payloads)
+          ? src.payloads.map((p) => ({
+              ...p,
+              id: p.id || slug(p.name || p.filename),
+            }))
+          : [],
+      }));
     }
-    return map;
+    // Backward compatibility with bare array or single payloads array
+    const rawList = Array.isArray(repoData)
+      ? repoData
+      : Array.isArray(repoData.payloads)
+      ? repoData.payloads
+      : repoData.payloads && Array.isArray(repoData.payloads.payloads)
+      ? repoData.payloads.payloads
+      : [];
+
+    return [
+      {
+        id: 'default',
+        name: repoData.name || 'Default Repository',
+        url: repoData.repo_url || '',
+        last_update: repoData.last_update || 0,
+        error: null,
+        payloads: rawList.map((p) => ({
+          ...p,
+          id: p.id || slug(p.name || p.filename),
+        })),
+      },
+    ];
   }, [repoData]);
 
+  // Index by source_url -> id -> entry
+  const repoIndex = useMemo(() => {
+    const map = new Map(); // normalized_url -> Map(id -> entry)
+
+    for (const src of sources) {
+      const nUrl = normalizeUrl(src.url);
+      let srcMap = map.get(nUrl);
+      if (!srcMap) {
+        srcMap = new Map();
+        map.set(nUrl, srcMap);
+      }
+      for (const p of src.payloads) {
+        if (p.id) {
+          srcMap.set(p.id, { ...p, source_url: src.url, source_name: src.name, source_id: src.id });
+        }
+      }
+    }
+    return map;
+  }, [sources]);
+
+  // Helper lookup functions
+  const getRepoEntry = useCallback(
+    (sourceUrl, id) => {
+      if (!id) return null;
+      const nUrl = normalizeUrl(sourceUrl);
+      const srcMap = repoIndex.get(nUrl);
+      return srcMap ? srcMap.get(id) || null : null;
+    },
+    [repoIndex]
+  );
+
+  const findRepoEntryById = useCallback(
+    (id, preferSrcUrl = null) => {
+      if (!id) return null;
+      if (preferSrcUrl) {
+        const match = getRepoEntry(preferSrcUrl, id);
+        if (match) return match;
+      }
+      for (const srcMap of repoIndex.values()) {
+        const match = srcMap.get(id);
+        if (match) return match;
+      }
+      return null;
+    },
+    [getRepoEntry, repoIndex]
+  );
+
+  const findRepoEntryByFilename = useCallback(
+    (filename, preferSrcUrl = null) => {
+      if (!filename) return null;
+      const lower = filename.toLowerCase();
+
+      // Check preferred source first if specified
+      if (preferSrcUrl) {
+        const srcMap = repoIndex.get(normalizeUrl(preferSrcUrl));
+        if (srcMap) {
+          for (const entry of srcMap.values()) {
+            if (entry.filename === filename || entry.filename?.toLowerCase() === lower) {
+              return entry;
+            }
+          }
+        }
+      }
+
+      for (const srcMap of repoIndex.values()) {
+        for (const entry of srcMap.values()) {
+          if (entry.filename === filename || entry.filename?.toLowerCase() === lower) {
+            return entry;
+          }
+        }
+      }
+      return null;
+    },
+    [repoIndex]
+  );
+
   return (
-    <RepositoryContext.Provider value={{ repoData, loading, error, fetchRemote, filenameMap }}>
+    <RepositoryContext.Provider
+      value={{
+        repoData,
+        sources,
+        loading,
+        error,
+        fetchRemote,
+        repoIndex,
+        getRepoEntry,
+        findRepoEntryById,
+        findRepoEntryByFilename,
+      }}
+    >
       {children}
     </RepositoryContext.Provider>
   );
