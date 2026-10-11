@@ -119,11 +119,13 @@ export const RepositoryProvider = ({ children }) => {
         const match = getRepoEntry(preferSrcUrl, id);
         if (match) return match;
       }
-      for (const srcMap of repoIndex.values()) {
-        const match = srcMap.get(id);
-        if (match) return match;
-      }
-      return null;
+      let found = null;
+      repoIndex.forEach((srcMap) => {
+        if (!found && srcMap.has(id)) {
+          found = srcMap.get(id);
+        }
+      });
+      return found;
     },
     [getRepoEntry, repoIndex]
   );
@@ -137,22 +139,27 @@ export const RepositoryProvider = ({ children }) => {
       if (preferSrcUrl) {
         const srcMap = repoIndex.get(normalizeUrl(preferSrcUrl));
         if (srcMap) {
-          for (const entry of srcMap.values()) {
-            if (entry.filename === filename || entry.filename?.toLowerCase() === lower) {
-              return entry;
+          let preferredMatch = null;
+          srcMap.forEach((entry) => {
+            if (!preferredMatch && (entry.filename === filename || entry.filename?.toLowerCase() === lower)) {
+              preferredMatch = entry;
             }
-          }
+          });
+          if (preferredMatch) return preferredMatch;
         }
       }
 
-      for (const srcMap of repoIndex.values()) {
-        for (const entry of srcMap.values()) {
-          if (entry.filename === filename || entry.filename?.toLowerCase() === lower) {
-            return entry;
-          }
+      let found = null;
+      repoIndex.forEach((srcMap) => {
+        if (!found) {
+          srcMap.forEach((entry) => {
+            if (!found && (entry.filename === filename || entry.filename?.toLowerCase() === lower)) {
+              found = entry;
+            }
+          });
         }
-      }
-      return null;
+      });
+      return found;
     },
     [repoIndex]
   );

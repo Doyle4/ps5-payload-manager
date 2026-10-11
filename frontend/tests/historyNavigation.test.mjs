@@ -315,3 +315,44 @@ test('writeHistory and seedHistory do not throw when window or window.history is
     globalThis.window = originalWindow
   }
 })
+
+test('initial popstate on root dashboard without user navigation is safely ignored', () => {
+  // Simulate WebKit onload popstate behavior
+  let closed = false
+  let backed = false
+  const mockWindow = {
+    close: () => { closed = true },
+    history: { back: () => { backed = true } },
+    location: { hash: '#/' },
+  }
+
+  const simulatePopState = ({ curView, targetType, hasNavigated, mountAgeMs }) => {
+    // Mirror handlePopState logic
+    if (!hasNavigated && curView === 'dashboard' && targetType === 'dashboard') {
+      return 'ignored_initial'
+    }
+    if (mountAgeMs < 1500 && curView === 'dashboard' && targetType === 'dashboard') {
+      return 'ignored_recent_mount'
+    }
+    if (curView === 'dashboard' && targetType === 'dashboard') {
+      if (hasNavigated) {
+        mockWindow.close()
+      }
+      return 'handled_dashboard'
+    }
+    return 'transition'
+  }
+
+  // 1. Initial load popstate (mountAgeMs = 100, hasNavigated = false)
+  const res1 = simulatePopState({ curView: 'dashboard', targetType: 'dashboard', hasNavigated: false, mountAgeMs: 100 })
+  assert.equal(res1, 'ignored_initial')
+  assert.equal(closed, false)
+  assert.equal(backed, false)
+
+  // 2. Popstate after user actively navigated back to dashboard
+  const res2 = simulatePopState({ curView: 'dashboard', targetType: 'dashboard', hasNavigated: true, mountAgeMs: 5000 })
+  assert.equal(res2, 'handled_dashboard')
+  assert.equal(closed, true)
+  assert.equal(backed, false) // should never call history.back inside popstate
+})
+

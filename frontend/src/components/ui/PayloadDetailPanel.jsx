@@ -41,7 +41,7 @@ const getReadmeUrls = (payload, srcUrl) => {
   // 1. Explicit details_url
   if (payload?.details_url) {
     let url = payload.details_url;
-    if (!url.startsWith('http') && srcUrl) {
+    if (typeof url === 'string' && !url.startsWith('http') && srcUrl) {
       const base = srcUrl.substring(0, srcUrl.lastIndexOf('/') + 1);
       url = base + url;
     }
@@ -156,7 +156,7 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, statusInfo, isInstall
             </h1>
             {payload.version && (
               <span className="px-2.5 py-1 rounded-lg bg-ps-blue/15 text-ps-blue border border-ps-blue/30 font-extrabold text-xs sm:text-sm tracking-wider uppercase shrink-0">
-                {payload.version.startsWith('v') ? payload.version : `v${payload.version}`}
+                {String(payload.version).startsWith('v') ? payload.version : `v${payload.version}`}
               </span>
             )}
             {payload.category && (

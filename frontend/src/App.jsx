@@ -31,6 +31,7 @@ import Modal from './components/ui/Modal'
 import NavButton from './components/ui/NavButton'
 import PayloadButton from './components/ui/PayloadButton'
 import LogoIcon from './components/ui/LogoIcon'
+import ErrorBoundary from './components/ui/ErrorBoundary'
 
 // Views
 import StorageHub from './components/views/StorageHub'
@@ -137,22 +138,29 @@ function App() {
   })
   const [favoritePayloads, setFavoritePayloads] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('favoritePayloads') || '[]')
+      const parsed = JSON.parse(localStorage.getItem('favoritePayloads') || '[]')
+      return Array.isArray(parsed) ? parsed.filter(p => typeof p === 'string') : []
     } catch { return [] }
   })
 
   useEffect(() => {
-    localStorage.setItem('favoritePayloads', JSON.stringify(favoritePayloads))
+    try {
+      localStorage.setItem('favoritePayloads', JSON.stringify(favoritePayloads))
+    } catch {
+      /* ignore storage errors */
+    }
   }, [favoritePayloads])
 
   const toggleFavorite = (path) => {
-    setFavoritePayloads(prev =>
-      prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]
-    )
+    setFavoritePayloads(prev => {
+      if (!Array.isArray(prev)) return [path]
+      return prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]
+    })
   }
 
   const moveFavorite = (path, direction) => {
     setFavoritePayloads(prev => {
+      if (!Array.isArray(prev)) return []
       const idx = prev.indexOf(path)
       if (idx === -1) return prev
       const newIdx = idx + direction
@@ -261,12 +269,14 @@ function App() {
     }
 
     for (const usbPath of usbPayloads) {
+      const fn = typeof usbPath === 'string' ? usbPath.split('/').pop() : ''
       list.push({
         key: usbPath,
         slot: null,
         path: usbPath,
         kind: 'usb',
-        filename: usbPath.split('/').pop(),
+        filename: fn,
+        name: fn,
         id: null,
         isUsb: true,
       })
@@ -298,8 +308,10 @@ function App() {
       if (data.legacy_paths && typeof data.legacy_paths === 'object') {
         const lMap = data.legacy_paths
         setFavoritePayloads((prev) => {
+          if (!Array.isArray(prev)) return []
           let modified = false
           const mapped = prev.map((fav) => {
+            if (typeof fav !== 'string') return fav
             if (lMap[fav]) {
               modified = true
               return lMap[fav]
@@ -310,9 +322,13 @@ function App() {
               return lMap[fn]
             }
             return fav
-          })
+          }).filter(x => typeof x === 'string')
           if (modified) {
-            localStorage.setItem('favoritePayloads', JSON.stringify(mapped))
+            try {
+              localStorage.setItem('favoritePayloads', JSON.stringify(mapped))
+            } catch {
+              /* ignore storage errors */
+            }
             return mapped
           }
           return prev
@@ -845,10 +861,17 @@ function App() {
           "custom-scrollbar max-w-[1800px] mx-auto w-full flex flex-col",
           isPS5 ? "pt-16 px-16 pb-12 flex-1 overflow-y-auto" : "pt-6 px-6 pb-36 md:pt-16 md:px-16 md:pb-12 md:flex-1 md:overflow-y-auto"
         )}>
+          <ErrorBoundary title={t("app.error.view_error", "View Render Error")} canDismiss>
           {view === 'dashboard' && (() => {
-            const visibleKeys = dashboardItems.map(d => d.key)
-            const activeFavorites = favoritePayloads.filter(k => visibleKeys.includes(k))
-            const unfavorited = dashboardItems.filter(d => !favoritePayloads.includes(d.key))
+            const itemMap = new Map()
+            for (const d of dashboardItems) {
+              if (d && d.key) itemMap.set(d.key, d)
+            }
+            const activeFavoriteItems = favoritePayloads
+              .map(k => itemMap.get(k))
+              .filter(Boolean)
+            const activeFavoriteKeys = new Set(activeFavoriteItems.map(d => d.key))
+            const unfavorited = dashboardItems.filter(d => !activeFavoriteKeys.has(d.key))
             
             // Extract translations to variables for i18next-parser compatibility
             const txtFavorites = t("app.dashboard.favorites", "Favorites")
@@ -859,59 +882,78 @@ function App() {
               isPS5 ? "grid-cols-3 xl:grid-cols-4" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
             )
             const makeCard = (item) => {
-              const isUsb = Boolean(item.isUsb)
-              let displayName = item.name || item.filename
-              let version = item.version || null
+              if (!item) return null
+              const itemObj = (typeof item === 'string')
+                ? (itemMap.get(item) || {
+                    key: item,
+                    slot: item,
+                    path: item,
+                    filename: item.split('/').pop(),
+                    name: item.split('/').pop(),
+                    kind: 'local',
+                    isUsb: item.startsWith('/mnt/usb'),
+                  })
+                : item
+
+              const isUsb = Boolean(itemObj.isUsb)
+              let displayName = itemObj.name || itemObj.filename || ''
+              let version = itemObj.version || null
               let author = null
               let icon = null
               let sourceName = null
 
               if (isUsb) {
-                const parsed = parsePayloadName(item.filename)
+                const parsed = parsePayloadName(itemObj.filename)
                 displayName = parsed.displayName
                 version = parsed.version
-              } else if (item.kind === 'local') {
-                const parsed = parsePayloadName(item.filename)
+              } else if (itemObj.kind === 'local') {
+                const parsed = parsePayloadName(itemObj.filename)
                 displayName = parsed.displayName
-                version = item.version || parsed.version
+                version = itemObj.version || parsed.version
                 sourceName = t("app.dashboard.manual_badge", "Manual")
               } else {
-                const repoMeta = getRepoEntry(item.source_url, item.id) || findRepoEntryById(item.id)
-                displayName = repoMeta?.name || item.name || item.id
-                version = item.version || repoMeta?.version || null
-                author = repoMeta?.author || item.author || null
+                const repoMeta = getRepoEntry(itemObj.source_url, itemObj.id) || findRepoEntryById(itemObj.id)
+                displayName = repoMeta?.name || itemObj.name || itemObj.id || itemObj.filename
+                version = itemObj.version || repoMeta?.version || null
+                author = repoMeta?.author || itemObj.author || null
                 icon = repoMeta?.icon || null
-                if (item.hasDuplicateId || config.MULTI_SOURCES_ENABLED) {
-                  sourceName = item.source_name || repoMeta?.source_name || null
+                if (itemObj.hasDuplicateId || config.MULTI_SOURCES_ENABLED) {
+                  sourceName = itemObj.source_name || repoMeta?.source_name || null
                 }
               }
 
+              const pathProp = itemObj.isUsb ? itemObj.path : (itemObj.path || itemObj.filename || itemObj.slot || '')
+              const slotOrKey = itemObj.slot || itemObj.key || itemObj.path || ''
+              const favIndex = favoritePayloads.indexOf(itemObj.key)
+              const isFavorite = favIndex !== -1
+
               return (
                 <PayloadButton
-                  key={item.key}
-                  path={item.isUsb ? item.path : item.filename}
+                  key={itemObj.key || slotOrKey}
+                  path={pathProp}
+                  itemKey={itemObj.key}
                   onClick={() => {
                     if (isManageMode) {
-                      if (!isUsb) handleDelete(item.slot, displayName)
+                      if (!isUsb) handleDelete(itemObj.slot || slotOrKey, displayName)
                       return
                     }
-                    if (isFavoriteEditMode) toggleFavorite(item.key)
-                    else loadPayload(item.isUsb ? item.path : item.slot, displayName)
+                    if (isFavoriteEditMode) toggleFavorite(itemObj.key)
+                    else loadPayload(itemObj.isUsb ? itemObj.path : (itemObj.slot || slotOrKey), displayName)
                   }}
-                  onDelete={() => handleDelete(item.slot, displayName)}
+                  onDelete={() => handleDelete(itemObj.slot || slotOrKey, displayName)}
                   isLoading={loading && activeLoadingName === (displayName || '').replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')}
                   sourceName={sourceName}
                   version={version}
                   icon={icon}
                   author={author}
                   displayName={displayName}
-                  isFavorite={favoritePayloads.includes(item.key)}
-                  isLaunched={launchHistory.includes(item.key) || launchHistory.includes(item.path)}
+                  isFavorite={isFavorite}
+                  isLaunched={launchHistory.includes(itemObj.key) || launchHistory.includes(itemObj.path)}
                   isEditMode={isFavoriteEditMode}
                   isManageMode={isManageMode}
-                  onMoveFavorite={moveFavorite}
-                  canMoveLeft={favoritePayloads.indexOf(item.key) > 0}
-                  canMoveRight={favoritePayloads.indexOf(item.key) < favoritePayloads.length - 1}
+                  onMoveFavorite={(dir) => moveFavorite(itemObj.key, dir)}
+                  canMoveLeft={isFavorite && favIndex > 0}
+                  canMoveRight={isFavorite && favIndex < favoritePayloads.length - 1}
                 />
               )
             }
@@ -979,14 +1021,14 @@ function App() {
                   </div>
                 ) : (
                   <div className="space-y-8 md:space-y-12">
-                    {activeFavorites.length > 0 && (
+                    {activeFavoriteItems.length > 0 && (
                       <div className="space-y-4">
                         <div className="flex items-center gap-3">
                           <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
                           <span className="text-sm font-bold tracking-widest uppercase text-yellow-400">{txtFavorites}</span>
                         </div>
                         <div className={gridCols}>
-                          {activeFavorites.map(makeCard)}
+                          {activeFavoriteItems.map(makeCard)}
                         </div>
                         <div className="border-t border-white/5 pt-8">
                           <p className="text-sm font-bold tracking-widest uppercase text-zinc-500 mb-4">{txtOthers}</p>
@@ -996,7 +1038,7 @@ function App() {
                         </div>
                       </div>
                     )}
-                    {activeFavorites.length === 0 && (
+                    {activeFavoriteItems.length === 0 && (
                       <div className={gridCols}>
                         {dashboardItems.map(makeCard)}
                       </div>
@@ -1086,6 +1128,7 @@ function App() {
           )}
 
           {view === 'donate' && <DonateView />}
+          </ErrorBoundary>
         </main>
       </div>
 

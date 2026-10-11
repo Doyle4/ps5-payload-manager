@@ -5,9 +5,29 @@ import PayloadName from './PayloadName'
 import PayloadIcon from './PayloadIcon'
 import { cn } from '../../utils/helpers'
 
-const PayloadButton = ({ path, onClick, onDelete, isLoading, sourceName, version, icon, author, displayName, isFavorite, isLaunched, isEditMode, isManageMode, onMoveFavorite, canMoveLeft, canMoveRight }) => {
+const PayloadButton = ({
+  path = '',
+  itemKey,
+  onClick,
+  onDelete,
+  isLoading,
+  sourceName,
+  version,
+  icon,
+  author,
+  displayName,
+  isFavorite,
+  isLaunched,
+  isEditMode,
+  isManageMode,
+  onMoveFavorite,
+  canMoveLeft,
+  canMoveRight,
+}) => {
   const { t } = useTranslation()
-  const isUsb = path.startsWith('/mnt/usb')
+  const safePath = typeof path === 'string' ? path : ''
+  const isUsb = Boolean(safePath && safePath.startsWith('/mnt/usb'))
+  const iconName = safePath ? safePath.split('/').pop() : (displayName || 'Payload')
 
   const handleClick = (e) => {
     if (isManageMode) {
@@ -17,6 +37,16 @@ const PayloadButton = ({ path, onClick, onDelete, isLoading, sourceName, version
       }
     } else if (onClick) {
       onClick(e)
+    }
+  }
+
+  const handleMove = (e, direction) => {
+    e.stopPropagation()
+    if (!onMoveFavorite) return
+    if (onMoveFavorite.length === 1) {
+      onMoveFavorite(direction)
+    } else {
+      onMoveFavorite(itemKey || safePath, direction)
     }
   }
 
@@ -33,9 +63,9 @@ const PayloadButton = ({ path, onClick, onDelete, isLoading, sourceName, version
     >
       <div className="flex items-start justify-between w-full z-10">
         <div className="flex items-center gap-4 min-w-0 pr-2">
-          <PayloadIcon icon={icon} name={path.split('/').pop()} className="w-12 h-12 text-xl" />
+          <PayloadIcon icon={icon} name={iconName} className="w-12 h-12 text-xl" />
           <div className="min-w-0 flex-1">
-            <PayloadName path={path} version={version} hideVersion={true} displayName={displayName} className="text-white text-xl" stacked={false} />
+            <PayloadName path={safePath} version={version} hideVersion={true} displayName={displayName} className="text-white text-xl" stacked={false} />
             <div className="flex items-center gap-2 mt-0.5">
               {version && <span className="text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0">{version}</span>}
               {author && (
@@ -77,7 +107,7 @@ const PayloadButton = ({ path, onClick, onDelete, isLoading, sourceName, version
       </div>
       {isUsb && (
         <div className="mt-3 text-[10px] text-zinc-500 font-medium truncate opacity-60 group-hover:opacity-100 transition-opacity z-10 select-none">
-          {path}
+          {safePath}
         </div>
       )}
       {sourceName && !isUsb && !(isEditMode && isFavorite) && !isManageMode && (
@@ -91,14 +121,14 @@ const PayloadButton = ({ path, onClick, onDelete, isLoading, sourceName, version
       {(isEditMode && isFavorite) && (
         <div className="absolute bottom-2 right-3 flex items-center gap-2 z-20">
           <button
-            onClick={(e) => { e.stopPropagation(); if (canMoveLeft) onMoveFavorite(path, -1); }}
+            onClick={(e) => { if (canMoveLeft) handleMove(e, -1); }}
             disabled={!canMoveLeft}
             className="p-1.5 bg-ps-black border border-white/10 rounded-lg hover:bg-ps-blue/20 hover:border-ps-blue hover:text-ps-blue transition-colors disabled:opacity-30 disabled:pointer-events-none text-zinc-400"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); if (canMoveRight) onMoveFavorite(path, 1); }}
+            onClick={(e) => { if (canMoveRight) handleMove(e, 1); }}
             disabled={!canMoveRight}
             className="p-1.5 bg-ps-black border border-white/10 rounded-lg hover:bg-ps-blue/20 hover:border-ps-blue hover:text-ps-blue transition-colors disabled:opacity-30 disabled:pointer-events-none text-zinc-400"
           >

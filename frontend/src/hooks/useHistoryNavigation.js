@@ -183,6 +183,8 @@ export function useHistoryNavigation({
   const historySeededRef = useRef(false)
   const modalPushedRef = useRef(false)
   const isProgrammaticModalCloseRef = useRef(false)
+  const initialMountTimeRef = useRef(Date.now())
+  const hasUserNavigatedRef = useRef(false)
 
   const modalStateRef = useRef({
     confirmModal,
@@ -322,6 +324,7 @@ export function useHistoryNavigation({
 
   // Handlers for payload selection / closing
   const handleClosePayload = useCallback(() => {
+    hasUserNavigatedRef.current = true
     if (typeof window !== 'undefined' && window.history && window.history.length > 1 && currentRouteRef.current?.type === 'payload') {
       window.history.back()
     } else {
@@ -337,6 +340,7 @@ export function useHistoryNavigation({
   }, [setView])
 
   const handleSelectPayload = useCallback((payloadData) => {
+    hasUserNavigatedRef.current = true
     if (!payloadData) {
       handleClosePayload()
       return
@@ -400,17 +404,22 @@ export function useHistoryNavigation({
       // 2. Read destination target
       const target = getRouteFromHash(window.location.hash)
 
+      // Guard against WebKit's initial onload popstate event on PS5
+      if (!hasUserNavigatedRef.current && curView === 'dashboard' && target.type === 'dashboard') {
+        return
+      }
+      if (Date.now() - initialMountTimeRef.current < 1500 && curView === 'dashboard' && target.type === 'dashboard') {
+        return
+      }
+
       // 3. If user was ALREADY on dashboard and target is dashboard (Circle pressed on root), close PS5 browser
       if (curView === 'dashboard' && target.type === 'dashboard' && !selectedPayloadRef.current) {
-        try {
-          window.close()
-        } catch {
-          /* ignore close error */
-        }
-        try {
-          window.history.back()
-        } catch {
-          /* ignore back error */
+        if (hasUserNavigatedRef.current) {
+          try {
+            window.close()
+          } catch {
+            /* ignore close error */
+          }
         }
         return
       }
@@ -470,6 +479,7 @@ export function useHistoryNavigation({
 
   // Navigate between views
   const navigate = useCallback((newView, options = {}) => {
+    hasUserNavigatedRef.current = true
     if (newView === currentViewRef.current && !selectedPayloadRef.current) return
     const prevView = currentViewRef.current
 

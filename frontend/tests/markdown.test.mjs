@@ -52,3 +52,24 @@ test('parseMarkdown handles null, undefined, and empty string safely', () => {
   assert.equal(parseMarkdown(''), '');
   assert.equal(parseMarkdown(123), '');
 });
+
+test('parseMarkdown handles unknown shortcodes and URLs gracefully', () => {
+  const result = parseMarkdown('Check https://example.com:8080/test and :nonexistent_emoji_code:');
+  assert.ok(result.includes('https://example.com:8080/test'));
+  assert.ok(result.includes(':nonexistent_emoji_code:'));
+});
+
+test('polyfills provide standard Safari 11/12 runtime APIs', () => {
+  assert.equal(typeof globalThis, 'object');
+  assert.equal(['a', 'b', 'c'].at(-1), 'c');
+  assert.equal(['a', 'b', 'c'].at(0), 'a');
+  assert.equal(['a', 'b', 'c'].at(5), undefined);
+  assert.equal('hello'.at(-1), 'o');
+  assert.deepEqual([1, [2, [3, [4]]]].flat(Infinity), [1, 2, 3, 4]);
+  assert.deepEqual([1, 2].flatMap((x) => [x, x * 2]), [1, 2, 2, 4]);
+  assert.deepEqual(Object.fromEntries([['k', 'v'], ['num', 42]]), { k: 'v', num: 42 });
+  assert.equal(Object.hasOwn({ foo: 1 }, 'foo'), true);
+  assert.equal(Object.hasOwn({ foo: 1 }, 'bar'), false);
+  assert.equal('foo bar foo'.replaceAll('foo', 'baz'), 'baz bar baz');
+});
+

@@ -1,8 +1,8 @@
 import { clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
-export const isPS5 = /PlayStation/i.test(navigator.userAgent);
-export const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+export const isPS5 = typeof navigator !== 'undefined' && /PlayStation/i.test(navigator.userAgent);
+export const isIOS = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 
 export function cn(...inputs) {
   return twMerge(clsx(inputs))
@@ -19,7 +19,7 @@ export const getBaseName = (filename) => {
 };
 
 export const parsePayloadName = (path) => {
-  if (!path) return { displayName: '', version: null };
+  if (!path || typeof path !== 'string') return { displayName: '', version: null, isDelay: false };
   if (path.startsWith('!')) {
     const ms = parseInt(path.substring(1));
     return { displayName: `Delay (${ms / 1000}s)`, version: null, isDelay: true, delaySeconds: ms / 1000 };
@@ -46,7 +46,7 @@ export const parsePayloadName = (path) => {
 };
 
 export const isSystemPayload = (filename) => {
-  if (!filename) return false;
+  if (!filename || typeof filename !== 'string') return false;
   const name = filename.split('/').pop().toLowerCase();
   return name.startsWith('pldmgr') || name.includes('payload-manager');
 };
@@ -63,10 +63,13 @@ export const cleanDisplayName = (name, version) => {
   if (!name || typeof name !== 'string') return '';
   let cleaned = name.trim();
   if (version) {
-    const bareVer = String(version).replace(/^v/i, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const verSuffixRegex = new RegExp(`[\\s_\\.-]+v?${bareVer}$`, 'i');
-    cleaned = cleaned.replace(verSuffixRegex, '').trim();
+    try {
+      const bareVer = String(version).replace(/^v/i, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const verSuffixRegex = new RegExp(`[\\s_\\.-]+v?${bareVer}$`, 'i');
+      cleaned = cleaned.replace(verSuffixRegex, '').trim();
+    } catch {
+      /* ignore regex error if any */
+    }
   }
   return cleaned;
 };
-
