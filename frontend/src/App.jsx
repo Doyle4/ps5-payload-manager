@@ -564,7 +564,8 @@ function App() {
     const success = await api('/set_config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(merged)
+      body: JSON.stringify(merged),
+      keepalive: true,
     })
     if (success) {
       refreshConfig()
@@ -817,7 +818,13 @@ function App() {
       )}>
         <main ref={mainRef} className={cn(
           "custom-scrollbar max-w-[1800px] mx-auto w-full flex flex-col",
-          isPS5 ? "pt-16 px-16 pb-12 flex-1 overflow-y-auto" : "pt-6 px-6 pb-36 md:pt-16 md:px-16 md:pb-12 md:flex-1 md:overflow-y-auto"
+          view === 'autoload'
+            ? (isPS5
+                ? "pt-8 px-12 pb-6 flex-1 min-h-0 overflow-hidden"
+                : "pt-6 px-6 pb-24 md:pt-8 md:px-12 md:pb-6 md:flex-1 md:min-h-0 md:overflow-hidden")
+            : (isPS5
+                ? "pt-16 px-16 pb-12 flex-1 overflow-y-auto"
+                : "pt-6 px-6 pb-36 md:pt-16 md:px-16 md:pb-12 md:flex-1 md:overflow-y-auto")
         )}>
           <ErrorBoundary title={t("app.error.view_error", "View Render Error")} canDismiss>
           {view === 'dashboard' && (() => {
