@@ -813,7 +813,7 @@ function App() {
                 const parsed = parsePayloadName(itemObj.filename)
                 displayName = parsed.displayName
                 version = itemObj.version || parsed.version
-                sourceName = t("app.dashboard.manual_badge", "Manual")
+                sourceName = t("app.dashboard.other_source_badge", "Other Source")
               } else {
                 const repoMeta = getRepoEntry(itemObj.source_url, itemObj.id) || findRepoEntryById(itemObj.id)
                 displayName = repoMeta?.name || itemObj.name || itemObj.id || itemObj.filename

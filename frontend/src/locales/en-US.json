@@ -53,6 +53,7 @@
   "app.loading.subtitle": "LAUNCHING PAYLOAD...",
   "app.logs.title": "Logs",
   "app.dashboard.launched_tooltip": "Launched recently",
+  "app.dashboard.other_source_badge": "Other Source",
   "storage_hub.update_badge": "Update",
   "storage_hub.installed_badge": "Installed",
   "storage_hub.no_description": "No description available",

@@ -74,6 +74,14 @@ const PayloadButton = ({
                 </div>
               )}
             </div>
+            {sourceName && !isUsb && (
+              <div className="flex items-center mt-1">
+                <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0 max-w-full select-none">
+                  <Globe className="w-3 h-3 text-zinc-400 shrink-0" />
+                  <span className="truncate">{sourceName}</span>
+                </span>
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -108,14 +116,6 @@ const PayloadButton = ({
       {isUsb && (
         <div className="mt-3 text-[10px] text-zinc-500 font-medium truncate opacity-60 group-hover:opacity-100 transition-opacity z-10 select-none">
           {safePath}
-        </div>
-      )}
-      {sourceName && !isUsb && !(isEditMode && isFavorite) && !isManageMode && (
-        <div className="absolute bottom-2 right-3 flex items-center gap-1 z-10 pointer-events-none">
-          <Globe className="w-3 h-3 text-zinc-500 shrink-0" />
-          <span className="text-[11px] text-zinc-400 font-medium truncate max-w-[120px] select-none">
-            {sourceName}
-          </span>
         </div>
       )}
       {(isEditMode && isFavorite) && (
