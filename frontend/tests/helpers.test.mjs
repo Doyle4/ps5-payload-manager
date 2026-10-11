@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatVersionTag, parsePayloadName, getBaseName, cleanDisplayName } from '../src/utils/helpers.js';
+import { formatVersionTag, parsePayloadName, getBaseName, cleanDisplayName, isSystemPayload } from '../src/utils/helpers.js';
 
 test('formatVersionTag preserves short and normal versions', () => {
   assert.equal(formatVersionTag('0.1'), '0.1');
@@ -76,3 +76,56 @@ test('cleanDisplayName removes trailing duplicate versions matching version tag'
   assert.equal(cleanDisplayName(null, 'v0.9'), '');
   assert.equal(cleanDisplayName(undefined, 'v0.9'), '');
 });
+
+test('isSystemPayload correctly identifies pldmgr and payload-manager binaries and variations', () => {
+  assert.equal(isSystemPayload('pldmgr.elf'), true);
+  assert.equal(isSystemPayload('pldmgr_v0.5.1.elf'), true);
+  assert.equal(isSystemPayload('/data/pldmgr/payloads/repo/pldmgr@abcd1234/pldmgr_v0.6.0.elf'), true);
+  assert.equal(isSystemPayload('payload-manager.elf'), true);
+  assert.equal(isSystemPayload('payload-manager_v1.0.bin'), true);
+  assert.equal(isSystemPayload('payload_manager.elf'), true);
+  assert.equal(isSystemPayload('payload manager.elf'), true);
+  assert.equal(isSystemPayload('payloadmanager.bin'), true);
+  assert.equal(isSystemPayload('Payload Manager'), true);
+  assert.equal(isSystemPayload('pldmgr'), true);
+  assert.equal(isSystemPayload('etaHEN_2.5B.bin'), false);
+  assert.equal(isSystemPayload('kstuff_v1.6.7.elf'), false);
+  assert.equal(isSystemPayload(null), false);
+  assert.equal(isSystemPayload(''), false);
+});
+
+test('pldmgr payloads are correctly filtered from repository payload lists', () => {
+  const isPldmgrItem = (p) => {
+    const idLower = (p.id || '').toLowerCase();
+    const nameLower = (p.name || '').toLowerCase();
+    return (
+      isSystemPayload(p.filename) ||
+      isSystemPayload(p.name) ||
+      isSystemPayload(p.id) ||
+      idLower === 'pldmgr' ||
+      idLower === 'payload-manager' ||
+      idLower === 'payload_manager' ||
+      nameLower === 'pldmgr' ||
+      nameLower === 'payload manager' ||
+      nameLower === 'payload-manager' ||
+      nameLower === 'payload_manager'
+    );
+  };
+
+  const mockPayloads = [
+    { id: 'pldmgr', name: 'Payload Manager', filename: 'pldmgr.elf' },
+    { id: 'pldmgr', name: 'pldmgr', filename: 'pldmgr_v0.6.0.elf' },
+    { id: 'custom-pldmgr', name: 'My pldmgr', filename: 'pldmgr.elf' },
+    { id: 'custom-pldmgr-name', name: 'Payload Manager', filename: 'custom.elf' },
+    { id: 'payload_manager', name: 'payload manager', filename: 'payload_manager.elf' },
+    { id: 'kstuff', name: 'Kstuff', filename: 'kstuff.elf' },
+    { id: 'etahen', name: 'etaHEN', filename: 'etahen.bin' },
+  ];
+
+  const filtered = mockPayloads.filter((p) => !isPldmgrItem(p));
+  assert.equal(filtered.length, 2);
+  assert.equal(filtered[0].id, 'kstuff');
+  assert.equal(filtered[1].id, 'etahen');
+});
+
+

@@ -478,43 +478,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
 
     /* ── API routes ────────────────────────────────────────── */
     } else if (strcmp(url, ROUTE_UPDATE_CHECK) == 0) {
-        char resp_buf[1024];
-        char update_path[512] = {0};
-        char update_version[64] = {0};
-        char update_filename[512] = {0};
-        char update_repo_version[64] = {0};
-        char update_source[1024] = {0};
-        
-        PldmgrConfig cfg;
-        config_read(&cfg);
-        
-        if (!cfg.show_update_notifications) {
-            snprintf(resp_buf, sizeof(resp_buf), "{\"status\":\"none\"}");
-        } else if (repository_check_self_update(update_path, sizeof(update_path),
-                                                update_version, sizeof(update_version)) == 0) {
-            char escaped_path[1024];
-            char escaped_version[128];
-            pldmgr_json_escape(update_path, escaped_path, sizeof(escaped_path));
-            pldmgr_json_escape(update_version, escaped_version, sizeof(escaped_version));
-            snprintf(resp_buf, sizeof(resp_buf),
-                     "{\"status\":\"ready-to-apply\",\"current_version\":\"%s\",\"new_version\":\"%s\",\"local_path\":\"%s\"}",
-                     MENU_VERSION, escaped_version, escaped_path);
-        } else if (repository_check_repo_update(update_filename, sizeof(update_filename),
-                                                update_repo_version, sizeof(update_repo_version),
-                                                update_source, sizeof(update_source)) == 0) {
-            char escaped_filename[1024];
-            char escaped_version[128];
-            char escaped_source[2048];
-            pldmgr_json_escape(update_filename, escaped_filename, sizeof(escaped_filename));
-            pldmgr_json_escape(update_repo_version, escaped_version, sizeof(escaped_version));
-            pldmgr_json_escape(update_source, escaped_source, sizeof(escaped_source));
-            snprintf(resp_buf, sizeof(resp_buf),
-                     "{\"status\":\"update-available\",\"current_version\":\"%s\",\"new_version\":\"%s\",\"new_filename\":\"%s\",\"source\":\"%s\"}",
-                     MENU_VERSION, escaped_version, escaped_filename, escaped_source);
-        } else {
-            snprintf(resp_buf, sizeof(resp_buf), "{\"status\":\"none\"}");
-        }
-        
+        const char *resp_buf = "{\"status\":\"none\"}";
         resp = MHD_create_response_from_buffer(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_PERSISTENT);
         MHD_add_response_header(resp, "Content-Type", "application/json");
         add_cors_headers(resp);
@@ -723,10 +687,20 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         url_decode_in_place(clean_arg);
 
         char resolved_path[512];
-        if (slot_resolve(clean_arg, resolved_path, sizeof(resolved_path)) == 0 &&
+        if (is_pldmgr_name(clean_arg)) {
+            pldmgr_log("[PLDMGR] Refusing to launch payload manager itself: %s\n", clean_arg);
+            const char *err = "Payload Manager cannot be launched as a payload\n";
+            resp = MHD_create_response_from_buffer(strlen(err), (void *)err, MHD_RESPMEM_PERSISTENT);
+            http_status = MHD_HTTP_BAD_REQUEST;
+        } else if (slot_resolve(clean_arg, resolved_path, sizeof(resolved_path)) == 0 &&
             (is_allowed_payload_path(resolved_path) ||
              strncmp(resolved_path, PAYLOADS_STORAGE_DIR, strlen(PAYLOADS_STORAGE_DIR)) == 0)) {
-            if (ps5_launch_elf(resolved_path) == 0) {
+            if (is_pldmgr_name(resolved_path)) {
+                pldmgr_log("[PLDMGR] Refusing to launch payload manager itself: %s\n", resolved_path);
+                const char *err = "Payload Manager cannot be launched as a payload\n";
+                resp = MHD_create_response_from_buffer(strlen(err), (void *)err, MHD_RESPMEM_PERSISTENT);
+                http_status = MHD_HTTP_BAD_REQUEST;
+            } else if (ps5_launch_elf(resolved_path) == 0) {
                 resp = MHD_create_response_from_buffer(strlen(MSG_OK), (void *)MSG_OK,
                                                        MHD_RESPMEM_PERSISTENT);
             } else {
@@ -899,13 +873,12 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
                      "REPOSITORY_UPDATE\":%ld,"
                      "\"AUTO_BROWSER_OPEN\":%s,\"AUTOLOAD_DELAY\":%d,\"KILL_DISC_"
                      "PLAYER_ON_STARTUP\":%s,\"SCAN_USB_PAYLOADS\":%s,\"AUTO_INSTALL_APP\":%s,"
-                     "\"MULTI_SOURCES_ENABLED\":%s,\"SHOW_UPDATE_NOTIFICATIONS\":%s}",
+                     "\"MULTI_SOURCES_ENABLED\":%s}",
                      cfg.autoload_enabled ? "true" : "false", list_escaped, cfg.last_repository_update,
                      cfg.auto_browser_open ? "true" : "false", cfg.autoload_delay,
                      cfg.kill_disc_player ? "true" : "false", cfg.scan_usb_payloads ? "true" : "false",
                      cfg.auto_install_app ? "true" : "false",
-                     cfg.multi_sources_enabled ? "true" : "false",
-                     cfg.show_update_notifications ? "true" : "false");
+                     cfg.multi_sources_enabled ? "true" : "false");
             resp = MHD_create_response_from_buffer(strlen(resp_buf),
                                                    (void *)resp_buf,
                                                    MHD_RESPMEM_MUST_FREE);

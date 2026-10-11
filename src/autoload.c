@@ -188,7 +188,15 @@ void* pldmgr_autoload_worker(void* arg) {
             }
         } else {
             char full_path[512];
+            if (is_pldmgr_name(start)) {
+                pldmgr_log("[Autoload] Skipping self: %s\n", start);
+                continue;
+            }
             if (slot_resolve(start, full_path, sizeof(full_path)) == 0) {
+                if (is_pldmgr_name(full_path)) {
+                    pldmgr_log("[Autoload] Skipping self: %s\n", full_path);
+                    continue;
+                }
                 strncpy(autoload_current_name, start, sizeof(autoload_current_name) - 1);
                 pldmgr_log("[Autoload] Launching: %s\n", full_path);
                 ps5_launch_elf(full_path);

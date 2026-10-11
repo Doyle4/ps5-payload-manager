@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Settings,
-  CloudDownload,
   Cpu,
   LayoutDashboard,
   Database,
@@ -182,8 +181,6 @@ function App() {
   }, [showLogs])
   const [isOffline, setIsOffline] = useState(false)
 
-  const [updateStatus, setUpdateStatus] = useState(null)
-  const [updateBusy, setUpdateBusy] = useState(false)
   const api = useCallback(async (endpoint, options = {}) => {
     try {
       const response = await fetch(endpoint, options)
@@ -195,29 +192,6 @@ function App() {
       } catch { return null }
     } catch { return null }
   }, [])
-
-  const checkUpdates = useCallback(async () => {
-    try {
-      const data = await api('/update_check')
-      setUpdateStatus(data && data.status !== 'none' ? data : null)
-    } catch {
-      setUpdateStatus(null)
-    }
-  }, [api])
-
-  useEffect(() => {
-    let ignore = false
-    void (async () => {
-      try {
-        const data = await api('/update_check')
-        if (ignore) return
-        setUpdateStatus(data && data.status !== 'none' ? data : null)
-      } catch {
-        if (!ignore) setUpdateStatus(null)
-      }
-    })()
-    return () => { ignore = true }
-  }, [api])
 
   const showConfirm = (title, message, onConfirm) => {
     setConfirmModal({
@@ -243,7 +217,7 @@ function App() {
 
   const dashboardItems = useMemo(() => {
     const list = items
-      .filter((it) => it && it.slot && !isSystemPayload(it.filename))
+      .filter((it) => it && it.slot && !isSystemPayload(it.filename) && !isSystemPayload(it.name) && it.id !== 'pldmgr')
       .map((it) => ({
         key: it.slot,
         slot: it.slot,
@@ -388,31 +362,6 @@ function App() {
       setLoading(false)
       setActiveLoadingName('')
     }, 1500)
-  }
-
-  const handleApplyUpdate = async (localPath) => {
-    if (!localPath) return
-    setUpdateStatus(null)
-    loadPayload(localPath)
-  }
-
-  const handleInstallUpdate = async () => {
-    if (updateBusy) return
-    setUpdateBusy(true)
-    try {
-      const res = await fetch(`/repository_install?id=pldmgr`)
-      const data = await res.json().catch(() => null)
-      if (res.ok && data?.ok) {
-        addToast(t("app.toasts.payload_installed", "{{fileName}} installed", { fileName: "pldmgr" }))
-        refreshPayloads()
-        await checkUpdates()
-      } else {
-        throw new Error(data?.message || t("app.toasts.install_failed", "Installation failed"))
-      }
-    } catch (e) {
-      addToast(e.message || t("app.toasts.install_failed", "Installation failed"), 'error')
-    }
-    setUpdateBusy(false)
   }
 
   const handleDelete = (slotOrFilename, customName) => {
@@ -811,52 +760,6 @@ function App() {
         "flex flex-col relative",
         isPS5 ? "h-screen flex-1 min-h-0" : "md:h-screen md:flex-1 md:min-h-0"
       )}>
-        {updateStatus && (
-          <div className="bg-ps-blue/20 border-b border-ps-blue/50 p-4 flex items-center justify-between gap-4 z-[50]">
-            <div className="flex items-center gap-3 min-w-0">
-              <CloudDownload className="w-5 h-5 text-ps-blue shrink-0" />
-              <span className="text-zinc-200 text-sm">
-                {updateStatus.status === 'ready-to-apply' ? (
-                  <>
-                    <strong className="text-white">
-                      {t('app.update_banner.ready_title', 'Payload Manager {{version}} downloaded', { version: updateStatus.new_version ? `v${updateStatus.new_version}` : '' })}
-                    </strong>
-                    {t('app.update_banner.ready_desc', ' — load it to apply the update.')}
-                  </>
-                ) : (
-                  <>
-                    <strong className="text-white">{t('app.update_banner.available_title', 'Update Available!')}</strong>
-                    {t('app.update_banner.available_desc', ' Payload Manager {{version}} is available in the repository.', { version: updateStatus.new_version ? `v${updateStatus.new_version}` : '' })}
-                  </>
-                )}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {updateStatus.status === 'ready-to-apply' ? (
-                <button
-                  onClick={() => handleApplyUpdate(updateStatus.local_path)}
-                  className="px-4 py-2 rounded-lg bg-ps-blue text-ps-black font-bold text-sm hover:opacity-90 transition-opacity"
-                >
-                  {t('app.update_banner.load', 'Load')}
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleInstallUpdate(updateStatus.new_filename)}
-                  disabled={updateBusy}
-                  className="px-4 py-2 rounded-lg bg-ps-blue text-ps-black font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
-                >
-                  {updateBusy ? t('app.update_banner.installing', 'Installing…') : t('app.update_banner.update', 'Update')}
-                </button>
-              )}
-              <button
-                onClick={() => setUpdateStatus(null)}
-                className="p-2 hover:bg-white/10 rounded-full transition-colors text-zinc-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-        )}
         <main ref={mainRef} className={cn(
           "custom-scrollbar max-w-[1800px] mx-auto w-full flex flex-col",
           isPS5 ? "pt-16 px-16 pb-12 flex-1 overflow-y-auto" : "pt-6 px-6 pb-36 md:pt-16 md:px-16 md:pb-12 md:flex-1 md:overflow-y-auto"

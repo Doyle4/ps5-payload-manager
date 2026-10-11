@@ -72,7 +72,7 @@ const AutoloadView = ({
   const availableSlots = useMemo(() => {
     if (items && items.length > 0) {
       return items.filter(
-        (it) => it.slot && !isSystemPayload(it.filename) && !autoloadList.includes(it.slot)
+        (it) => it.slot && !isSystemPayload(it.filename) && !isSystemPayload(it.name) && it.id !== 'pldmgr' && !autoloadList.includes(it.slot)
       )
     }
     // Fallback if items not loaded yet

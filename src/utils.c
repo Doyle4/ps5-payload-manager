@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <ifaddrs.h>
@@ -92,3 +93,15 @@ void pldmgr_json_escape(const char *src, char *dst, size_t dst_size) {
 
     dst[pos] = '\0';
 }
+
+int is_pldmgr_name(const char *name) {
+    if (!name || !*name) return 0;
+    const char *base = strrchr(name, '/');
+    base = base ? base + 1 : name;
+    return (strncasecmp(base, "pldmgr", 6) == 0 ||
+            strncasecmp(base, "payload-manager", 15) == 0 ||
+            strncasecmp(base, "payload_manager", 15) == 0 ||
+            strncasecmp(base, "payload manager", 15) == 0 ||
+            strncasecmp(base, "payloadmanager", 14) == 0);
+}
+

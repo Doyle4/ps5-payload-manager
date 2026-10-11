@@ -100,15 +100,6 @@ int main(int argc, char *argv[]) {
     /* Run one-time migration to layout v2 if needed */
     slot_migrate_legacy();
 
-    /* Check for Self-Update */
-    char new_payload_path[512];
-    if (repository_check_self_update(new_payload_path, sizeof(new_payload_path), NULL, 0) == 0) {
-        pldmgr_log("[PLDMGR] Found updated payload manager at %s. Launching...\n",
-                    new_payload_path);
-        ps5_launch_elf(new_payload_path);
-        return 0;
-    }
-
     /* Initialize PS5 System Services */
     pldmgr_log("[PLDMGR] Initializing system services...\n");
     if (sceNetCtlInit() == 0) {

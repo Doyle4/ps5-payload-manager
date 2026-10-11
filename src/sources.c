@@ -476,7 +476,14 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 return 0;
             }
 
+            int first_payload = 1;
             for (size_t pi = 0; pi < count; pi++) {
+                if (is_pldmgr_name(items[pi].id) ||
+                    is_pldmgr_name(items[pi].filename) ||
+                    is_pldmgr_name(items[pi].name)) {
+                    continue;
+                }
+
                 char id_pe[128], name_pe[256], filename_e[512], desc_e[2048];
                 char ver_e[128], url_e[2048], src_id_e[128], src_name_e[512];
                 char last_upd_e[128], cat_e[256], csum_e[128];
@@ -498,15 +505,19 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 pldmgr_json_escape(items[pi].release_notes,rn_e,      sizeof(rn_e));
                 pldmgr_json_escape(items[pi].icon,        icon_e,     16384);
 
-                if (json_append(&jb, "    {\"id\":\"%s\",\"name\":\"%s\",\"filename\":\"%s\",\"description\":\"%s\","
+                if (json_append(&jb, "%s    {\"id\":\"%s\",\"name\":\"%s\",\"filename\":\"%s\",\"description\":\"%s\","
                     "\"version\":\"%s\",\"checksum\":\"%s\",\"last_update\":\"%s\",\"url\":\"%s\","
                     "\"source_id\":\"%s\",\"source_name\":\"%s\",\"category\":\"%s\","
-                    "\"author\":\"%s\",\"details_url\":\"%s\",\"release_notes\":\"%s\",\"icon\":\"%s\"}%s\n",
+                    "\"author\":\"%s\",\"details_url\":\"%s\",\"release_notes\":\"%s\",\"icon\":\"%s\"}",
+                    first_payload ? "" : ",\n",
                     id_pe, name_pe, filename_e, desc_e, ver_e, csum_e, last_upd_e, url_e,
-                    src_id_e, src_name_e, cat_e, auth_e, det_url_e, rn_e, icon_e,
-                    (pi < count - 1) ? "," : "") != 0) {
+                    src_id_e, src_name_e, cat_e, auth_e, det_url_e, rn_e, icon_e) != 0) {
                     break;
                 }
+                first_payload = 0;
+            }
+            if (!first_payload) {
+                json_append(&jb, "\n");
             }
 
             free(icon_e);
@@ -530,6 +541,11 @@ int sources_repo_install(const char *source_url, const char *id,
     slot_slug(id, safe_id, sizeof(safe_id));
     if (safe_id[0] == '\0') {
         snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Missing payload id\"}");
+        return -1;
+    }
+    if (is_pldmgr_name(safe_id)) {
+        snprintf(out_json, out_size,
+                 "{\"ok\":false,\"message\":\"Payload Manager cannot be installed as a payload\"}");
         return -1;
     }
 
@@ -658,6 +674,14 @@ int sources_repo_install(const char *source_url, const char *id,
 
     RepoPayload entry = items[found_idx];
     free(items);
+
+    /* Block installing pldmgr as a payload */
+    if (is_pldmgr_name(safe_id) || is_pldmgr_name(entry.id) ||
+        is_pldmgr_name(entry.filename) || is_pldmgr_name(entry.name)) {
+        snprintf(out_json, out_size,
+                 "{\"ok\":false,\"message\":\"Payload Manager cannot be installed as a payload\"}");
+        return -1;
+    }
 
     /* Validate filename */
     if (entry.filename[0] == '\0' || strstr(entry.filename, "/") || strstr(entry.filename, "..")) {

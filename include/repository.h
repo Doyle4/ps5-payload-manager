@@ -38,20 +38,6 @@ int repository_ensure_fresh(int force_refresh);
 /* Build the /repository_payloads JSON response. Returns bytes written. */
 size_t repository_list_json(char *json_buf, size_t buf_size, int force_refresh);
 
-/* ── Self-update ────────────────────────────────────────── */
-
-/* Read the PLDMGR_VER: signature from an ELF binary. Returns 0 on success. */
-int get_elf_pldmgr_version(const char *path, char *out_version, size_t out_size);
-
-/* Scan the payload storage for a newer pldmgr.elf.
- * If found, writes the path to out_path and returns 0. */
-int repository_check_self_update(char *out_path, size_t out_size,
-                                 char *out_version, size_t out_version_size);
-
-/* Check if a newer version of the payload manager is available in the repo cache.
- * Returns 0 if an update is available, -1 otherwise. */
-int repository_check_repo_update(char *out_filename, size_t out_size,
-                                 char *out_version, size_t out_version_size,
-                                 char *out_source, size_t out_source_size);
-
 #endif
+
+

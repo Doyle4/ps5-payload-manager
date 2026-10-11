@@ -10,6 +10,7 @@ extern "C" {
 int pldmgr_get_local_ip(char *ip_buf, size_t buf_size);
 void pldmgr_utils_get_payload_folder_name(const char *filename, char *out_buf, size_t out_size);
 void pldmgr_json_escape(const char *src, char *dst, size_t dst_size);
+int is_pldmgr_name(const char *name);
 
 #ifdef __cplusplus
 }

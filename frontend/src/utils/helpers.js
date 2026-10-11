@@ -48,7 +48,14 @@ export const parsePayloadName = (path) => {
 export const isSystemPayload = (filename) => {
   if (!filename || typeof filename !== 'string') return false;
   const name = filename.split('/').pop().toLowerCase();
-  return name.startsWith('pldmgr') || name.includes('payload-manager');
+  return (
+    name.startsWith('pldmgr') ||
+    name.includes('payload-manager') ||
+    name.includes('payload_manager') ||
+    name.includes('payload manager') ||
+    name.includes('payloadmanager') ||
+    name === 'pldmgr'
+  );
 };
 
 export const formatVersionTag = (version, maxLen = 8) => {
