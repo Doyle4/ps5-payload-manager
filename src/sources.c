@@ -781,6 +781,7 @@ checksum_passed:
     /* Handle mode=replace for conflicting slot */
     if (is_mode_replace && replace_slot && replace_slot[0] && strcmp(replace_slot, target_slot) != 0) {
         pldmgr_autoload_update_config_entry(replace_slot, target_slot);
+        pldmgr_favorites_update_entry(replace_slot, target_slot);
         slot_delete(replace_slot);
     }
 

@@ -12,6 +12,7 @@
 #include "sha256.h"
 #include "json_helpers.h"
 #include "pldmgr.h"
+#include "config.h"
 #include "autoload.h"
 #include "utils.h"
 
@@ -510,8 +511,9 @@ int slot_delete(const char *slot_key) {
 
     rmdir(slot_dir);
 
-    /* Remove from autoload.txt */
+    /* Remove from autoload.txt and favorites.txt */
     pldmgr_autoload_update_config_entry(slot_key, NULL);
+    pldmgr_favorites_update_entry(slot_key, NULL);
 
     return 0;
 }
@@ -807,6 +809,49 @@ int slot_migrate_legacy(void) {
                         fprintf(af, "%s\n", lines[i]);
                     }
                     fclose(af);
+                }
+            }
+        }
+
+        /* Update favorites.txt if exists */
+        FILE *ff = fopen(FAVORITES_CONFIG_PATH, "r");
+        if (ff) {
+            char lines[128][256];
+            int lcount = 0;
+            while (lcount < 128 && fgets(lines[lcount], sizeof(lines[0]), ff)) {
+                lines[lcount][strcspn(lines[lcount], "\r\n")] = '\0';
+                char *start = lines[lcount];
+                while (*start && isspace((unsigned char)*start)) start++;
+                char *end = start + strlen(start);
+                while (end > start && isspace((unsigned char)*(end - 1))) end--;
+                *end = '\0';
+                if (start != lines[lcount]) memmove(lines[lcount], start, end - start + 1);
+                lcount++;
+            }
+            fclose(ff);
+
+            int changed = 0;
+            for (int i = 0; i < lcount; i++) {
+                if (lines[i][0] == '\0') continue;
+                if (strncmp(lines[i], "repo/", 5) == 0 || strncmp(lines[i], "local/", 6) == 0) continue;
+
+                for (size_t m = 0; m < map_count; m++) {
+                    if (strcmp(lines[i], map[m].old_filename) == 0 ||
+                        strcmp(lines[i], map[m].old_path) == 0) {
+                        strncpy(lines[i], map[m].slot_key, sizeof(lines[0]) - 1);
+                        changed = 1;
+                        break;
+                    }
+                }
+            }
+
+            if (changed) {
+                ff = fopen(FAVORITES_CONFIG_PATH, "w");
+                if (ff) {
+                    for (int i = 0; i < lcount; i++) {
+                        fprintf(ff, "%s\n", lines[i]);
+                    }
+                    fclose(ff);
                 }
             }
         }

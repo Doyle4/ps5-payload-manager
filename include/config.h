@@ -45,4 +45,9 @@ int config_read_last_update(long *out_ts);
 /* Write the LAST_REPOSITORY_UPDATE timestamp to the config file. */
 int config_write_last_update(long ts);
 
+/* Favorites management */
+int config_get_favorites_csv(char *out_buf, size_t max_size, int *out_file_exists);
+int config_save_favorites_csv(const char *csv);
+void pldmgr_favorites_update_entry(const char *old_key, const char *new_key);
+
 #endif

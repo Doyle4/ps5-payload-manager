@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <sys/stat.h>
 
 #include "config.h"
@@ -245,5 +246,156 @@ int config_handle_set_json(const char *json_data) {
         }
     }
 
+    /* Handle FAVORITES if present */
+    char *fav_start = strstr(json_data, "\"FAVORITES\"");
+    if (fav_start) {
+        char *val = strchr(fav_start, ':');
+        if (val) {
+            val++;
+            while (*val == ' ') val++;
+            if (*val == '\"') {
+                val++;
+                char *fav_end = strchr(val, '\"');
+                size_t fav_len = fav_end ? (size_t)(fav_end - val) : 0;
+                char *fav_val = malloc(fav_len + 1);
+                if (fav_val) {
+                    memcpy(fav_val, val, fav_len);
+                    fav_val[fav_len] = '\0';
+                    config_save_favorites_csv(fav_val);
+                    free(fav_val);
+                }
+            } else if (*val == '[') {
+                val++;
+                char fav_buf[4096] = {0};
+                int first = 1;
+                while (*val && *val != ']') {
+                    char *q1 = strchr(val, '\"');
+                    if (!q1) break;
+                    char *q2 = strchr(q1 + 1, '\"');
+                    if (!q2) break;
+                    size_t item_len = (size_t)(q2 - (q1 + 1));
+                    if (item_len > 0 && item_len < 256) {
+                        char item[256];
+                        memcpy(item, q1 + 1, item_len);
+                        item[item_len] = '\0';
+                        if (!first) strncat(fav_buf, ",", sizeof(fav_buf) - strlen(fav_buf) - 1);
+                        strncat(fav_buf, item, sizeof(fav_buf) - strlen(fav_buf) - 1);
+                        first = 0;
+                    }
+                    val = q2 + 1;
+                }
+                config_save_favorites_csv(fav_buf);
+            }
+        }
+    }
+
     return 0;
+}
+
+/* ── Favorites Management ──────────────────────────────────── */
+
+int config_get_favorites_csv(char *out_buf, size_t max_size, int *out_file_exists) {
+    if (!out_buf || max_size == 0) return -1;
+    out_buf[0] = '\0';
+    if (out_file_exists) *out_file_exists = 0;
+
+    FILE *f = fopen(FAVORITES_CONFIG_PATH, "r");
+    if (!f) return 0;
+
+    if (out_file_exists) *out_file_exists = 1;
+
+    char line[512];
+    int first = 1;
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        char *start = line;
+        while (*start && isspace((unsigned char)*start)) start++;
+        char *end = start + strlen(start);
+        while (end > start && isspace((unsigned char)*(end - 1))) end--;
+        *end = '\0';
+
+        if (*start == '\0') continue;
+
+        if (!first) {
+            strncat(out_buf, ",", max_size - strlen(out_buf) - 1);
+        }
+        strncat(out_buf, start, max_size - strlen(out_buf) - 1);
+        first = 0;
+    }
+    fclose(f);
+    return 0;
+}
+
+int config_save_favorites_csv(const char *csv) {
+    ensure_dir_recursive(BASE_DATA_DIR);
+    FILE *f = fopen(FAVORITES_CONFIG_PATH, "w");
+    if (!f) return -1;
+
+    if (csv && csv[0] != '\0') {
+        char *copy = strdup(csv);
+        if (copy) {
+            char *token = strtok(copy, ",");
+            while (token) {
+                while (*token && isspace((unsigned char)*token)) token++;
+                char *end = token + strlen(token);
+                while (end > token && isspace((unsigned char)*(end - 1))) end--;
+                *end = '\0';
+
+                if (*token) {
+                    fprintf(f, "%s\n", token);
+                }
+                token = strtok(NULL, ",");
+            }
+            free(copy);
+        }
+    }
+    fclose(f);
+    pldmgr_log("[PLDMGR] Saved favorites to %s\n", FAVORITES_CONFIG_PATH);
+    return 0;
+}
+
+void pldmgr_favorites_update_entry(const char *old_key, const char *new_key) {
+    if (!old_key || old_key[0] == '\0') return;
+
+    FILE *f = fopen(FAVORITES_CONFIG_PATH, "r");
+    if (!f) return;
+
+    char lines[100][256];
+    int line_count = 0;
+    int modified = 0;
+
+    while (line_count < 100 && fgets(lines[line_count], sizeof(lines[0]), f)) {
+        char clean_line[256];
+        strncpy(clean_line, lines[line_count], sizeof(clean_line) - 1);
+        clean_line[sizeof(clean_line) - 1] = '\0';
+        clean_line[strcspn(clean_line, "\r\n")] = '\0';
+        char *start = clean_line;
+        while (*start && isspace((unsigned char)*start)) start++;
+        char *end = start + strlen(start);
+        while (end > start && isspace((unsigned char)*(end - 1))) end--;
+        *end = '\0';
+
+        if (strcmp(start, old_key) == 0) {
+            modified = 1;
+            if (new_key && new_key[0] != '\0') {
+                snprintf(lines[line_count], sizeof(lines[0]), "%s\n", new_key);
+                line_count++;
+            }
+            /* If new_key is NULL or empty, skip incrementing line_count -> effectively removed */
+        } else {
+            line_count++;
+        }
+    }
+    fclose(f);
+
+    if (modified) {
+        f = fopen(FAVORITES_CONFIG_PATH, "w");
+        if (f) {
+            for (int i = 0; i < line_count; i++) {
+                fputs(lines[i], f);
+            }
+            fclose(f);
+            pldmgr_log("[Favorites] Config updated: replaced/removed %s\n", old_key);
+        }
+    }
 }

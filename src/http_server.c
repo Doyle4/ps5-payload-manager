@@ -865,6 +865,12 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         char list_escaped[8192];
         pldmgr_json_escape(list_buf, list_escaped, sizeof(list_escaped));
 
+        int fav_exists = 0;
+        char fav_buf[4096] = {0};
+        config_get_favorites_csv(fav_buf, sizeof(fav_buf), &fav_exists);
+        char fav_escaped[8192];
+        pldmgr_json_escape(fav_buf, fav_escaped, sizeof(fav_escaped));
+
         char *resp_buf;
         resp = alloc_response_buffer_small(&resp_buf);
         if (!resp) {
@@ -873,12 +879,13 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
                      "REPOSITORY_UPDATE\":%ld,"
                      "\"AUTO_BROWSER_OPEN\":%s,\"AUTOLOAD_DELAY\":%d,\"KILL_DISC_"
                      "PLAYER_ON_STARTUP\":%s,\"SCAN_USB_PAYLOADS\":%s,\"AUTO_INSTALL_APP\":%s,"
-                     "\"MULTI_SOURCES_ENABLED\":%s}",
+                     "\"MULTI_SOURCES_ENABLED\":%s,\"FAVORITES\":\"%s\",\"FAVORITES_INITIALIZED\":%s}",
                      cfg.autoload_enabled ? "true" : "false", list_escaped, cfg.last_repository_update,
                      cfg.auto_browser_open ? "true" : "false", cfg.autoload_delay,
                      cfg.kill_disc_player ? "true" : "false", cfg.scan_usb_payloads ? "true" : "false",
                      cfg.auto_install_app ? "true" : "false",
-                     cfg.multi_sources_enabled ? "true" : "false");
+                     cfg.multi_sources_enabled ? "true" : "false",
+                     fav_escaped, fav_exists ? "true" : "false");
             resp = MHD_create_response_from_buffer(strlen(resp_buf),
                                                    (void *)resp_buf,
                                                    MHD_RESPMEM_MUST_FREE);

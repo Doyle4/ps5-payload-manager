@@ -192,3 +192,67 @@ test('ErrorBoundary methods are constructor-bound and dismissable', () => {
   assert.equal(boundary.state.error, null);
 });
 
+test('backend FAVORITES parsing and formatting handles comma-separated strings', () => {
+  const backendConfig = {
+    FAVORITES: 'repo/etaHEN@a1b2c3d4,local/payload1,repo/item2@11223344',
+    FAVORITES_INITIALIZED: true,
+  };
+
+  const parseFavorites = (data) => {
+    if (typeof data?.FAVORITES === 'string') {
+      return data.FAVORITES ? data.FAVORITES.split(',').filter(Boolean) : [];
+    }
+    return null;
+  };
+
+  const parsed = parseFavorites(backendConfig);
+  assert.deepEqual(parsed, ['repo/etaHEN@a1b2c3d4', 'local/payload1', 'repo/item2@11223344']);
+
+  // Empty string returns empty array
+  assert.deepEqual(parseFavorites({ FAVORITES: '', FAVORITES_INITIALIZED: true }), []);
+
+  // Format back to payload string
+  const formatPayload = (favArray) => JSON.stringify({ FAVORITES: favArray.join(',') });
+  assert.equal(
+    formatPayload(['repo/etaHEN@a1b2c3d4', 'local/payload1']),
+    '{"FAVORITES":"repo/etaHEN@a1b2c3d4,local/payload1"}'
+  );
+});
+
+test('backend favorites sync prioritizes backend when initialized and migrates local when uninitialized', () => {
+  const syncFavorites = (configData, localStored) => {
+    if (configData?.FAVORITES_INITIALIZED === true && typeof configData?.FAVORITES === 'string') {
+      return {
+        active: configData.FAVORITES ? configData.FAVORITES.split(',').filter(Boolean) : [],
+        shouldMigrate: false,
+      };
+    }
+    if (configData?.FAVORITES_INITIALIZED === false && Array.isArray(localStored) && localStored.length > 0) {
+      return {
+        active: localStored,
+        shouldMigrate: true,
+      };
+    }
+    return {
+      active: [],
+      shouldMigrate: false,
+    };
+  };
+
+  // Initialized backend with items -> use backend items
+  const res1 = syncFavorites({ FAVORITES: 'repo/1,repo/2', FAVORITES_INITIALIZED: true }, ['local/old']);
+  assert.deepEqual(res1.active, ['repo/1', 'repo/2']);
+  assert.equal(res1.shouldMigrate, false);
+
+  // Initialized backend with empty list (user removed all) -> use empty, do not migrate stale local
+  const res2 = syncFavorites({ FAVORITES: '', FAVORITES_INITIALIZED: true }, ['local/old']);
+  assert.deepEqual(res2.active, []);
+  assert.equal(res2.shouldMigrate, false);
+
+  // Uninitialized backend (first run) -> migrates local favorites
+  const res3 = syncFavorites({ FAVORITES: '', FAVORITES_INITIALIZED: false }, ['local/old']);
+  assert.deepEqual(res3.active, ['local/old']);
+  assert.equal(res3.shouldMigrate, true);
+});
+
+

@@ -141,19 +141,52 @@ function App() {
       return Array.isArray(parsed) ? parsed.filter(p => typeof p === 'string') : []
     } catch { return [] }
   })
+  const favoritesTimerRef = useRef(null)
+  const pendingFavoritesRef = useRef(null)
 
-  useEffect(() => {
+  const persistFavorites = useCallback((newFavs) => {
+    pendingFavoritesRef.current = newFavs
     try {
-      localStorage.setItem('favoritePayloads', JSON.stringify(favoritePayloads))
+      localStorage.setItem('favoritePayloads', JSON.stringify(newFavs))
     } catch {
       /* ignore storage errors */
     }
-  }, [favoritePayloads])
+    if (favoritesTimerRef.current) clearTimeout(favoritesTimerRef.current)
+    favoritesTimerRef.current = setTimeout(async () => {
+      const favsToSave = pendingFavoritesRef.current
+      if (favsToSave === null) return
+      try {
+        await fetch('/set_config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ FAVORITES: favsToSave.join(',') })
+        })
+      } catch (err) {
+        console.warn('Failed to save favorites to backend:', err)
+      }
+    }, 250)
+  }, [])
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (favoritesTimerRef.current && pendingFavoritesRef.current !== null) {
+        clearTimeout(favoritesTimerRef.current)
+        const body = JSON.stringify({ FAVORITES: pendingFavoritesRef.current.join(',') })
+        if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+          navigator.sendBeacon('/set_config', new Blob([body], { type: 'application/json' }))
+        }
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
 
   const toggleFavorite = (path) => {
     setFavoritePayloads(prev => {
       if (!Array.isArray(prev)) return [path]
-      return prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]
+      const next = prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]
+      persistFavorites(next)
+      return next
     })
   }
 
@@ -167,6 +200,7 @@ function App() {
       const newFavorites = [...prev]
       newFavorites[idx] = newFavorites[newIdx]
       newFavorites[newIdx] = path
+      persistFavorites(newFavorites)
       return newFavorites
     })
   }
@@ -298,11 +332,7 @@ function App() {
             return fav
           }).filter(x => typeof x === 'string')
           if (modified) {
-            try {
-              localStorage.setItem('favoritePayloads', JSON.stringify(mapped))
-            } catch {
-              /* ignore storage errors */
-            }
+            persistFavorites(mapped)
             return mapped
           }
           return prev
@@ -329,7 +359,27 @@ function App() {
 
   const refreshConfig = async () => {
     const data = await api('/get_config')
-    if (data) setConfig(data)
+    if (data) {
+      setConfig(data)
+      if (data.FAVORITES_INITIALIZED === true && typeof data.FAVORITES === 'string') {
+        const backendFavs = data.FAVORITES ? data.FAVORITES.split(',').filter(Boolean) : []
+        setFavoritePayloads(backendFavs)
+        try {
+          localStorage.setItem('favoritePayloads', JSON.stringify(backendFavs))
+        } catch {
+          /* ignore storage errors */
+        }
+      } else if (data.FAVORITES_INITIALIZED === false) {
+        try {
+          const local = JSON.parse(localStorage.getItem('favoritePayloads') || '[]')
+          if (Array.isArray(local) && local.length > 0) {
+            persistFavorites(local)
+          }
+        } catch {
+          /* ignore storage errors */
+        }
+      }
+    }
   }
 
   const handleAbort = async () => {

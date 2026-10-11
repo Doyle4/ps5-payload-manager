@@ -39,6 +39,7 @@
 
 #define MENU_VERSION "0.5.2"
 #define AUTOLOAD_CONFIG_PATH "/data/pldmgr/autoload.txt"
+#define FAVORITES_CONFIG_PATH "/data/pldmgr/favorites.txt"
 #define PLDMGR_CONFIG_PATH "/data/pldmgr/pldmgr_config.txt"
 #define REPOSITORY_CACHE_PATH "/data/pldmgr/repository_cache.json"
 #define PAYLOADS_STORAGE_DIR "/data/pldmgr/payloads"
