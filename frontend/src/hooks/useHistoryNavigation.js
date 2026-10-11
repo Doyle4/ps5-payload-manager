@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
+import { isPS5 } from '../utils/helpers.js'
 
 export function getRouteFromHash(hash) {
   const clean = (hash || '').replace(/^#\/?/, '').trim()
@@ -6,70 +7,92 @@ export function getRouteFromHash(hash) {
 
   const [rawPath, rawQuery] = clean.split('?')
   const queryParams = new URLSearchParams(rawQuery || '')
+  const mode = queryParams.get('mode') || null
+  const modal = queryParams.get('modal') || null
 
-  if (rawPath === 'storage') return { type: 'storage' }
+  const extra = {}
+  if (mode) extra.mode = mode
+  if (modal) extra.modal = modal
+
+  if (!rawPath || rawPath === 'dashboard') {
+    return { type: 'dashboard', ...extra }
+  }
+
+  if (rawPath === 'storage') return { type: 'storage', ...extra }
 
   if (rawPath === 'payload' || rawPath === 'storage/payload') {
-    return { type: 'storage' }
+    return { type: 'storage', ...extra }
   }
 
   if (rawPath.startsWith('payload/') || rawPath.startsWith('storage/payload/')) {
     const slashIdx = rawPath.indexOf('payload/')
     const filename = decodeURIComponent(rawPath.slice(slashIdx + 8).trim())
-    if (!filename) return { type: 'storage' }
+    if (!filename) return { type: 'storage', ...extra }
     const srcId = queryParams.get('src') || null
-    return { type: 'payload', filename, srcId }
+    return { type: 'payload', filename, srcId, ...extra }
   }
 
-  if (rawPath === 'autoload') return { type: 'autoload' }
-  if (rawPath === 'processes') return { type: 'processes' }
-  if (rawPath === 'settings') return { type: 'settings' }
-  if (rawPath === 'donate') return { type: 'donate' }
-  if (rawPath === 'sources') return { type: 'sources' }
+  if (rawPath === 'autoload') return { type: 'autoload', ...extra }
+  if (rawPath === 'processes') return { type: 'processes', ...extra }
+  if (rawPath === 'settings') return { type: 'settings', ...extra }
+  if (rawPath === 'donate') return { type: 'donate', ...extra }
+  if (rawPath === 'sources') return { type: 'sources', ...extra }
 
   if (rawPath === 'move-from-usb' || rawPath === 'move_from_usb') {
     const path = queryParams.get('path') || null
-    return { type: 'move_from_usb', path }
+    return { type: 'move_from_usb', path, ...extra }
   }
 
   if (rawPath.startsWith('move-from-usb/') || rawPath.startsWith('move_from_usb/')) {
     const slashIdx = rawPath.indexOf('/')
     const path = decodeURIComponent(rawPath.slice(slashIdx + 1).trim())
-    return { type: 'move_from_usb', path }
+    return { type: 'move_from_usb', path, ...extra }
   }
 
-  return { type: 'dashboard' }
+  return { type: 'dashboard', ...extra }
 }
 
 export function formatHash(route) {
-  if (!route || route.type === 'dashboard') return '#/'
-  if (route.type === 'storage') return '#/storage'
-  if (route.type === 'payload') {
-    if (!route.filename) return '#/storage'
-    const encodedName = encodeURIComponent(route.filename)
-    if (route.srcId) {
-      return `#/payload/${encodedName}?src=${encodeURIComponent(route.srcId)}`
+  if (!route) return '#/'
+  let base = '#/'
+  if (route.type === 'storage') base = '#/storage'
+  else if (route.type === 'payload') {
+    if (!route.filename) base = '#/storage'
+    else {
+      const encodedName = encodeURIComponent(route.filename)
+      base = `#/payload/${encodedName}`
     }
-    return `#/payload/${encodedName}`
+  } else if (route.type === 'autoload') base = '#/autoload'
+  else if (route.type === 'processes') base = '#/processes'
+  else if (route.type === 'settings') base = '#/settings'
+  else if (route.type === 'donate') base = '#/donate'
+  else if (route.type === 'sources') base = '#/sources'
+  else if (route.type === 'move_from_usb') {
+    base = '#/move-from-usb'
   }
-  if (route.type === 'autoload') return '#/autoload'
-  if (route.type === 'processes') return '#/processes'
-  if (route.type === 'settings') return '#/settings'
-  if (route.type === 'donate') return '#/donate'
-  if (route.type === 'sources') return '#/sources'
-  if (route.type === 'move_from_usb') {
-    if (route.path) {
-      return `#/move-from-usb?path=${encodeURIComponent(route.path)}`
-    }
-    return '#/move-from-usb'
+
+  const queryParams = new URLSearchParams()
+  if (route.type === 'payload' && route.srcId) {
+    queryParams.set('src', route.srcId)
   }
-  return '#/'
+  if (route.type === 'move_from_usb' && route.path) {
+    queryParams.set('path', route.path)
+  }
+  if (route.mode) {
+    queryParams.set('mode', route.mode)
+  }
+  if (route.modal) {
+    queryParams.set('modal', route.modal)
+  }
+
+  const queryString = queryParams.toString()
+  return queryString ? `${base}?${queryString}` : base
 }
 
 export function writeHistory(route, replace = false) {
   if (typeof window === 'undefined' || !window.history || !window.history.pushState) return
   const hash = formatHash(route)
-  if (!replace && window.location?.hash === hash && !route.isModal) return
+  if (!replace && window.location?.hash === hash) return
   const state = { ...route, hash }
   try {
     if (replace && window.history.replaceState) {
@@ -84,39 +107,59 @@ export function writeHistory(route, replace = false) {
 
 export function getHistoryChain(route) {
   if (!route || route.type === 'dashboard') {
+    if (route && (route.mode || route.modal)) {
+      const chain = [{ type: 'dashboard' }]
+      if (route.mode && route.modal) {
+        chain.push({ type: 'dashboard', mode: route.mode })
+      }
+      chain.push(route)
+      return chain
+    }
     return [{ type: 'dashboard' }]
   }
-  if (route.type === 'sources') {
-    return [
+
+  const baseRoute = { ...route }
+  delete baseRoute.modal
+  delete baseRoute.mode
+
+  let chain = []
+  if (baseRoute.type === 'sources') {
+    chain = [
       { type: 'dashboard' },
       { type: 'settings' },
-      route,
+      baseRoute,
     ]
-  }
-  if (route.type === 'payload') {
-    if (!route.filename) {
-      return [
+  } else if (baseRoute.type === 'payload') {
+    if (!baseRoute.filename) {
+      chain = [
         { type: 'dashboard' },
         { type: 'storage' },
       ]
+    } else {
+      chain = [
+        { type: 'dashboard' },
+        { type: 'storage' },
+        baseRoute,
+      ]
     }
-    return [
+  } else if (baseRoute.type === 'move_from_usb') {
+    chain = [
       { type: 'dashboard' },
       { type: 'storage' },
-      route,
+      baseRoute,
     ]
-  }
-  if (route.type === 'move_from_usb') {
-    return [
+  } else {
+    chain = [
       { type: 'dashboard' },
-      { type: 'storage' },
-      route,
+      baseRoute,
     ]
   }
-  return [
-    { type: 'dashboard' },
-    route,
-  ]
+
+  if (route.modal) {
+    chain.push(route)
+  }
+
+  return chain
 }
 
 export function seedHistory(route) {
@@ -139,19 +182,6 @@ export function seedHistory(route) {
   }
 }
 
-function getActiveModals(m, currentView) {
-  const list = []
-  if (m.confirmModal?.show) list.push('confirmModal')
-  if (m.downloadModal?.show) list.push('downloadModal')
-  if (m.showLogs) list.push('showLogs')
-  if (m.delayModal) list.push('delayModal')
-  if (currentView === 'dashboard') {
-    if (m.isManageMode) list.push('manageMode')
-    if (m.isFavoriteEditMode) list.push('favoriteEditMode')
-  }
-  return list
-}
-
 export function useHistoryNavigation({
   view,
   setView,
@@ -171,6 +201,10 @@ export function useHistoryNavigation({
   setMoveFromUsbPath,
   delayModal,
   setDelayModal,
+  uploadConflictModal,
+  setUploadConflictModal,
+  conflictPrompt,
+  setConflictPrompt,
 }) {
   const currentViewRef = useRef(view)
   const currentRouteRef = useRef(
@@ -181,7 +215,8 @@ export function useHistoryNavigation({
   const selectedPayloadRef = useRef(selectedPayload)
   const moveFromUsbPathRef = useRef(moveFromUsbPath)
   const historySeededRef = useRef(false)
-  const modalPushedRef = useRef(false)
+  const historyModeRef = useRef(null)
+  const historyModalRef = useRef(null)
   const isProgrammaticModalCloseRef = useRef(false)
   const initialMountTimeRef = useRef(Date.now())
   const hasUserNavigatedRef = useRef(false)
@@ -203,6 +238,10 @@ export function useHistoryNavigation({
     setMoveFromUsbPath,
     delayModal,
     setDelayModal,
+    uploadConflictModal,
+    setUploadConflictModal,
+    conflictPrompt,
+    setConflictPrompt,
   })
 
   useEffect(() => {
@@ -235,6 +274,10 @@ export function useHistoryNavigation({
       setMoveFromUsbPath,
       delayModal,
       setDelayModal,
+      uploadConflictModal,
+      setUploadConflictModal,
+      conflictPrompt,
+      setConflictPrompt,
     }
   }, [
     confirmModal,
@@ -253,45 +296,91 @@ export function useHistoryNavigation({
     setMoveFromUsbPath,
     delayModal,
     setDelayModal,
+    uploadConflictModal,
+    setUploadConflictModal,
+    conflictPrompt,
+    setConflictPrompt,
   ])
 
-  const isModalActive = Boolean(
-    confirmModal?.show ||
-    showLogs ||
-    downloadModal?.show ||
-    delayModal ||
-    (view === 'dashboard' && (isManageMode || isFavoriteEditMode))
-  )
+  const currentMode = (view === 'dashboard')
+    ? (isManageMode ? 'manage' : isFavoriteEditMode ? 'favorites' : null)
+    : null
 
-  // Manage modal history entry so Circle on PS5 pops modal without closing browser
+  const currentModal = (confirmModal && confirmModal.show)
+    ? 'confirm'
+    : (downloadModal && downloadModal.show)
+    ? 'download'
+    : showLogs
+    ? 'logs'
+    : delayModal
+    ? 'delay'
+    : (uploadConflictModal && uploadConflictModal.show)
+    ? 'upload_conflict'
+    : conflictPrompt
+    ? 'conflict'
+    : null
+
+  // Synchronize active mode and modal with browser history so Back button on PS5 pops them cleanly
   useEffect(() => {
-    if (isModalActive) {
-      if (!modalPushedRef.current) {
-        modalPushedRef.current = true
-        try {
-          window.history.pushState(
-            { ...currentRouteRef.current, isModal: true },
-            '',
-            window.location.hash
-          )
-        } catch {
-          /* ignore push errors */
+    if (!historySeededRef.current) return
+
+    // 1. Sync mode
+    const prevMode = historyModeRef.current
+    if (currentMode !== prevMode) {
+      if (currentMode && !prevMode) {
+        hasUserNavigatedRef.current = true
+        historyModeRef.current = currentMode
+        const route = {
+          ...currentRouteRef.current,
+          mode: currentMode,
+          modal: historyModalRef.current || null,
         }
-      }
-    } else {
-      if (modalPushedRef.current) {
-        modalPushedRef.current = false
-        try {
-          if (window.history.state?.isModal) {
+        writeHistory(route, false)
+      } else if (!currentMode && prevMode) {
+        historyModeRef.current = null
+        if (typeof window !== 'undefined' && window.history) {
+          const hashRoute = getRouteFromHash(window.location.hash)
+          if (hashRoute.mode) {
             isProgrammaticModalCloseRef.current = true
             window.history.back()
           }
-        } catch {
-          /* ignore pop errors */
+        }
+      } else if (currentMode && prevMode) {
+        hasUserNavigatedRef.current = true
+        historyModeRef.current = currentMode
+        const route = {
+          ...currentRouteRef.current,
+          mode: currentMode,
+          modal: historyModalRef.current || null,
+        }
+        writeHistory(route, true)
+      }
+    }
+
+    // 2. Sync modal
+    const prevModal = historyModalRef.current
+    if (currentModal !== prevModal) {
+      if (currentModal && !prevModal) {
+        hasUserNavigatedRef.current = true
+        historyModalRef.current = currentModal
+        const route = {
+          ...currentRouteRef.current,
+          mode: historyModeRef.current || null,
+          modal: currentModal,
+        }
+        writeHistory(route, false)
+      } else if (!currentModal && prevModal) {
+        historyModalRef.current = null
+        if (typeof window !== 'undefined' && window.history) {
+          const hashRoute = getRouteFromHash(window.location.hash)
+          if (hashRoute.modal) {
+            isProgrammaticModalCloseRef.current = true
+            window.history.back()
+          }
         }
       }
     }
-  }, [isModalActive])
+  }, [currentMode, currentModal])
 
   // Seed baseline history on initial load
   useEffect(() => {
@@ -299,17 +388,21 @@ export function useHistoryNavigation({
     historySeededRef.current = true
 
     const hashRoute = getRouteFromHash(window.location.hash)
-    currentRouteRef.current = hashRoute
-    seedHistory(hashRoute)
+    const cleanRoute = { ...hashRoute }
+    delete cleanRoute.modal
+    delete cleanRoute.mode
 
-    if (hashRoute.type === 'payload') {
+    currentRouteRef.current = cleanRoute
+    seedHistory(cleanRoute)
+
+    if (cleanRoute.type === 'payload') {
       setView('storage')
-      if (hashRoute.filename) {
-        setSelectedPayload({ filename: hashRoute.filename, srcId: hashRoute.srcId })
+      if (cleanRoute.filename) {
+        setSelectedPayload({ filename: cleanRoute.filename, srcId: cleanRoute.srcId })
       }
-    } else if (hashRoute.type === 'move_from_usb') {
-      if (hashRoute.path) {
-        setMoveFromUsbPath(hashRoute.path)
+    } else if (cleanRoute.type === 'move_from_usb') {
+      if (cleanRoute.path) {
+        setMoveFromUsbPath(cleanRoute.path)
         setView('move_from_usb')
       } else if (!modalStateRef.current.moveFromUsbPath) {
         setView('storage')
@@ -317,8 +410,8 @@ export function useHistoryNavigation({
       } else {
         setView('move_from_usb')
       }
-    } else if (hashRoute.type !== 'dashboard') {
-      setView(hashRoute.type)
+    } else if (cleanRoute.type !== 'dashboard') {
+      setView(cleanRoute.type)
     }
   }, [setView, setSelectedPayload, setMoveFromUsbPath])
 
@@ -362,58 +455,86 @@ export function useHistoryNavigation({
         return
       }
 
+      hasUserNavigatedRef.current = true
       const m = modalStateRef.current
       const curView = currentViewRef.current
-      const activeModals = getActiveModals(m, curView)
+      const target = getRouteFromHash(window.location.hash)
 
-      // 1. Dismiss any open modal or panel first
-      if (activeModals.length > 0) {
-        const top = activeModals[0]
-        if (top === 'confirmModal') {
+      // 1. Dismiss any open modal first
+      if (historyModalRef.current) {
+        historyModalRef.current = target.modal || null
+
+        if (m.confirmModal && m.confirmModal.show && m.setConfirmModal) {
           m.setConfirmModal({ show: false, title: '', message: '', onConfirm: null })
-        } else if (top === 'downloadModal') {
-          m.setDownloadModal({ show: false, name: '', progress: 0 })
-        } else if (top === 'showLogs') {
-          m.setShowLogs(false)
-        } else if (top === 'delayModal') {
-          if (m.setDelayModal) m.setDelayModal(false)
-        } else if (top === 'manageMode') {
-          if (m.setIsManageMode) m.setIsManageMode(false)
-        } else if (top === 'favoriteEditMode') {
-          if (m.setIsFavoriteEditMode) m.setIsFavoriteEditMode(false)
         }
-
-        // If another modal or mode is still active underneath, re-push so next Back press pops it
-        if (activeModals.length > 1) {
-          try {
-            window.history.pushState(
-              { ...currentRouteRef.current, isModal: true },
-              '',
-              window.location.hash
-            )
-            modalPushedRef.current = true
-          } catch {
-            /* ignore push errors */
-          }
-        } else {
-          modalPushedRef.current = false
+        if (m.downloadModal && m.downloadModal.show && m.setDownloadModal) {
+          m.setDownloadModal({ show: false, name: '', progress: 0 })
+        }
+        if (m.showLogs && m.setShowLogs) {
+          m.setShowLogs(false)
+        }
+        if (m.delayModal && m.setDelayModal) {
+          m.setDelayModal(false)
+        }
+        if (m.uploadConflictModal && m.uploadConflictModal.show && m.setUploadConflictModal) {
+          m.setUploadConflictModal({ show: false, file: null, folderName: '' })
+        }
+        if (m.conflictPrompt && m.setConflictPrompt) {
+          m.setConflictPrompt(null)
         }
         return
       }
 
-      // 2. Read destination target
-      const target = getRouteFromHash(window.location.hash)
+      // Defensive check for modal state even if historyModalRef was out of sync
+      const anyActiveModal = Boolean(
+        (m.confirmModal && m.confirmModal.show) ||
+        (m.downloadModal && m.downloadModal.show) ||
+        m.showLogs ||
+        m.delayModal ||
+        (m.uploadConflictModal && m.uploadConflictModal.show) ||
+        m.conflictPrompt
+      )
+      if (anyActiveModal) {
+        if (m.confirmModal && m.confirmModal.show && m.setConfirmModal) {
+          m.setConfirmModal({ show: false, title: '', message: '', onConfirm: null })
+        }
+        if (m.downloadModal && m.downloadModal.show && m.setDownloadModal) {
+          m.setDownloadModal({ show: false, name: '', progress: 0 })
+        }
+        if (m.showLogs && m.setShowLogs) m.setShowLogs(false)
+        if (m.delayModal && m.setDelayModal) m.setDelayModal(false)
+        if (m.uploadConflictModal && m.uploadConflictModal.show && m.setUploadConflictModal) {
+          m.setUploadConflictModal({ show: false, file: null, folderName: '' })
+        }
+        if (m.conflictPrompt && m.setConflictPrompt) m.setConflictPrompt(null)
+        historyModalRef.current = target.modal || null
+        return
+      }
 
-      // Guard against WebKit's initial onload popstate event on PS5
+      // 2. Dismiss any active dashboard mode (manageMode or favoriteEditMode)
+      if (curView === 'dashboard') {
+        if (m.isManageMode && target.mode !== 'manage') {
+          if (m.setIsManageMode) m.setIsManageMode(false)
+          historyModeRef.current = target.mode || null
+          return
+        }
+        if (m.isFavoriteEditMode && target.mode !== 'favorites') {
+          if (m.setIsFavoriteEditMode) m.setIsFavoriteEditMode(false)
+          historyModeRef.current = target.mode || null
+          return
+        }
+      }
+
+      // 3. Guard against WebKit's initial onload popstate event on PS5
       if (!hasUserNavigatedRef.current && curView === 'dashboard' && target.type === 'dashboard') {
         return
       }
-      if (Date.now() - initialMountTimeRef.current < 1500 && curView === 'dashboard' && target.type === 'dashboard') {
+      if (Date.now() - initialMountTimeRef.current < 1500 && curView === 'dashboard' && target.type === 'dashboard' && !target.mode && !target.modal) {
         return
       }
 
-      // 3. If user was ALREADY on dashboard and target is dashboard (Circle pressed on root), close PS5 browser
-      if (curView === 'dashboard' && target.type === 'dashboard' && !selectedPayloadRef.current) {
+      // 4. If user was ALREADY on dashboard root with no modal/mode and target is dashboard (Circle pressed on root), close PS5 browser
+      if (curView === 'dashboard' && target.type === 'dashboard' && !target.mode && !target.modal && !selectedPayloadRef.current) {
         if (hasUserNavigatedRef.current) {
           try {
             window.close()
@@ -424,7 +545,7 @@ export function useHistoryNavigation({
         return
       }
 
-      // 4. View transition
+      // 5. View transition
       currentRouteRef.current = target
 
       if (target.type === 'payload') {
@@ -476,6 +597,34 @@ export function useHistoryNavigation({
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [setView])
+
+  // Keyboard Escape dismissal for PC browsers
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.key === 'Escape' || e.keyCode === 27) && !isPS5) {
+        const m = modalStateRef.current
+        const anyModal = Boolean(
+          (m.confirmModal && m.confirmModal.show) ||
+          (m.downloadModal && m.downloadModal.show) ||
+          m.showLogs ||
+          m.delayModal ||
+          (m.uploadConflictModal && m.uploadConflictModal.show) ||
+          m.conflictPrompt
+        )
+        const anyMode = currentViewRef.current === 'dashboard' && (m.isManageMode || m.isFavoriteEditMode)
+        if (anyModal || anyMode) {
+          e.preventDefault()
+          e.stopPropagation()
+          if (typeof window !== 'undefined' && window.history) {
+            window.history.back()
+          }
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [])
 
   // Navigate between views
   const navigate = useCallback((newView, options = {}) => {

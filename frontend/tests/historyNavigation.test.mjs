@@ -356,3 +356,119 @@ test('initial popstate on root dashboard without user navigation is safely ignor
   assert.equal(backed, false) // should never call history.back inside popstate
 })
 
+test('getRouteFromHash and formatHash correctly roundtrip modes and modals', () => {
+  // 1. Dashboard modes
+  assert.deepEqual(getRouteFromHash('#/?mode=manage'), { type: 'dashboard', mode: 'manage' })
+  assert.deepEqual(getRouteFromHash('#/dashboard?mode=manage'), { type: 'dashboard', mode: 'manage' })
+  assert.deepEqual(getRouteFromHash('#/?mode=favorites'), { type: 'dashboard', mode: 'favorites' })
+  assert.equal(formatHash({ type: 'dashboard', mode: 'manage' }), '#/?mode=manage')
+  assert.equal(formatHash({ type: 'dashboard', mode: 'favorites' }), '#/?mode=favorites')
+
+  // 2. Modals on dashboard
+  assert.deepEqual(getRouteFromHash('#/?modal=confirm'), { type: 'dashboard', modal: 'confirm' })
+  assert.equal(formatHash({ type: 'dashboard', modal: 'confirm' }), '#/?modal=confirm')
+
+  // 3. Stacking mode + modal
+  assert.deepEqual(getRouteFromHash('#/?mode=manage&modal=confirm'), { type: 'dashboard', mode: 'manage', modal: 'confirm' })
+  assert.equal(formatHash({ type: 'dashboard', mode: 'manage', modal: 'confirm' }), '#/?mode=manage&modal=confirm')
+
+  // 4. Modals on other pages
+  assert.deepEqual(getRouteFromHash('#/storage?modal=conflict'), { type: 'storage', modal: 'conflict' })
+  assert.equal(formatHash({ type: 'storage', modal: 'conflict' }), '#/storage?modal=conflict')
+
+  assert.deepEqual(getRouteFromHash('#/settings?modal=logs'), { type: 'settings', modal: 'logs' })
+  assert.equal(formatHash({ type: 'settings', modal: 'logs' }), '#/settings?modal=logs')
+
+  assert.deepEqual(getRouteFromHash('#/autoload?modal=delay'), { type: 'autoload', modal: 'delay' })
+  assert.equal(formatHash({ type: 'autoload', modal: 'delay' }), '#/autoload?modal=delay')
+})
+
+test('getHistoryChain builds proper hierarchy when modes and modals are present', () => {
+  assert.deepEqual(getHistoryChain({ type: 'dashboard', mode: 'manage' }), [
+    { type: 'dashboard' },
+    { type: 'dashboard', mode: 'manage' },
+  ])
+
+  assert.deepEqual(getHistoryChain({ type: 'dashboard', mode: 'manage', modal: 'confirm' }), [
+    { type: 'dashboard' },
+    { type: 'dashboard', mode: 'manage' },
+    { type: 'dashboard', mode: 'manage', modal: 'confirm' },
+  ])
+
+  assert.deepEqual(getHistoryChain({ type: 'storage', modal: 'conflict' }), [
+    { type: 'dashboard' },
+    { type: 'storage' },
+    { type: 'storage', modal: 'conflict' },
+  ])
+
+  assert.deepEqual(getHistoryChain({ type: 'settings', modal: 'logs' }), [
+    { type: 'dashboard' },
+    { type: 'settings' },
+    { type: 'settings', modal: 'logs' },
+  ])
+})
+
+test('back navigation dismisses modal then exits mode without prematurely closing browser', () => {
+  let browserClosed = false
+  let confirmClosed = false
+  let manageModeClosed = false
+
+  const mockState = {
+    confirmModal: { show: true },
+    isManageMode: true,
+    historyModal: 'confirm',
+    historyMode: 'manage',
+  }
+
+  const handlePop = (destinationHash) => {
+    const target = getRouteFromHash(destinationHash)
+
+    // 1. Dismiss modal first
+    if (mockState.historyModal) {
+      mockState.historyModal = target.modal || null
+      if (mockState.confirmModal.show) {
+        mockState.confirmModal.show = false
+        confirmClosed = true
+      }
+      return 'dismissed_modal'
+    }
+
+    // 2. Dismiss mode
+    if (mockState.isManageMode && target.mode !== 'manage') {
+      mockState.isManageMode = false
+      mockState.historyMode = target.mode || null
+      manageModeClosed = true
+      return 'dismissed_mode'
+    }
+
+    // 3. Close browser only on clean root dashboard
+    if (target.type === 'dashboard' && !target.mode && !target.modal) {
+      browserClosed = true
+      return 'closed_browser'
+    }
+
+    return 'other'
+  }
+
+  // Step 1: User is at #/?mode=manage&modal=confirm. Controller Circle pops to #/?mode=manage.
+  const step1 = handlePop('#/?mode=manage')
+  assert.equal(step1, 'dismissed_modal')
+  assert.equal(confirmClosed, true)
+  assert.equal(manageModeClosed, false)
+  assert.equal(browserClosed, false)
+  assert.equal(mockState.isManageMode, true)
+
+  // Step 2: User is at #/?mode=manage. Controller Circle pops to #/.
+  const step2 = handlePop('#/')
+  assert.equal(step2, 'dismissed_mode')
+  assert.equal(manageModeClosed, true)
+  assert.equal(browserClosed, false)
+  assert.equal(mockState.isManageMode, false)
+
+  // Step 3: User is at #/ (clean root dashboard). Controller Circle on root exits browser.
+  const step3 = handlePop('#/')
+  assert.equal(step3, 'closed_browser')
+  assert.equal(browserClosed, true)
+})
+
+

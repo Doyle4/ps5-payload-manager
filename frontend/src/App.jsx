@@ -52,6 +52,7 @@ function App() {
   const [items, setItems] = useState([])
   const [usbPayloads, setUsbPayloads] = useState([])
   const [uploadConflictModal, setUploadConflictModal] = useState({ show: false, file: null, folderName: '' })
+  const [conflictPrompt, setConflictPrompt] = useState(null)
   const [view, setView] = useState(() => {
     if (typeof window !== 'undefined' && window.location?.hash) {
       const route = getRouteFromHash(window.location.hash)
@@ -134,6 +135,10 @@ function App() {
     setMoveFromUsbPath,
     delayModal: autoloadDelayModal,
     setDelayModal: setAutoloadDelayModal,
+    uploadConflictModal,
+    setUploadConflictModal,
+    conflictPrompt,
+    setConflictPrompt,
   })
   const [favoritePayloads, setFavoritePayloads] = useState(() => {
     try {
@@ -1018,6 +1023,8 @@ function App() {
               selectedPayload={selectedPayload}
               onSelectPayload={handleSelectPayload}
               onClosePayload={handleClosePayload}
+              conflictPrompt={conflictPrompt}
+              setConflictPrompt={setConflictPrompt}
             />
           )}
 

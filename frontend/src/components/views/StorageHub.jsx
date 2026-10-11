@@ -23,6 +23,8 @@ const StorageHub = ({
   selectedPayload: selectedPayloadProp,
   onSelectPayload,
   onClosePayload,
+  conflictPrompt: externalConflictPrompt,
+  setConflictPrompt: externalSetConflictPrompt,
 }) => {
   const { t, i18n } = useTranslation()
   const multiSources = config?.MULTI_SOURCES_ENABLED === true
@@ -37,7 +39,9 @@ const StorageHub = ({
     return localStorage.getItem('repoSortMode') || 'name'
   })
 
-  const [conflictPrompt, setConflictPrompt] = useState(null)
+  const [localConflictPrompt, setLocalConflictPrompt] = useState(null)
+  const conflictPrompt = externalConflictPrompt !== undefined ? externalConflictPrompt : localConflictPrompt
+  const setConflictPrompt = externalSetConflictPrompt || setLocalConflictPrompt
 
   const [localSelectedPayload, setLocalSelectedPayload] = useState(null)
   const selectedPayload = selectedPayloadProp !== undefined ? selectedPayloadProp : localSelectedPayload
