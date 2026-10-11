@@ -19,7 +19,6 @@ void config_read(PldmgrConfig *cfg) {
     cfg->last_repository_update = 0;
     cfg->auto_browser_open     = 1;
     cfg->autoload_delay        = 5;
-    cfg->kill_disc_player      = 1;
     cfg->scan_usb_payloads     = 0;
     cfg->auto_install_app      = 1;
     cfg->multi_sources_enabled = 0;
@@ -37,8 +36,6 @@ void config_read(PldmgrConfig *cfg) {
             cfg->auto_browser_open = atoi(line + 18);
         else if (strncmp(line, "AUTOLOAD_DELAY=", 15) == 0)
             cfg->autoload_delay = atoi(line + 15);
-        else if (strncmp(line, "KILL_DISC_PLAYER_ON_STARTUP=", 28) == 0)
-            cfg->kill_disc_player = atoi(line + 28);
         else if (strncmp(line, "SCAN_USB_PAYLOADS=", 18) == 0)
             cfg->scan_usb_payloads = atoi(line + 18);
         else if (strncmp(line, "AUTO_INSTALL_APP=", 17) == 0)
@@ -61,7 +58,6 @@ int config_write(const PldmgrConfig *cfg) {
     fprintf(f, "LAST_REPOSITORY_UPDATE=%ld\n", cfg->last_repository_update);
     fprintf(f, "AUTO_BROWSER_OPEN=%d\n",      cfg->auto_browser_open ? 1 : 0);
     fprintf(f, "AUTOLOAD_DELAY=%d\n",         cfg->autoload_delay);
-    fprintf(f, "KILL_DISC_PLAYER_ON_STARTUP=%d\n", cfg->kill_disc_player ? 1 : 0);
     fprintf(f, "SCAN_USB_PAYLOADS=%d\n",      cfg->scan_usb_payloads ? 1 : 0);
     fprintf(f, "AUTO_INSTALL_APP=%d\n",       cfg->auto_install_app ? 1 : 0);
     fprintf(f, "MULTI_SOURCES_ENABLED=%d\n",  cfg->multi_sources_enabled ? 1 : 0);
@@ -201,7 +197,6 @@ int config_handle_set_json(const char *json_data) {
         cfg.autoload_enabled      = enabled;
         cfg.auto_browser_open     = extract_json_bool(json_data, "AUTO_BROWSER_OPEN", cfg.auto_browser_open);
         cfg.autoload_delay        = extract_json_int(json_data, "AUTOLOAD_DELAY", cfg.autoload_delay);
-        cfg.kill_disc_player      = extract_json_bool(json_data, "KILL_DISC_PLAYER_ON_STARTUP", cfg.kill_disc_player);
         cfg.scan_usb_payloads     = extract_json_bool(json_data, "SCAN_USB_PAYLOADS", cfg.scan_usb_payloads);
         cfg.auto_install_app      = extract_json_bool(json_data, "AUTO_INSTALL_APP", cfg.auto_install_app);
         cfg.multi_sources_enabled = extract_json_bool(json_data, "MULTI_SOURCES_ENABLED", cfg.multi_sources_enabled);

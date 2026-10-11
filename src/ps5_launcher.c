@@ -11,10 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <signal.h>
 #include <stdint.h>
-#include <sys/sysctl.h>
-#include <sys/user.h>
 
 int ps5_launch_elf(const char *path) {
   pldmgr_log("[PLDMGR] Sending ELF to local loader: %s\n", path);
@@ -95,101 +92,5 @@ int ps5_launch_browser(const char *uri) {
     pldmgr_notify("[PLDMGR] !!! Failed to launch browser.");
     return -1;
   }
-  return 0;
-}
-
-/* LncUtil Externs */
-extern int sceLncUtilGetAppIdOfRunningBigApp();
-extern int sceLncUtilGetAppTitleId(uint32_t app_id, char *title_id);
-extern int sceLncUtilSuspendApp(uint32_t app_id);
-extern int sceLncUtilKillApp(uint32_t app_id);
-
-static pid_t get_pid_by_name(const char *process_name) {
-  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC, 0};
-  size_t buf_size;
-
-  if (sysctl(mib, 4, NULL, &buf_size, NULL, 0))
-    return -1;
-
-  void *buf = malloc(buf_size);
-  if (!buf)
-    return -1;
-
-  if (sysctl(mib, 4, buf, &buf_size, NULL, 0)) {
-    free(buf);
-    return -1;
-  }
-
-  pid_t pid = -1;
-  for (void *ptr = buf; ptr < (buf + buf_size);
-       ptr += ((struct kinfo_proc *)ptr)->ki_structsize) {
-    struct kinfo_proc *ki = (struct kinfo_proc *)ptr;
-    if (ki->ki_structsize < sizeof(struct kinfo_proc))
-      break;
-    if (strncmp(ki->ki_comm, process_name, sizeof(ki->ki_comm)) == 0) {
-      pid = ki->ki_pid;
-      break;
-    }
-  }
-
-  free(buf);
-  return pid;
-}
-
-int ps5_kill_disc_player() {
-  const char *target_process = "SceDiscPlayer";
-  const char *target_title_id = "NPXS40140";
-
-  uint32_t app_id = sceLncUtilGetAppIdOfRunningBigApp();
-  if (app_id == 0xffffffff) {
-    return 0; /* No app running */
-  }
-
-  char title_id[16] = {0};
-  if (sceLncUtilGetAppTitleId(app_id, title_id) != 0) {
-    return 0; /* Could not get title ID */
-  }
-
-  if (strcmp(title_id, target_title_id) != 0) {
-    return 0; /* Not the disc player */
-  }
-
-  pldmgr_notify("Disc Player detected. Terminating...\n");
-
-  /* 1. Suspend */
-  if (sceLncUtilSuspendApp(app_id) != 0) {
-    pldmgr_notify("Failed to suspend Disc Player");
-    return -1;
-  }
-
-  /* Wait for home screen transition stability */
-  sleep(2);
-
-  /* 2. SIGKILL */
-  pid_t pid = get_pid_by_name(target_process);
-  if (pid != -1) {
-    pldmgr_log("Sending SIGKILL to %s (PID: %d)\n", target_process, pid);
-    if (kill(pid, SIGKILL) == 0) {
-      pldmgr_log("SIGKILL Sent to Disc Player");
-    } else {
-      pldmgr_notify("Warning: SIGKILL Failed");
-    }
-    sleep(1);
-  }
-
-  /* 3. LncUtil Kill */
-  int result = sceLncUtilKillApp(app_id);
-  if (result == 0) {
-    pldmgr_log("Disc Player Fully Closed");
-  } else {
-    /* Check if it's already gone (crashed/closed) */
-    if (sceLncUtilGetAppIdOfRunningBigApp() == 0xffffffff) {
-      pldmgr_log("Disc Player Closed");
-    } else {
-      pldmgr_notify("!!! Failed to kill Disc Player (result: %d)", result);
-      return -1;
-    }
-  }
-
   return 0;
 }

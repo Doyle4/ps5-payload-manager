@@ -812,9 +812,9 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         if (!resp) {
             snprintf(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
                      "{\"remaining\":%d,\"remaining_ms\":%lld,\"total\":%d,\"done\":%d,\"current\":\"%s\","
-                     "\"list\":\"%s\",\"delay\":%d,\"KILL_DISC_PLAYER_ON_STARTUP\":%s,\"SCAN_USB_PAYLOADS\":%s}",
+                     "\"list\":\"%s\",\"delay\":%d,\"SCAN_USB_PAYLOADS\":%s}",
                      remaining, remaining_ms, total, done, current_escaped, list_escaped, cfg.autoload_delay,
-                     cfg.kill_disc_player ? "true" : "false", cfg.scan_usb_payloads ? "true" : "false");
+                     cfg.scan_usb_payloads ? "true" : "false");
             resp = MHD_create_response_from_buffer(strlen(resp_buf),
                                                    (void *)resp_buf,
                                                    MHD_RESPMEM_MUST_FREE);
@@ -877,12 +877,12 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             snprintf(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
                      "{\"AUTOLOAD_ENABLED\":%s,\"AUTOLOAD_LIST\":\"%s\",\"LAST_"
                      "REPOSITORY_UPDATE\":%ld,"
-                     "\"AUTO_BROWSER_OPEN\":%s,\"AUTOLOAD_DELAY\":%d,\"KILL_DISC_"
-                     "PLAYER_ON_STARTUP\":%s,\"SCAN_USB_PAYLOADS\":%s,\"AUTO_INSTALL_APP\":%s,"
+                     "\"AUTO_BROWSER_OPEN\":%s,\"AUTOLOAD_DELAY\":%d,"
+                     "\"SCAN_USB_PAYLOADS\":%s,\"AUTO_INSTALL_APP\":%s,"
                      "\"MULTI_SOURCES_ENABLED\":%s,\"FAVORITES\":\"%s\",\"FAVORITES_INITIALIZED\":%s}",
                      cfg.autoload_enabled ? "true" : "false", list_escaped, cfg.last_repository_update,
                      cfg.auto_browser_open ? "true" : "false", cfg.autoload_delay,
-                     cfg.kill_disc_player ? "true" : "false", cfg.scan_usb_payloads ? "true" : "false",
+                     cfg.scan_usb_payloads ? "true" : "false",
                      cfg.auto_install_app ? "true" : "false",
                      cfg.multi_sources_enabled ? "true" : "false",
                      fav_escaped, fav_exists ? "true" : "false");
