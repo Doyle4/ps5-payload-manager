@@ -182,6 +182,10 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
             pldmgr_json_escape(slots[i].author, auth_e, sizeof(auth_e));
             pldmgr_json_escape(slots[i].details_url, det_e, sizeof(det_e));
 
+            char src_e[2048], desc_e[2048];
+            pldmgr_json_escape(slots[i].source, src_e, sizeof(src_e));
+            pldmgr_json_escape(slots[i].description, desc_e, sizeof(desc_e));
+
             json_append(&jb, ",\n"
                              "      \"id\": \"%s\",\n"
                              "      \"source_url\": \"%s\",\n"
@@ -191,9 +195,11 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
                              "      \"checksum\": \"%s\",\n"
                              "      \"last_update\": \"%s\",\n"
                              "      \"author\": \"%s\",\n"
-                             "      \"details_url\": \"%s\"",
+                             "      \"details_url\": \"%s\",\n"
+                             "      \"source\": \"%s\",\n"
+                             "      \"description\": \"%s\"",
                         id_e, surl_e, sname_e, name_e, ver_e,
-                        csum_e, lup_e, auth_e, det_e);
+                        csum_e, lup_e, auth_e, det_e, src_e, desc_e);
         } else {
             char org_e[128], od_e[2048];
             pldmgr_json_escape(slots[i].origin, org_e, sizeof(org_e));

@@ -488,6 +488,7 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 char ver_e[128], url_e[2048], src_id_e[128], src_name_e[512];
                 char last_upd_e[128], cat_e[256], csum_e[128];
                 char auth_e[256], det_url_e[2048], rn_e[4096];
+                char src_pe[2048], sd_pe[2048];
 
                 pldmgr_json_escape(items[pi].id,          id_pe,      sizeof(id_pe));
                 pldmgr_json_escape(items[pi].name,        name_pe,    sizeof(name_pe));
@@ -495,6 +496,8 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 pldmgr_json_escape(items[pi].description, desc_e,     sizeof(desc_e));
                 pldmgr_json_escape(items[pi].version,     ver_e,      sizeof(ver_e));
                 pldmgr_json_escape(items[pi].url,         url_e,      sizeof(url_e));
+                pldmgr_json_escape(items[pi].source,      src_pe,     sizeof(src_pe));
+                pldmgr_json_escape(items[pi].source_direct, sd_pe,    sizeof(sd_pe));
                 pldmgr_json_escape(items[pi].checksum,    csum_e,     sizeof(csum_e));
                 pldmgr_json_escape(items[pi].last_update, last_upd_e, sizeof(last_upd_e));
                 pldmgr_json_escape(items[pi].category,    cat_e,      sizeof(cat_e));
@@ -507,10 +510,12 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
 
                 if (json_append(&jb, "%s    {\"id\":\"%s\",\"name\":\"%s\",\"filename\":\"%s\",\"description\":\"%s\","
                     "\"version\":\"%s\",\"checksum\":\"%s\",\"last_update\":\"%s\",\"url\":\"%s\","
+                    "\"source\":\"%s\",\"source_direct\":\"%s\","
                     "\"source_id\":\"%s\",\"source_name\":\"%s\",\"category\":\"%s\","
                     "\"author\":\"%s\",\"details_url\":\"%s\",\"release_notes\":\"%s\",\"icon\":\"%s\"}",
                     first_payload ? "" : ",\n",
                     id_pe, name_pe, filename_e, desc_e, ver_e, csum_e, last_upd_e, url_e,
+                    src_pe, sd_pe,
                     src_id_e, src_name_e, cat_e, auth_e, det_url_e, rn_e, icon_e) != 0) {
                     break;
                 }

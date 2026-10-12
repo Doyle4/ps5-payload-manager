@@ -32,6 +32,9 @@ const getRepoUrl = (p) => {
   if (p.source) {
     return p.source.replace(/\/releases(\/.*)?$/, '');
   }
+  if (p.source_direct) {
+    return p.source_direct.replace(/\/releases(\/.*)?$/, '');
+  }
   return null;
 };
 
