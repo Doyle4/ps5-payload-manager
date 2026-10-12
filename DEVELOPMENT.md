@@ -117,6 +117,20 @@ launcher runs against a recorded socket, covering canonical roots, regular files
 self guards, and symlink substitutions during descriptor-based opening. No real
 loader is contacted.
 
+API actions now require POST and a matching browser Origin/Referer, or an explicit
+`X-PLDMGR-Request: 1` header when both are absent. Foreign origins cannot use that
+marker to bypass checks. GET remains available for reads; anonymous/foreign reads
+do not activate browser-mode autoload. API CORS/preflights are restricted to the
+matching Host. This is browser CSRF protection, not LAN authentication or DNS
+rebinding protection.
+
+The frontend uses shared marked request helpers and same-origin unload beacons
+with keepalive fallback. The Vite proxy preserves the frontend Host, and the mock
+server mirrors action policy. Public mock README/JSON fixtures retain ordinary
+cross-origin GET compatibility. The verification workflow also runs actual Chrome
+against a native stub server and Vite, checking hostile requests, real pagehide
+beacons, and zero rejected-request effects. Run `node tests/run_browser_mutation_tests.mjs` for these checks.
+
 Collected arrays are limited to **4,096 items** and **64 MiB** of allocated array
 capacity, whichever is smaller for the item type. Repository parsing accepts up
 to **16 MiB** of input text. These bounds apply to the parser/scanner collections;

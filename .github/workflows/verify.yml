@@ -35,3 +35,22 @@ jobs:
         working-directory: frontend
       # Existing lint findings remain tracked in REMEDIATION_EXECUTION_PLAN.md.
       # Promote lint to a required check when step 8a clears that baseline.
+
+      - name: Check mock server method/origin contract
+        run: node tests/run_mock_security_tests.mjs
+      - name: Build native HTTP fixture for browser security checks
+        run: docker build -f tests/Dockerfile -t pldmgr-browser-tests .
+      - name: Check Chrome actions, cross-origin attacks, unload beacons, and Vite proxy
+        run: |
+          docker run --rm -d -i --name pldmgr-browser -p 127.0.0.1:8081:8081 \
+            -e PLDMGR_TEST_PUBLIC=1 -e PLDMGR_TEST_PORT=8081 \
+            -v "$GITHUB_WORKSPACE:/src:ro" pldmgr-browser-tests \
+            python3 tests/run_http_tests.py --serve-only
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8081/__test_state >/dev/null; then break; fi
+            sleep 1
+          done
+          CHROME_BIN="$(command -v google-chrome)" node tests/run_browser_mutation_tests.mjs
+      - name: Stop native browser fixture
+        if: always()
+        run: docker stop pldmgr-browser 2>/dev/null || true

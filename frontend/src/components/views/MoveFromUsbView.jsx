@@ -1,3 +1,4 @@
+import { apiFetch, mutationFetch } from '../../utils/mutationRequest'
 import React, { useState, useEffect, useCallback } from 'react'
 import { ArrowLeft, HardDrive, Cpu, AlertTriangle, CheckCircle2, Loader2, Info, Usb } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -11,7 +12,7 @@ const MoveFromUsbView = ({ path, onBack, onComplete, addToast }) => {
   const checkPayload = useCallback(async () => {
     setStatus('loading')
     try {
-      const res = await fetch(`/usb_move_check?path=${encodeURIComponent(path)}`)
+      const res = await apiFetch(`/usb_move_check?path=${encodeURIComponent(path)}`)
       const data = await res.json()
       if (data.error) {
         setErrorMsg(data.error)
@@ -39,7 +40,7 @@ const MoveFromUsbView = ({ path, onBack, onComplete, addToast }) => {
     setStatus('processing')
     try {
       const modeParam = (mode === true || mode === 'replace') ? 'replace' : (mode === 'keep_both' ? 'keep_both' : 'new')
-      const res = await fetch(`/usb_move_perform?path=${encodeURIComponent(path)}&mode=${encodeURIComponent(modeParam)}&keep_original=${keepOriginal}`)
+      const res = await mutationFetch(`/usb_move_perform?path=${encodeURIComponent(path)}&mode=${encodeURIComponent(modeParam)}&keep_original=${keepOriginal}`)
       const data = await res.json()
       if (data.error) {
         setErrorMsg(data.error)

@@ -38,7 +38,6 @@
 #define SMALL_RESPONSE_BUFFER_SIZE 65536
 #define SOURCES_RESPONSE_BUFFER_SIZE 524288
 #define LOG_RESPONSE_BUFFER_SIZE (MAX_LOG_LINES * (6 * MAX_LOG_LINE_LEN + 4) + 32)
-#define CORS_ORIGIN "*"
 
 /* Shared flag — set from main() shutdown route, read by main loop */
 volatile int http_keep_running = 1;
@@ -59,6 +58,57 @@ static enum MHD_Result add_response_header(struct MHD_Response *resp,
     return resp ? MHD_add_response_header(resp, name, value) : MHD_NO;
 }
 
+/* Explicit actions use POST. Automatic cache refresh on a read remains a read;
+ * repository_refresh is the explicit forced-refresh action. */
+static int is_mutation_route(const char *url) {
+    const char *routes[] = { ROUTE_UPLOAD, ROUTE_DELETE, ROUTE_SHUTDOWN,
+        ROUTE_SET_CONFIG, ROUTE_ABORT, ROUTE_AUTOLOAD_CLEAR, ROUTE_REPO_REFRESH,
+        ROUTE_REPO_INSTALL, ROUTE_SOURCES_SET, ROUTE_SOURCES_ADD,
+        ROUTE_SOURCES_REMOVE, ROUTE_USB_MOVE_PERFORM, ROUTE_PROCESS_KILL };
+    for (size_t i = 0; i < sizeof(routes)/sizeof(routes[0]); i++)
+        if (!strcmp(url, routes[i])) return 1;
+    return !strncmp(url, ROUTE_LOAD_PAYLOAD, strlen(ROUTE_LOAD_PAYLOAD));
+}
+/* HTTP daemon only. Compare the complete authority, including the port; never
+ * accept suffix/prefix matches, null/file origins, userinfo, or multiple origins.
+ * Host matching is CSRF protection, not authentication or DNS-rebinding defense. */
+static int same_origin(const char *value, const char *host, int referer) {
+    if (!value || !host || !host[0] || strncmp(value, "http://", 7)) return 0;
+    for (const unsigned char *p = (const unsigned char *)host; *p; p++)
+        if (!isalnum(*p) && *p != '.' && *p != '-' && *p != ':' && *p != '[' && *p != ']') return 0;
+    const char *authority = value + 7;
+    size_t n = strcspn(authority, "/?#");
+    if (strlen(host) != n || strncasecmp(authority, host, n)) return 0;
+    return referer ? (!authority[n] || authority[n] == '/') : authority[n] == 0;
+}
+static int mutation_authorized(struct MHD_Connection *conn) {
+    const char *host = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Host");
+    const char *origin = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Origin");
+    const char *referer = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Referer");
+    const char *site = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Sec-Fetch-Site");
+    if (site && !strcmp(site, "cross-site")) return 0;
+    if (origin) return same_origin(origin, host, 0);
+    if (referer) return same_origin(referer, host, 1);
+    const char *marker = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "X-PLDMGR-Request");
+    return marker && !strcmp(marker, "1");
+}
+static int preflight_headers_valid(const char *headers) {
+    if (!headers || !headers[0]) return 1;
+    const char *p = headers;
+    while (*p) {
+        while (*p == ' ' || *p == '\t') p++;
+        const char *start = p;
+        while (*p && *p != ',') p++;
+        const char *end = p;
+        while (end > start && (end[-1] == ' ' || end[-1] == '\t')) end--;
+        size_t n = (size_t)(end-start);
+        if (!((n == 12 && !strncasecmp(start, "Content-Type", n)) ||
+              (n == 16 && !strncasecmp(start, "X-PLDMGR-Request", n)))) return 0;
+        if (*p && !*++p) return 0;
+    }
+    return 1;
+}
+
 /* MHD retains its own reference on a successful queue. Always release ours,
  * including when queueing fails. CORS headers have exactly one owner. */
 static enum MHD_Result send_response(struct MHD_Connection *conn,
@@ -66,8 +116,12 @@ static enum MHD_Result send_response(struct MHD_Connection *conn,
     if (!resp)
         return MHD_NO;
     enum MHD_Result ret = MHD_NO;
-    if (add_response_header(resp, "Access-Control-Allow-Origin", CORS_ORIGIN) == MHD_YES)
-        ret = MHD_queue_response(conn, status, resp);
+    const char *origin = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Origin");
+    const char *host = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Host");
+    int headers_ok = add_response_header(resp, "Vary", "Origin") == MHD_YES;
+    if (origin && same_origin(origin, host, 0))
+        headers_ok = headers_ok && add_response_header(resp, "Access-Control-Allow-Origin", origin) == MHD_YES;
+    if (headers_ok) ret = MHD_queue_response(conn, status, resp);
     MHD_destroy_response(resp);
     return ret;
 }
@@ -157,7 +211,7 @@ struct UploadStatus {
     char mode[32];
 };
 
-enum RequestKind { REQUEST_CONFIG, REQUEST_SOURCES, REQUEST_UPLOAD };
+enum RequestKind { REQUEST_CONFIG, REQUEST_SOURCES, REQUEST_UPLOAD, REQUEST_ACTION };
 
 struct RequestContext {
     enum RequestKind kind;
@@ -372,35 +426,48 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
     (void)cls;
     (void)version;
 
-    /* Handle CORS Preflight (OPTIONS) */
-    if (strcmp(method, "OPTIONS") == 0) {
-        struct MHD_Response *resp =
-            create_buffer_response(0, NULL, MHD_RESPMEM_PERSISTENT);
-
-        add_response_header(resp, "Access-Control-Allow-Methods",
-                                "GET, POST, OPTIONS");
-        add_response_header(resp, "Access-Control-Allow-Headers",
-                                "Content-Type");
+    int mutation = is_mutation_route(url);
+    if (!strcmp(method, "OPTIONS")) {
+        const char *origin = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Origin");
+        const char *host = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Host");
+        const char *requested_method = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Access-Control-Request-Method");
+        const char *headers = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Access-Control-Request-Headers");
+        const char *allowed_method = mutation ? "POST" : "GET";
+        if (!same_origin(origin, host, 0) || !preflight_headers_valid(headers) ||
+            (requested_method && strcmp(requested_method, allowed_method)))
+            return send_request_error(conn, MHD_HTTP_FORBIDDEN, "Preflight rejected");
+        struct MHD_Response *resp = create_buffer_response(0, NULL, MHD_RESPMEM_PERSISTENT);
+        add_response_header(resp, "Access-Control-Allow-Methods", allowed_method);
+        add_response_header(resp, "Access-Control-Allow-Headers", "Content-Type, X-PLDMGR-Request");
         return send_response(conn, MHD_HTTP_OK, resp);
     }
+    if (strcmp(method, mutation ? "POST" : "GET")) {
+        struct MHD_Response *resp = create_buffer_response(0, NULL, MHD_RESPMEM_PERSISTENT);
+        add_response_header(resp, "Allow", mutation ? "POST, OPTIONS" : "GET, OPTIONS");
+        return send_response(conn, MHD_HTTP_METHOD_NOT_ALLOWED, resp);
+    }
+    /* Reject before allocating request state, opening an upload, activating
+     * browser/autoload state, consuming a body, or calling any backend action. */
+    if (mutation && !mutation_authorized(conn))
+        return send_request_error(conn, MHD_HTTP_FORBIDDEN, "Mutation origin or request marker rejected");
 
     /* Set flag that we received a request (meaning browser is open) */
-    log_server_set_active();
+    if (mutation_authorized(conn)) log_server_set_active();
 
     /* The completion callback owns request state on success, error, disconnect,
      * and daemon stop. Keep it alive until MHD finishes the request. */
     if (*con_cls == NULL) {
-        int upload = strncmp(url, ROUTE_UPLOAD, strlen(ROUTE_UPLOAD)) == 0;
+        int upload = strcmp(url, ROUTE_UPLOAD) == 0;
         int config = strcmp(url, ROUTE_SET_CONFIG) == 0 && strcmp(method, "POST") == 0;
         int sources = strcmp(url, ROUTE_SOURCES_SET) == 0 && strcmp(method, "POST") == 0;
-        if (upload || config || sources) {
+        if (upload || config || sources || mutation) {
             struct RequestContext *request = malloc(sizeof(*request));
             if (!request) {
                 *con_cls = REQUEST_MARKER;
                 return send_out_of_memory(conn);
             }
             memset(request, 0, sizeof(*request));
-            request->kind = upload ? REQUEST_UPLOAD : (config ? REQUEST_CONFIG : REQUEST_SOURCES);
+            request->kind = upload ? REQUEST_UPLOAD : (config ? REQUEST_CONFIG : (sources ? REQUEST_SOURCES : REQUEST_ACTION));
             *con_cls = request;
             unsigned int error;
             if (upload) {
@@ -424,7 +491,19 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             *upload_data_size = 0;
             return MHD_YES;
         }
-        if (request->kind != REQUEST_UPLOAD) {
+        if (request->kind == REQUEST_ACTION) {
+            struct PostStatus *post = &request->state.post;
+            if (*upload_data_size) {
+                if (*upload_data_size > HTTP_POST_BODY_LIMIT - post->size) {
+                    *upload_data_size = 0;
+                    return finish_request_error(conn, request, MHD_HTTP_CONTENT_TOO_LARGE);
+                }
+                post->size += *upload_data_size;
+                *upload_data_size = 0;
+                return MHD_YES;
+            }
+            request->finished = 1;
+        } else if (request->kind != REQUEST_UPLOAD) {
             struct PostStatus *post = &request->state.post;
             if (*upload_data_size) {
                 append_post_data(post, upload_data, *upload_data_size);
@@ -446,53 +525,55 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             return send_response(conn, MHD_HTTP_OK, resp);
         }
 
-        struct UploadStatus *status = &request->state.upload;
-        if (*upload_data_size) {
-            if (*upload_data_size > HTTP_UPLOAD_BODY_LIMIT - status->total_size) {
-                status->error = MHD_HTTP_CONTENT_TOO_LARGE;
-            } else {
-                size_t written = fwrite(upload_data, 1, *upload_data_size, status->fp);
-                status->total_size += written;
-                if (written != *upload_data_size)
-                    status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+        if (request->kind == REQUEST_UPLOAD) {
+            struct UploadStatus *status = &request->state.upload;
+            if (*upload_data_size) {
+                if (*upload_data_size > HTTP_UPLOAD_BODY_LIMIT - status->total_size) {
+                    status->error = MHD_HTTP_CONTENT_TOO_LARGE;
+                } else {
+                    size_t written = fwrite(upload_data, 1, *upload_data_size, status->fp);
+                    status->total_size += written;
+                    if (written != *upload_data_size)
+                        status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+                }
+                *upload_data_size = 0;
+                if (status->error)
+                    return finish_request_error(conn, request, status->error);
+                return MHD_YES;
             }
-            *upload_data_size = 0;
+
+            /* Both operations must run: a failed flush must not skip fclose. */
+            if (fflush(status->fp) != 0)
+                status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+            if (fclose(status->fp) != 0)
+                status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+            status->fp = NULL;
+            if (!status->total_size && !status->error)
+                status->error = MHD_HTTP_BAD_REQUEST;
+            if (!status->error) {
+                char msg[256] = "";
+                char out_slot[128];
+                if (payload_mgr_import_to_storage_mode(status->filename, status->temp_path,
+                                                      status->mode, "web_upload", "",
+                                                      msg, sizeof(msg), out_slot, sizeof(out_slot)) != 0) {
+                    pldmgr_log("[PLDMGR] !!! Failed to commit upload: %s\n", msg);
+                    status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+                } else {
+                    /* Import consumed the temp file. Relinquish its pathname so
+                     * completion cannot unlink a later owner of the same name. */
+                    status->temp_path[0] = '\0';
+                }
+            }
+            pldmgr_log("[PLDMGR] Upload finished. Total bytes: %zu, Error: %u\n",
+                       status->total_size, status->error);
             if (status->error)
                 return finish_request_error(conn, request, status->error);
-            return MHD_YES;
+            request->finished = 1;
+            struct MHD_Response *resp = create_buffer_response(
+                strlen(MSG_OK), (void *)MSG_OK, MHD_RESPMEM_PERSISTENT);
+            add_response_header(resp, "Content-Type", "text/plain");
+            return send_response(conn, MHD_HTTP_OK, resp);
         }
-
-        /* Both operations must run: a failed flush must not skip fclose. */
-        if (fflush(status->fp) != 0)
-            status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
-        if (fclose(status->fp) != 0)
-            status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
-        status->fp = NULL;
-        if (!status->total_size && !status->error)
-            status->error = MHD_HTTP_BAD_REQUEST;
-        if (!status->error) {
-            char msg[256] = "";
-            char out_slot[128];
-            if (payload_mgr_import_to_storage_mode(status->filename, status->temp_path,
-                                                  status->mode, "web_upload", "",
-                                                  msg, sizeof(msg), out_slot, sizeof(out_slot)) != 0) {
-                pldmgr_log("[PLDMGR] !!! Failed to commit upload: %s\n", msg);
-                status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
-            } else {
-                /* Import consumed the temp file. Relinquish its pathname so
-                 * completion cannot unlink a later owner of the same name. */
-                status->temp_path[0] = '\0';
-            }
-        }
-        pldmgr_log("[PLDMGR] Upload finished. Total bytes: %zu, Error: %u\n",
-                   status->total_size, status->error);
-        if (status->error)
-            return finish_request_error(conn, request, status->error);
-        request->finished = 1;
-        struct MHD_Response *resp = create_buffer_response(
-            strlen(MSG_OK), (void *)MSG_OK, MHD_RESPMEM_PERSISTENT);
-        add_response_header(resp, "Content-Type", "text/plain");
-        return send_response(conn, MHD_HTTP_OK, resp);
     }
 
     /* ── Log significant requests ──────────────────────────── */
@@ -651,9 +732,9 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         }
         int pid = atoi(pid_str);
         int rc = process_kill(pid);
-        
+
         pldmgr_log("[PLDMGR] Process kill requested for PID %d: %s\n", pid, rc == 0 ? "SUCCESS" : "FAILED");
-        
+
         char json_resp[256];
         snprintf(json_resp, sizeof(json_resp), "{\"ok\":%s,\"message\":\"%s\"}",
                  rc == 0 ? "true" : "false", rc == 0 ? "Killed" : "Failed to kill");
@@ -821,7 +902,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             http_status = MHD_HTTP_BAD_REQUEST;
         }
         add_response_header(resp, "Content-Type", "text/plain");
-    } else if (strncmp(url, ROUTE_DELETE, strlen(ROUTE_DELETE)) == 0) {
+    } else if (strcmp(url, ROUTE_DELETE) == 0) {
         const char *slot =
             MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "slot");
         const char *filename =

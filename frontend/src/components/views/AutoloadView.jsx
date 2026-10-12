@@ -1,3 +1,4 @@
+import { saveConfigOnExit } from '../../utils/mutationRequest'
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { RefreshCw, ArrowLeft, ArrowRight, Activity, Zap, ChevronUp, ChevronDown, Trash2, Globe } from 'lucide-react'
 import { cn, isPS5, isSystemPayload, parsePayloadName } from '../../utils/helpers'
@@ -101,16 +102,7 @@ const AutoloadView = ({
             AUTOLOAD_ENABLED: en,
             AUTOLOAD_LIST: finalStr,
           })
-          if (navigator.sendBeacon) {
-            navigator.sendBeacon('/set_config', body)
-          } else {
-            fetch('/set_config', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body,
-              keepalive: true,
-            })
-          }
+          saveConfigOnExit(body)
         } catch {
           /* ignore flush errors */
         }

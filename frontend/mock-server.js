@@ -1,15 +1,28 @@
 import express from 'express';
-import cors from 'cors';
+import { mutationPolicy } from './mock-policy.js';
 import fs from 'fs';
 import path from 'path';
 
 const app = express();
-app.use(cors());
+app.use(mutationPolicy);
 app.use(express.json());
+app.use(express.text({ type: 'text/plain', limit: '1mb' }));
+app.use((req, res, next) => {
+  if (typeof req.body === 'string') {
+    try { req.body = JSON.parse(req.body); }
+    catch { return res.status(400).json({ error: 'Invalid JSON' }); }
+  }
+  next();
+});
 
+// Public development fixture files are fetched as ordinary cross-origin GETs
+// by the README view; this exception never authorizes API preflights/mutations.
+const publicFixture = (req, res, next) => {
+  res.set('Access-Control-Allow-Origin', '*'); next();
+};
 // Serve the locally generated details/ README folder (repo root)
-app.use('/details', express.static(path.resolve(process.cwd(), '..', 'details')));
-app.use('/test_repo.json', express.static(path.resolve(process.cwd(), '..', 'test_repo.json')));
+app.use('/details', publicFixture, express.static(path.resolve(process.cwd(), '..', 'details')));
+app.use('/test_repo.json', publicFixture, express.static(path.resolve(process.cwd(), '..', 'test_repo.json')));
 
 // Log all requests to terminal
 app.use((req, res, next) => {
@@ -175,7 +188,7 @@ app.get('/repository_payloads', (req, res) => {
   });
 });
 
-app.get('/repository_refresh', (req, res) => {
+app.post('/repository_refresh', (req, res) => {
   lastRepositoryUpdate = Math.floor(Date.now() / 1000);
   logs.push(`[PLDMGR] Repository manually refreshed`);
   res.json({
@@ -213,7 +226,7 @@ app.post('/sources_set', (req, res) => {
   res.send('OK');
 });
 
-app.get('/sources_add', (req, res) => {
+app.post('/sources_add', (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ ok: false, message: 'Missing url' });
   // Mock: always succeed with a fake source name derived from the URL
@@ -224,7 +237,7 @@ app.get('/sources_add', (req, res) => {
   res.json({ ok: true, name: fakeName });
 });
 
-app.get('/sources_remove', (req, res) => {
+app.post('/sources_remove', (req, res) => {
   const idx = parseInt(req.query.index);
   if (isNaN(idx) || idx <= 0 || idx >= mockSources.length) {
     return res.status(400).json({ ok: false, message: 'Invalid index or cannot remove default source' });
@@ -234,7 +247,7 @@ app.get('/sources_remove', (req, res) => {
   res.json({ ok: true, message: 'OK' });
 });
 
-app.get('/repository_install', (req, res) => {
+app.post('/repository_install', (req, res) => {
   const { filename } = req.query;
   if (!filename) {
     return res.status(400).json({ ok: false, message: 'Missing filename' });
@@ -249,13 +262,13 @@ app.post('/set_config', (req, res) => {
   res.send('OK');
 });
 
-app.get(/^\/loadpayload:(.*)/, (req, res) => {
+app.post(/^\/loadpayload:(.*)/, (req, res) => {
   const path = req.params[0];
   logs.push(`[PLDMGR] Executing payload: ${path}`);
   res.send('OK');
 });
 
-app.get('/manage\\:delete', (req, res) => {
+app.post('/manage\\:delete', (req, res) => {
   const filename = req.query.filename;
   logs.push(`[PLDMGR] Deleted payload: ${filename}`);
   res.send('OK');
@@ -267,14 +280,14 @@ app.post('/manage\\:upload', (req, res) => {
   res.send('OK');
 });
 
-app.get('/abort', (req, res) => {
+app.post('/abort', (req, res) => {
   logs.push(`[PLDMGR] Autoload sequence aborted by user`);
   autoloadStatus.remaining = -1;
   autoloadStatus.current = "IDLE";
   res.send('OK');
 });
 
-app.get('/autoload_clear', (req, res) => {
+app.post('/autoload_clear', (req, res) => {
   logs.push(`[PLDMGR] Autoload status cleared`);
   autoloadStatus.done = 0;
   autoloadStatus.current = "IDLE";
@@ -282,13 +295,22 @@ app.get('/autoload_clear', (req, res) => {
   res.send('OK');
 });
 
-app.get('/shutdown', (req, res) => {
+app.post('/shutdown', (req, res) => {
   logs.push(`[PLDMGR] System shutdown requested`);
   res.send('Shutting down...');
   process.exit(0);
 });
 
 // SSE for logs
+app.get('/processes_list', (req, res) => res.json([]));
+app.get('/history_list', (req, res) => res.json([]));
+app.post('/process_kill', (req, res) => res.json({ ok: true }));
+app.get('/usb_move_check', (req, res) => res.json({
+  status: 'ready', path: req.query.path, filename: path.basename(req.query.path || 'test.elf'),
+  folder_exists: false, existing: null,
+}));
+app.post('/usb_move_perform', (req, res) => res.json({ ok: true, message: 'Mock import complete' }));
+
 app.get('/events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');

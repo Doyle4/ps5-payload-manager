@@ -26,28 +26,36 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/getip': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/version': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/list_payloads': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/autoload_status': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/get_config': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/set_config': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/loadpayload:': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/manage:': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/abort': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/autoload_clear': { target: 'http://127.0.0.1:8081', changeOrigin: true },
+      // Preserve the browser-facing Host so backend Origin/Referer checks
+      // work through the same-origin development proxy.
+      '/usb_move_check': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/usb_move_perform': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/processes_list': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/process_kill': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/history_list': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/shutdown': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/getip': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/version': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/list_payloads': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/autoload_status': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/get_config': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/set_config': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/loadpayload:': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/manage:': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/abort': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/autoload_clear': { target: 'http://127.0.0.1:8081', changeOrigin: false },
       '/events': {
         target: 'http://127.0.0.1:8081',
-        changeOrigin: true,
+        changeOrigin: false,
         sse: true
       },
-      '/sources_list': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/sources_set': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/sources_add': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/sources_remove': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/repository_payloads': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/repository_refresh': { target: 'http://127.0.0.1:8081', changeOrigin: true },
-      '/repository_install': { target: 'http://127.0.0.1:8081', changeOrigin: true }
+      '/sources_list': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/sources_set': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/sources_add': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/sources_remove': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/repository_payloads': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/repository_refresh': { target: 'http://127.0.0.1:8081', changeOrigin: false },
+      '/repository_install': { target: 'http://127.0.0.1:8081', changeOrigin: false }
     }
   }
 })

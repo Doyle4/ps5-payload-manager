@@ -1,3 +1,4 @@
+import { apiFetch, mutationFetch } from '../../utils/mutationRequest'
 import React, { useState, useEffect, useMemo } from 'react'
 import { Cpu, RefreshCw, XCircle, Search, AlertTriangle, Activity, Loader2, Info, Trash2 } from 'lucide-react'
 import { useTranslation, Trans } from 'react-i18next'
@@ -15,7 +16,7 @@ const ActiveProcessesView = ({ ip, addToast, showConfirm }) => {
     if (!isBackground) setLoading(true)
     if (!isBackground) setError(false)
     try {
-      const res = await fetch('/processes_list')
+      const res = await apiFetch('/processes_list')
       if (!res.ok) throw new Error()
       const data = await res.json()
       if (data && data.processes) {
@@ -64,7 +65,7 @@ const ActiveProcessesView = ({ ip, addToast, showConfirm }) => {
       t("active_processes.kill_modal_message", "Are you sure you want to kill {{name}} (PID: {{pid}})?", { name: proc.name, pid: proc.pid }),
       async () => {
         try {
-          const res = await fetch(`/process_kill?pid=${proc.pid}`)
+          const res = await mutationFetch(`/process_kill?pid=${proc.pid}`)
           const data = await res.json()
           if (res.ok) {
             setProcesses(prev => prev.filter(p => p.pid !== proc.pid));

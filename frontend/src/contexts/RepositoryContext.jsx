@@ -3,6 +3,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { slug } from '../utils/versions';
 import { normalizeUrl } from '../utils/payloadStatus';
 
+import { apiFetch, mutationFetch } from '../utils/mutationRequest';
+
 const RepositoryContext = createContext();
 
 export const useRepository = () => useContext(RepositoryContext);
@@ -17,7 +19,7 @@ export const RepositoryProvider = ({ children }) => {
     setError(false);
     try {
       const endpoint = force ? '/repository_refresh' : '/repository_payloads';
-      const res = await fetch(endpoint);
+      const res = await (force ? mutationFetch(endpoint) : apiFetch(endpoint));
       if (!res.ok) throw new Error();
       const data = await res.json();
 

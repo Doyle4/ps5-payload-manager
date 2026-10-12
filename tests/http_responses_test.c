@@ -115,7 +115,7 @@ static enum MHD_Result count_header(void *cls, enum MHD_ValueKind kind,
                                   const char *key, const char *value) {
     (void)cls; (void)kind;
     if (strcasecmp(key, "Access-Control-Allow-Origin") == 0) {
-        assert(strcmp(value, "*") == 0);
+        assert(strcmp(value, "http://localhost") == 0 || strcmp(value, "*") == 0);
         cors_count++;
     }
     return MHD_YES;
@@ -155,6 +155,11 @@ const char *http_test_lookup(struct MHD_Connection *connection,
                             enum MHD_ValueKind kind, const char *key) {
     if (serving) return MHD_lookup_connection_value(connection, kind, key);
     struct Request *request = (struct Request *)connection;
+    if (kind == MHD_HEADER_KIND) {
+        if (!strcasecmp(key, "Host")) return "localhost";
+        if (!strcasecmp(key, "Origin")) return "http://localhost";
+        if (!strcasecmp(key, "X-PLDMGR-Request")) return "1";
+    }
     for (size_t i = 0; i < 4; i++) {
         if (request->args[i].key && strcmp(request->args[i].key, key) == 0)
             return request->args[i].value;
@@ -219,39 +224,39 @@ static int unit_tests(int ownership_only, int oom_only) {
         {"/list_payloads", "GET", 200, {{0}}},
         {"/processes_list", "GET", 200, {{0}}},
         {"/history_list", "GET", 200, {{0}}},
-        {"/process_kill", "GET", 400, {{0}}},
-        {"/process_kill", "GET", 200, {{"pid", "123"}}},
-        {"/process_kill", "GET", 500, {{"pid", "-1"}}},
+        {"/process_kill", "POST", 400, {{0}}},
+        {"/process_kill", "POST", 200, {{"pid", "123"}}},
+        {"/process_kill", "POST", 500, {{"pid", "-1"}}},
         {"/repository_payloads", "GET", 200, {{0}}},
-        {"/repository_refresh", "GET", 200, {{0}}},
-        {"/repository_install", "GET", 400, {{0}}},
-        {"/repository_install", "GET", 200, {{"id", "test"}}},
-        {"/repository_install", "GET", 200, {{"filename", "test.elf"}}},
+        {"/repository_refresh", "POST", 200, {{0}}},
+        {"/repository_install", "POST", 400, {{0}}},
+        {"/repository_install", "POST", 200, {{"id", "test"}}},
+        {"/repository_install", "POST", 200, {{"filename", "test.elf"}}},
         {"/sources_list", "GET", 200, {{0}}},
-        {"/sources_add", "GET", 400, {{0}}},
-        {"/sources_add", "GET", 200, {{"url", "http://example.test/repo.json"}}},
-        {"/sources_remove", "GET", 400, {{0}}},
-        {"/sources_remove", "GET", 200, {{"index", "1"}}},
+        {"/sources_add", "POST", 400, {{0}}},
+        {"/sources_add", "POST", 200, {{"url", "http://example.test/repo.json"}}},
+        {"/sources_remove", "POST", 400, {{0}}},
+        {"/sources_remove", "POST", 200, {{"index", "1"}}},
         {"/usb_move_check", "GET", 400, {{0}}},
         {"/usb_move_check", "GET", 200, {{"path", "/mnt/usb0/test.elf"}}},
-        {"/usb_move_perform", "GET", 400, {{0}}},
-        {"/usb_move_perform", "GET", 200, {{"path", "/mnt/usb0/test.elf"}}},
-        {"/loadpayload:missing.elf", "GET", 400, {{0}}},
-        {"/loadpayload:pldmgr.elf", "GET", 400, {{0}}},
-        {"/manage:delete", "GET", 400, {{0}}},
-        {"/manage:delete", "GET", 200, {{"slot", "local/test"}}},
+        {"/usb_move_perform", "POST", 400, {{0}}},
+        {"/usb_move_perform", "POST", 200, {{"path", "/mnt/usb0/test.elf"}}},
+        {"/loadpayload:missing.elf", "POST", 400, {{0}}},
+        {"/loadpayload:pldmgr.elf", "POST", 400, {{0}}},
+        {"/manage:delete", "POST", 400, {{0}}},
+        {"/manage:delete", "POST", 200, {{"slot", "local/test"}}},
         {"/log", "GET", 200, {{0}}},
         {"/version", "GET", 200, {{0}}},
         {"/getip", "GET", 200, {{0}}},
         {"/autoload_status", "GET", 200, {{0}}},
-        {"/autoload_clear", "GET", 200, {{0}}},
-        {"/abort", "GET", 200, {{0}}},
+        {"/autoload_clear", "POST", 200, {{0}}},
+        {"/abort", "POST", 200, {{0}}},
         {"/get_config", "GET", 200, {{0}}},
         {"/events", "GET", 200, {{0}}},
         {"/set_config", "POST", 400, {{0}}},
         {"/sources_set", "POST", 400, {{0}}},
         {"/manage:upload", "POST", 400, {{0}}},
-        {"/shutdown", "GET", 200, {{0}}},
+        {"/shutdown", "POST", 200, {{0}}},
     };
     for (size_t i = 0; i < sizeof(requests) / sizeof(requests[0]); i++) {
         if (oom_only) break;
@@ -271,11 +276,11 @@ static int unit_tests(int ownership_only, int oom_only) {
             {"/processes_list", "GET", 200, {{0}}},
             {"/history_list", "GET", 200, {{0}}},
             {"/repository_payloads", "GET", 200, {{0}}},
-            {"/repository_refresh", "GET", 200, {{0}}},
-            {"/repository_install", "GET", 200, {{"id", "test"}}},
+            {"/repository_refresh", "POST", 200, {{0}}},
+            {"/repository_install", "POST", 200, {{"id", "test"}}},
             {"/sources_list", "GET", 200, {{0}}},
             {"/usb_move_check", "GET", 200, {{"path", "test"}}},
-            {"/usb_move_perform", "GET", 200, {{"path", "test"}}},
+            {"/usb_move_perform", "POST", 200, {{"path", "test"}}},
             {"/log", "GET", 200, {{0}}},
             {"/autoload_status", "GET", 200, {{0}}},
             {"/get_config", "GET", 200, {{0}}},
@@ -298,11 +303,11 @@ static int unit_tests(int ownership_only, int oom_only) {
             {"/processes_list", "GET", 500, {{0}}},
             {"/history_list", "GET", 500, {{0}}},
             {"/repository_payloads", "GET", 500, {{0}}},
-            {"/repository_refresh", "GET", 500, {{0}}},
-            {"/repository_install", "GET", 500, {{"id", "test"}}},
+            {"/repository_refresh", "POST", 500, {{0}}},
+            {"/repository_install", "POST", 500, {{"id", "test"}}},
             {"/sources_list", "GET", 500, {{0}}},
             {"/usb_move_check", "GET", 500, {{"path", "test"}}},
-            {"/usb_move_perform", "GET", 500, {{"path", "test"}}},
+            {"/usb_move_perform", "POST", 500, {{"path", "test"}}},
             {"/log", "GET", 500, {{0}}},
             {"/get_config", "GET", 500, {{0}}},
         };
@@ -550,14 +555,42 @@ static void request_tests(void) {
     printf("HTTP request lifecycle: %d additional checks, %d total failures\n", checks - initial_checks, failures);
 }
 
+/* Test-only observability and browser fixture routes, never in the payload. */
+static enum MHD_Result test_server_request(void *cls, struct MHD_Connection *conn,
+    const char *url, const char *method, const char *version, const char *data,
+    size_t *size, void **context) {
+    if (!strcmp(url, "/__test_state")) {
+        extern _Atomic unsigned int test_mutation_calls, test_active_calls;
+        extern int http_keep_running;
+        char json[256];
+        snprintf(json, sizeof(json), "{\"mutations\":%u,\"active\":%u,\"running\":%d}",
+            test_mutation_calls, test_active_calls, http_keep_running);
+        struct MHD_Response *resp = http_test_create_response(strlen(json),json,MHD_RESPMEM_MUST_COPY);
+        if (!resp) return MHD_NO;
+        enum MHD_Result rc = MHD_queue_response(conn,200,resp);http_test_destroy(resp);return rc;
+    }
+    if (!strcmp(url, "/__test_browser") || !strcmp(url, "/__test_mutation.js")) {
+        int script = !strcmp(url, "/__test_mutation.js");
+        FILE *f=fopen(script ? "/src/frontend/src/utils/mutationRequest.js" : "/src/tests/browser_mutation_fixture.html","rb");if(!f)return MHD_NO;
+        char text[16384];size_t n=fread(text,1,sizeof(text),f);fclose(f);
+        struct MHD_Response *resp=http_test_create_response(n,text,MHD_RESPMEM_MUST_COPY);
+        if(!resp)return MHD_NO;
+        MHD_add_response_header(resp,"Content-Type",script ? "text/javascript" : "text/html");
+        enum MHD_Result rc=MHD_queue_response(conn,200,resp);http_test_destroy(resp);return rc;
+    }
+    return http_on_request(cls,conn,url,method,version,data,size,context);
+}
+
 static int serve(void) {
     serving = 1;
     struct sockaddr_in address = {0};
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_addr.s_addr = htonl(getenv("PLDMGR_TEST_PUBLIC") ? INADDR_ANY : INADDR_LOOPBACK);
+    const char *fixed_port = getenv("PLDMGR_TEST_PORT");
+    address.sin_port = htons(fixed_port ? (unsigned short)atoi(fixed_port) : 0);
     struct MHD_Daemon *daemon = MHD_start_daemon(
         MHD_USE_THREAD_PER_CONNECTION | MHD_USE_INTERNAL_POLLING_THREAD,
-        0, NULL, NULL, http_on_request, NULL,
+        0, NULL, NULL, test_server_request, NULL,
         MHD_OPTION_NOTIFY_COMPLETED, complete_request, NULL,
         MHD_OPTION_SOCK_ADDR, &address, MHD_OPTION_END);
     if (!daemon) return 1;

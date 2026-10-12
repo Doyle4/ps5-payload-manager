@@ -16,6 +16,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import './App.css'
+import { apiFetch, mutationFetch, saveConfigOnExit } from './utils/mutationRequest'
 
 // Contexts
 import { useRepository } from './contexts/RepositoryContext'
@@ -164,13 +165,18 @@ function App() {
     if (favoritesTimerRef.current) clearTimeout(favoritesTimerRef.current)
     favoritesTimerRef.current = setTimeout(async () => {
       const favsToSave = pendingFavoritesRef.current
+      const timerToSave = favoritesTimerRef.current
       if (favsToSave === null) return
       try {
-        await fetch('/set_config', {
+        const response = await mutationFetch('/set_config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ FAVORITES: favsToSave.join(',') })
         })
+        if (response.ok && pendingFavoritesRef.current === favsToSave) {
+          pendingFavoritesRef.current = null
+          if (favoritesTimerRef.current === timerToSave) favoritesTimerRef.current = null
+        }
       } catch (err) {
         console.warn('Failed to save favorites to backend:', err)
       }
@@ -182,13 +188,16 @@ function App() {
       if (favoritesTimerRef.current && pendingFavoritesRef.current !== null) {
         clearTimeout(favoritesTimerRef.current)
         const body = JSON.stringify({ FAVORITES: pendingFavoritesRef.current.join(',') })
-        if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-          navigator.sendBeacon('/set_config', new Blob([body], { type: 'application/json' }))
-        }
+        favoritesTimerRef.current = null
+        saveConfigOnExit(body)
       }
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('pagehide', handleBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('pagehide', handleBeforeUnload)
+    }
   }, [])
 
   const toggleFavorite = (path) => {
@@ -227,7 +236,8 @@ function App() {
 
   const api = useCallback(async (endpoint, options = {}) => {
     try {
-      const response = await fetch(endpoint, options)
+      const response = await (options.method === 'POST' ? mutationFetch(endpoint, options) : apiFetch(endpoint, options))
+      if (!response.ok) return null
       if (options.method === 'POST') return response.text()
       try {
         const text = await response.text()
@@ -393,13 +403,13 @@ function App() {
   }
 
   const handleAbort = async () => {
-    await fetch('/abort').catch(() => { })
+    await mutationFetch('/abort').catch(() => { })
     setAutoloadStatus(prev => prev ? { ...prev, remaining: -1 } : null)
     addToast(t("app.toasts.sequence_aborted", "Sequence Aborted"), "error")
   }
 
   const handleFinish = async () => {
-    await fetch('/autoload_clear').catch(() => { })
+    await mutationFetch('/autoload_clear').catch(() => { })
     setAutoloadStatus(null)
     window.location.reload()
   }
@@ -411,7 +421,7 @@ function App() {
     setActiveLoadingName(name)
     try {
       const safeParam = encodeURI(slotOrPath)
-      const res = await fetch(`/loadpayload:${safeParam}`)
+      const res = await mutationFetch(`/loadpayload:${safeParam}`)
       if (!res.ok) throw new Error(`${t("app.toasts.launch_failed", "Launch failed")} (${res.status})`)
       addToast(t("app.toasts.payload_launched", "{{name}} launched", { name }))
       refreshHistory()
@@ -431,7 +441,7 @@ function App() {
       t("app.modals.delete_payload.title", "Delete Payload"),
       t("app.modals.delete_payload.message", "Are you sure you want to remove {{fileName}}?", { fileName: name }),
       async () => {
-        const res = await fetch(`/manage:delete?slot=${encodeURIComponent(slotOrFilename)}`)
+        const res = await mutationFetch(`/manage:delete?slot=${encodeURIComponent(slotOrFilename)}`)
         if (!res.ok) {
           addToast(`Delete failed (${res.status})`, 'error')
           return
@@ -458,7 +468,7 @@ function App() {
     }
 
     try {
-      const res = await fetch(`/manage:check?filename=${encodeURIComponent(file.name)}`)
+      const res = await apiFetch(`/manage:check?filename=${encodeURIComponent(file.name)}`)
       const data = await res.json()
       if (data?.existing || data?.file_exists || data?.folder_exists) {
         setUploadConflictModal({
@@ -478,7 +488,7 @@ function App() {
     setUploadConflictModal({ show: false, file: null, folderName: '' })
     setDownloadModal({ show: true, name: file.name, progress: 20 })
     try {
-      const res = await fetch(
+      const res = await mutationFetch(
         `/manage:upload?filename=${encodeURIComponent(file.name)}&mode=${encodeURIComponent(mode)}`,
         {
           method: 'POST',
@@ -513,7 +523,7 @@ function App() {
       if (options.mode) url += `&mode=${encodeURIComponent(options.mode)}`
       if (options.replaceSlot) url += `&replace_slot=${encodeURIComponent(options.replaceSlot)}`
 
-      const res = await fetch(url)
+      const res = await mutationFetch(url)
       setDownloadModal((prev) => ({ ...prev, progress: 80 }))
 
       const data = await res.json().catch(() => null)
@@ -589,7 +599,7 @@ function App() {
     const init = async () => {
       let offline = false
       try {
-        const ipRes = await fetch('/getip').then(r => r.text())
+        const ipRes = await apiFetch('/getip').then(r => r.text())
         if (ipRes.toLowerCase().includes('<!doctype')) offline = true
         else setIp(ipRes)
       } catch {
@@ -597,7 +607,7 @@ function App() {
       }
 
       try {
-        const verRes = await fetch('/version').then(r => r.text())
+        const verRes = await apiFetch('/version').then(r => r.text())
         if (verRes.toLowerCase().includes('<!doctype')) offline = true
       } catch {
         offline = true
@@ -631,7 +641,7 @@ function App() {
     let statusTimeout
     async function poll() {
       try {
-        const res = await fetch('/autoload_status')
+        const res = await apiFetch('/autoload_status')
         if (res.ok) {
           const data = await res.json()
           setAutoloadStatus(data)
