@@ -11,6 +11,7 @@
 #include <microhttpd.h>
 #include "http_server.h"
 #include "pldmgr.h"
+#include "log_server.h"
 
 /* Keep regression comparisons against pre-cleanup source snapshots runnable. */
 void http_request_completed(void *cls, struct MHD_Connection *connection,
@@ -585,6 +586,14 @@ static enum MHD_Result test_server_request(void *cls, struct MHD_Connection *con
     return http_on_request(cls,conn,url,method,version,data,size,context);
 }
 
+static struct MHD_Daemon *start_test_server(struct sockaddr_in *address) {
+    return MHD_start_daemon(
+        MHD_USE_THREAD_PER_CONNECTION | MHD_USE_INTERNAL_POLLING_THREAD,
+        0, NULL, NULL, test_server_request, NULL,
+        MHD_OPTION_NOTIFY_COMPLETED, complete_request, NULL,
+        MHD_OPTION_SOCK_ADDR, address, MHD_OPTION_END);
+}
+
 static int serve(void) {
     serving = 1;
     struct sockaddr_in address = {0};
@@ -592,11 +601,10 @@ static int serve(void) {
     address.sin_addr.s_addr = htonl(getenv("PLDMGR_TEST_PUBLIC") ? INADDR_ANY : INADDR_LOOPBACK);
     const char *fixed_port = getenv("PLDMGR_TEST_PORT");
     address.sin_port = htons(fixed_port ? (unsigned short)atoi(fixed_port) : 0);
-    struct MHD_Daemon *daemon = MHD_start_daemon(
-        MHD_USE_THREAD_PER_CONNECTION | MHD_USE_INTERNAL_POLLING_THREAD,
-        0, NULL, NULL, test_server_request, NULL,
-        MHD_OPTION_NOTIFY_COMPLETED, complete_request, NULL,
-        MHD_OPTION_SOCK_ADDR, &address, MHD_OPTION_END);
+#ifdef PLDMGR_TEST_REAL_LOGS
+    log_stream_start();
+#endif
+    struct MHD_Daemon *daemon = start_test_server(&address);
     if (!daemon) return 1;
     const union MHD_DaemonInfo *info = MHD_get_daemon_info(daemon, MHD_DAEMON_INFO_BIND_PORT);
 #ifdef PLDMGR_TEST_REAL_AUTOLOAD
@@ -604,7 +612,24 @@ static int serve(void) {
 #endif
     printf("PORT %u\n", info->port);
     fflush(stdout);
+#ifdef PLDMGR_TEST_REAL_LOGS
+    address.sin_port = htons(info->port);
+    char command[64];
+    while (fgets(command, sizeof(command), stdin)) {
+        int first, count;
+        if (sscanf(command, "emit %d %d", &first, &count) == 2) {
+            assert(count >= 0 && count <= 200);
+            for (int i = first; i < first + count; i++) pldmgr_log("entry %03d %0180d\n", i, i);
+        } else if (!strcmp(command, "restart\n")) {
+            log_stream_stop(); MHD_stop_daemon(daemon);
+            log_stream_start(); daemon = start_test_server(&address); assert(daemon);
+        } else break;
+        puts("ACK"); fflush(stdout);
+    }
+    log_stream_stop();
+#else
     (void)getchar();
+#endif
 #ifdef PLDMGR_TEST_REAL_AUTOLOAD
     pldmgr_autoload_stop();
 #endif

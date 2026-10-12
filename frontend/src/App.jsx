@@ -230,6 +230,7 @@ function App() {
     eventSource.onmessage = (e) => {
       setLogs(prev => [...prev, e.data].slice(-200))
     }
+    eventSource.addEventListener('gap', eventSource.onmessage)
     return () => eventSource.close()
   }, [showLogs])
   const [isOffline, setIsOffline] = useState(false)

@@ -26,6 +26,7 @@
 #include "ps5_launcher.h"
 #include "app_installer.h"
 #include "process_mgr.h"
+#include "log_server.h"
 
 #define DEFAULT_PORT MENU_PORT
 
@@ -43,12 +44,20 @@ extern int sceUserServiceInitialize(void *);
 __attribute__((used)) volatile const char pldmgr_version_sig[] = "PLDMGR_VER:" MENU_VERSION;
 
 static struct MHD_Daemon *start_http_daemon(unsigned int port) {
-    return MHD_start_daemon(
+    log_stream_start();
+    struct MHD_Daemon *daemon = MHD_start_daemon(
         MHD_USE_THREAD_PER_CONNECTION | MHD_USE_DEBUG, port,
         NULL, NULL, &http_on_request, NULL,
         MHD_OPTION_NOTIFY_COMPLETED, &http_request_completed, NULL,
         MHD_OPTION_THREAD_STACK_SIZE, (size_t)(1024 * 1024),
         MHD_OPTION_END);
+    if (!daemon) log_stream_stop();
+    return daemon;
+}
+
+static void stop_http_daemon(struct MHD_Daemon *daemon) {
+    log_stream_stop();
+    MHD_stop_daemon(daemon);
 }
 
 int main(int argc, char *argv[]) {
@@ -154,7 +163,7 @@ int main(int argc, char *argv[]) {
 
             /* Force full server restart — the old socket is likely dead */
             if (daemon)
-                MHD_stop_daemon(daemon);
+                stop_http_daemon(daemon);
 
             usleep(1000000); /* 1s for network stack to stabilize */
 
@@ -188,7 +197,7 @@ int main(int argc, char *argv[]) {
                            "server...\n",
                            current_ip, new_ip);
                 if (daemon)
-                    MHD_stop_daemon(daemon);
+                    stop_http_daemon(daemon);
 
                 usleep(800000);
 
@@ -208,7 +217,7 @@ int main(int argc, char *argv[]) {
 
                 /* Restart daemon to ensure clean socket for loopback */
                 if (daemon)
-                    MHD_stop_daemon(daemon);
+                    stop_http_daemon(daemon);
 
                 usleep(300000);
 
@@ -230,7 +239,7 @@ int main(int argc, char *argv[]) {
     pldmgr_autoload_stop();
 
     if (daemon)
-        MHD_stop_daemon(daemon);
+        stop_http_daemon(daemon);
 
     sleep(1);
 

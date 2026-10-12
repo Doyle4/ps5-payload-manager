@@ -441,6 +441,72 @@ def autoload_network_tests(binary, storage):
         if server.poll() is None: server.kill();server.communicate()
 
 
+def log_network_tests(binary):
+    server = subprocess.Popen([str(binary), '--serve'], stdin=subprocess.PIPE,
+                              stdout=subprocess.PIPE, text=True)
+    clients = []
+    try:
+        line = server.stdout.readline()
+        assert line.startswith('PORT '), line
+        port = int(line.split()[1])
+        def command(text):
+            server.stdin.write(text + '\n'); server.stdin.flush()
+            while True:
+                line = server.stdout.readline()
+                assert line, 'server exited before ACK'
+                if line.strip() == 'ACK': return
+        def connect(identity=None):
+            conn = http.client.HTTPConnection('127.0.0.1', port, timeout=3)
+            clients.append(conn)
+            conn.request('GET', '/events', headers={} if identity is None else {'Last-Event-ID': str(identity)})
+            return conn
+        def response(conn):
+            stream = conn.getresponse()
+            assert stream.status == 200 and stream.getheader('Content-Type') == 'text/event-stream'
+            return stream
+        def read_event(stream):
+            identity, data = None, []
+            while True:
+                line = stream.readline().decode()
+                assert line, 'unexpected stream end'
+                if line == '\n':
+                    if data: return identity, '\n'.join(data)
+                    continue
+                if line.startswith('id: '): identity = int(line[4:])
+                if line.startswith('data: '): data.append(line[6:].removesuffix('\n'))
+        def expect(stream, first, end):
+            for i in range(first, end):
+                assert read_event(stream) == (i + 1, f'entry {i:03d} {i:0180d}')
+        def expect_closed(stream):
+            # MHD stop can close chunked transport before its final zero chunk.
+            try: remainder = stream.read()
+            except http.client.IncompleteRead as error: remainder = error.partial
+            assert remainder == b''
+        command('emit 0 80')
+        a, b = connect(), connect()
+        sa, sb = response(a), response(b)
+        expect(sa, 0, 80); expect(sb, 0, 80)
+        command('emit 80 20'); expect(sa, 80, 100); expect(sb, 80, 100)
+        sb.close(); b.close()
+        c = connect(95); sc = response(c); expect(sc, 95, 100)
+        time.sleep(0.05)  # Readers now idle in a production five-second wait.
+        started = time.monotonic(); command('restart')
+        assert time.monotonic() - started < 1, 'idle SSE delayed daemon restart'
+        expect_closed(sa); expect_closed(sc)
+        d = connect(100)
+        command('emit 100 1'); sd = response(d); expect(sd, 100, 101)
+        time.sleep(0.05)
+        started = time.monotonic(); server.stdin.write('stop\n'); server.stdin.flush()
+        output, _ = server.communicate(timeout=3)
+        assert server.returncode == 0 and time.monotonic() - started < 1, output
+        expect_closed(sd)
+        print(output.strip())
+        print('HTTP actual SSE: >1 KiB catch-up, ordered bursts, two subscribers, disconnect/resume, idle restart and shutdown passed')
+    finally:
+        for client in clients: client.close()
+        if server.poll() is None: server.kill(); server.communicate()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ownership-only", action="store_true",
@@ -454,6 +520,7 @@ def main():
     parser.add_argument("--serve-only", action="store_true")
     parser.add_argument("--config-only", action="store_true")
     parser.add_argument("--autoload-only", action="store_true")
+    parser.add_argument("--logs-only", action="store_true")
     parser.add_argument("--source", default="src/http_server.c",
                         help="Alternate HTTP source snapshot for regression reproduction")
     args = parser.parse_args()
@@ -485,6 +552,8 @@ def main():
             common += ["-DPLDMGR_TEST_REAL_CONFIG"]
         if args.autoload_only:
             common += ["-DPLDMGR_TEST_REAL_AUTOLOAD"]
+        if args.logs_only:
+            common += ["-DPLDMGR_TEST_REAL_LOGS"]
         if not args.no_sanitize:
             common += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
         cflags = [flag for flag in flags if flag.startswith("-I") or flag.startswith("-D")]
@@ -493,6 +562,8 @@ def main():
                                args.source, "-o", str(object_file)])
         binary = build / "http_tests"
         extra_sources = ["src/config.c"] if args.config_only or args.autoload_only else []
+        if args.logs_only:
+            extra_sources += ["src/log_server.c"]
         if args.autoload_only:
             extra_sources += ["src/autoload.c"]
             (storage / "pldmgr_config.txt").write_text("AUTOLOAD_ENABLED=1\nAUTO_BROWSER_OPEN=1\nAUTOLOAD_DELAY=5\n")
@@ -502,6 +573,8 @@ def main():
         selected = ["--ownership-only"] if args.ownership_only else (["--oom-only"] if args.oom_only else [])
         if args.autoload_only:
             autoload_network_tests(binary, storage); return
+        if args.logs_only:
+            log_network_tests(binary); return
         if args.config_only:
             config_network_tests(binary, storage); return
         if args.serve_only:

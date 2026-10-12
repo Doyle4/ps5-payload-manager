@@ -1040,8 +1040,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         struct LogSSEConnection *sse = malloc(sizeof(struct LogSSEConnection));
         if (!sse)
             return MHD_NO;
-        sse->last_log_version = 0;
-        sse->sent_initial = 0;
+        log_stream_init(sse, MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Last-Event-ID"));
 
         resp = MHD_create_response_from_callback(
             MHD_SIZE_UNKNOWN, 1024, &log_stream_callback, sse, &log_stream_cleanup);

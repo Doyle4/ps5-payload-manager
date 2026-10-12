@@ -25,9 +25,11 @@ static size_t json(char *out, size_t size, const char *value) {
 unsigned int test_config_saves, test_source_saves, test_imports;
 size_t test_post_size;
 
+#ifndef PLDMGR_TEST_REAL_LOGS
 void pldmgr_log(const char *fmt, ...) { (void)fmt; }
-void pldmgr_notify(const char *fmt, ...) { (void)fmt; }
 void log_server_set_active(void) { test_active_calls++; }
+#endif
+void pldmgr_notify(const char *fmt, ...) { (void)fmt; }
 #ifndef PLDMGR_TEST_REAL_CONFIG
 void config_read(PldmgrConfig *cfg) { memset(cfg, 0, sizeof(*cfg)); cfg->autoload_delay = 5; }
 int config_read_bool(const char *key, int fallback) { (void)key; return fallback; }
@@ -57,7 +59,9 @@ long long pldmgr_autoload_get_remaining_ms(void) { return -1000; }
 void pldmgr_autoload_reset(void) { test_mutation_calls++; }
 void pldmgr_autoload_abort(void) { test_mutation_calls++; }
 #endif
+#ifndef PLDMGR_TEST_REAL_LOGS
 int pldmgr_server_is_active(void) { return test_active_calls != 0; }
+#endif
 int slot_resolve(const char *key, char *out, size_t size) {
     test_mutation_calls++; (void)key; (void)out; (void)size; return -1;
 }
@@ -113,8 +117,13 @@ int sources_add(const char *url, char *msg, size_t size) {
 int sources_remove(int index, char *msg, size_t size) {
     test_mutation_calls++; (void)index; snprintf(msg, size, "Removed"); return 0;
 }
+#ifndef PLDMGR_TEST_REAL_LOGS
 size_t log_build_json(char *out, size_t size) { return json(out, size, "{\"logs\":[]}"); }
 ssize_t log_stream_callback(void *cls, uint64_t pos, char *out, size_t max) {
     (void)cls; (void)pos; (void)out; (void)max; return MHD_CONTENT_READER_END_OF_STREAM;
 }
+void log_stream_init(struct LogSSEConnection *conn, const char *id) {
+    (void)id; memset(conn, 0, sizeof(*conn));
+}
 void log_stream_cleanup(void *cls) { free(cls); }
+#endif

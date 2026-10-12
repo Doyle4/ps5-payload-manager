@@ -171,7 +171,19 @@ previously misnamed `ki_tdname`. `python3 tests/run_process_tests.py` runs the
 actual listing/lookup with synthetic kernel bytes and sanitizers; `--baseline`
 reproduces the previous bounds reads and startup loop from `9ffd392`.
 
-PS5 firmware behavior requires verification on the target console.
+SSE log clients now retain independent sequence cursors and partially delivered
+frames. Catch-up and live delivery preserve retained ring order even with a
+one-byte callback buffer. Multiline text stays one EventSource message; a named
+`gap` event reports overwritten entries and is shown in the log UI. Valid
+`Last-Event-ID` resumes after a delivered entry within this daemon's log sequence;
+invalid/future IDs replay retained history. The ring holds 100 entries in memory,
+and cannot recover overwritten logs or logs from a previous process lifetime.
+HTTP restarts retain the ring, but old response contexts terminate on generation
+change. Every production MHD stop first wakes blocked SSE callbacks, including
+standby/network restart and shutdown. Run `python3 tests/run_log_stream_tests.py`
+for decoded/bounded callback tests, `--baseline` to reproduce the previous bugs,
+or `--thread-sanitize` for shared-state checks. The actual HTTP/SSE fixture is
+`python3 tests/run_http_tests.py --logs-only`. Both are part of CI.
 
 The autoload editor waits for both persisted autoload fields before showing
 controls or saving. The initial empty config, failed fetches, and incomplete
@@ -220,7 +232,7 @@ build a candidate under `scratch/` rather than run `make clean`:
 ```bash
 mkdir -p scratch
 docker run --rm --network=none -v "$(pwd):/src" -w /src \
-  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-candidate.elf
+  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-step7.elf
 ```
 
 This command assumes the SDK image, frontend distribution, and embedded CA
