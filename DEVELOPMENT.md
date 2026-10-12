@@ -49,7 +49,7 @@ are enabled by default. Test files, storage paths, and binaries are temporary;
 the suite does not connect to a console or launch payloads.
 
 On a host with Clang, its sanitizer runtime, Python 3, pkg-config, and
-libmicrohttpd development files installed:
+libmicrohttpd/libcurl development files installed:
 
 ```bash
 make test-host
@@ -60,9 +60,7 @@ The container option builds libmicrohttpd **1.0.1**, matching `build_deps.sh`:
 
 ```bash
 docker build -f tests/Dockerfile -t ps5-payload-manager-tests .
-docker run --rm --network=none -v "$(pwd):/src:ro" ps5-payload-manager-tests
-docker run --rm --network=none -v "$(pwd):/src:ro" ps5-payload-manager-tests \
-  python3 tests/run_json_escape_tests.py
+docker run --rm --network=none -v "$(pwd):/src:ro" ps5-payload-manager-tests make test-host
 ```
 
 The build downloads test dependencies; the test container itself has external
@@ -74,10 +72,21 @@ The JSON encoder suite compiles actual `src/utils.c` and checks its output with
 Python's independent JSON and UTF-8 decoders. It covers Unicode, all non-NUL
 control bytes, invalid UTF-8 replacement, every small escape/scalar boundary,
 truncation status, and guarded destination bounds, with ASan/UBSan enabled.
-C strings cannot represent embedded NUL; escaped-NUL decoding belongs to the
-separate decoder contract. `make test-host` runs both host suites.
+C strings cannot represent embedded NUL. The decoder rejects decoded NUL in the
+requested value, while accepting valid escaped NUL in unrelated fields.
 
-`.github/workflows/verify.yml` runs both host suites, existing frontend tests,
+The decoder suite passes exact, non-NUL-terminated buffers to actual
+`src/json_helpers.c`; it checks bounds, direct-member selection, all escapes,
+UTF-8, surrogate pairs, malformed input, and strict/prefix overflow contracts.
+Objects are validated completely with a nesting limit of 64. Strict extraction
+clears the result on overflow; descriptions/release notes explicitly opt into
+UTF-8-safe prefixes. The backend suite uses real repository, source save/load,
+and slot metadata read/write code inside temporary storage. It parses their
+results independently with Python. Unused network/PS5 code is discarded at
+link time, and no download or payload launch occurs. `make test-host` runs all
+four host suites with sanitizers.
+
+`.github/workflows/verify.yml` runs all host suites, existing frontend tests,
 and frontend build without publishing or deploying. Frontend lint still reports existing errors. The host suite tests response
 ownership/status handling, request cleanup, and autoload-list bounds. Storage
 transactions, autoload worker concurrency, and PS5 firmware behavior remain

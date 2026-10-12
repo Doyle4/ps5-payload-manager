@@ -55,9 +55,10 @@ static int load_sources(SourceEntry *out, int *out_count) {
     if (!arr_start) { free(json); *out_count = count; return 0; }
 
     const char *p = arr_start + 1;
-    while (count < MAX_SOURCES && (p = strchr(p, '{')) != NULL) {
-        const char *end = strchr(p, '}');
-        if (!end) break;
+    while (count < MAX_SOURCES && p < json + size &&
+           (p = memchr(p, '{', (size_t)(json + size - p))) != NULL) {
+        const char *end;
+        if (json_find_object_end(p, json + size, &end) != 0) break;
 
         char id[64] = "", name[256] = "", url[1024] = "";
         char removable_str[8] = "";
@@ -67,7 +68,7 @@ static int load_sources(SourceEntry *out, int *out_count) {
         json_extract_string(p, end, "url",  url,  sizeof(url));
         json_extract_string(p, end, "removable", removable_str, sizeof(removable_str));
 
-        if (strcmp(id, "default") == 0) { p = end + 1; continue; }
+        if (strcmp(id, "default") == 0) { p = end; continue; }
 
         if (name[0] && url[0] && id[0]) {
             strncpy(out[count].id,   id,   sizeof(out[count].id) - 1);
@@ -76,7 +77,7 @@ static int load_sources(SourceEntry *out, int *out_count) {
             out[count].removable = (strcmp(removable_str, "false") != 0);
             count++;
         }
-        p = end + 1;
+        p = end;
     }
 
     free(json);
@@ -160,24 +161,25 @@ int sources_save(const char *json, size_t len) {
     if (!arr_start) { free(sources); return -1; }
 
     const char *p = arr_start + 1;
-    while (count < MAX_SOURCES && (p = strchr(p, '{')) != NULL) {
-        const char *end = strchr(p, '}');
-        if (!end) break;
+    while (count < MAX_SOURCES && p < json + len &&
+           (p = memchr(p, '{', (size_t)(json + len - p))) != NULL) {
+        const char *end;
+        if (json_find_object_end(p, json + len, &end) != 0) break;
 
         char id[64] = "", name[256] = "", url[1024] = "";
         json_extract_string(p, end, "id",   id,   sizeof(id));
         json_extract_string(p, end, "name", name, sizeof(name));
         json_extract_string(p, end, "url",  url,  sizeof(url));
 
-        if (strcmp(id, "default") == 0) { p = end + 1; continue; }
-        if (!name[0] || !url[0] || !id[0]) { p = end + 1; continue; }
+        if (strcmp(id, "default") == 0) { p = end; continue; }
+        if (!name[0] || !url[0] || !id[0]) { p = end; continue; }
 
         strncpy(sources[count].id,   id,   sizeof(sources[count].id) - 1);
         strncpy(sources[count].name, name, sizeof(sources[count].name) - 1);
         strncpy(sources[count].url,  url,  sizeof(sources[count].url) - 1);
         sources[count].removable = 1;
         count++;
-        p = end + 1;
+        p = end;
     }
 
     int ret = save_sources(sources, count);

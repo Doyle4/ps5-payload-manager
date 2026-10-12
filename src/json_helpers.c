@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #include "json_helpers.h"
 
@@ -32,50 +33,245 @@ int json_append(JsonListBuilder *jb, const char *fmt, ...) {
     return 0;
 }
 
-int json_extract_string(const char *obj_start, const char *obj_end,
-                        const char *key, char *out, size_t out_size) {
-    char key_pattern[96];
-    const char *p;
-    const char *colon;
-    const char *q;
-    size_t pos = 0;
+typedef struct {
+    const char *p, *end;
+} JsonReader;
 
-    if (out_size == 0) {
-        return -1;
-    }
-    out[0] = '\0';
+typedef struct {
+    char *out;
+    size_t capacity, written;
+    int truncated;
+    const char *expected;
+    size_t expected_size, matched;
+    int equal;
+} JsonStringSink;
 
-    snprintf(key_pattern, sizeof(key_pattern), "\"%s\"", key);
-    p = strstr(obj_start, key_pattern);
-    if (!p || p >= obj_end) {
-        return -1;
-    }
+static void json_space(JsonReader *r) {
+    while (r->p < r->end && (*r->p == ' ' || *r->p == '\t' ||
+                            *r->p == '\r' || *r->p == '\n')) r->p++;
+}
 
-    colon = strchr(p + strlen(key_pattern), ':');
-    if (!colon || colon >= obj_end) {
-        return -1;
-    }
-
-    q = colon + 1;
-    while (q < obj_end && isspace((unsigned char)*q)) {
-        q++;
-    }
-    if (q >= obj_end || *q != '"') {
-        return -1;
-    }
-    q++;
-
-    while (q < obj_end && *q != '"') {
-        if (*q == '\\' && (q + 1) < obj_end) {
-            q++;
-        }
-        if (pos + 1 < out_size) {
-            out[pos++] = *q;
-        }
-        q++;
-    }
-    out[pos] = '\0';
+static int json_take(JsonReader *r, char c) {
+    if (r->p == r->end || *r->p != c) return -1;
+    r->p++;
     return 0;
+}
+
+static int json_hex4(JsonReader *r, uint32_t *value) {
+    if ((size_t)(r->end - r->p) < 4) return -1;
+    *value = 0;
+    for (int i = 0; i < 4; i++) {
+        unsigned char c = (unsigned char)*r->p++;
+        unsigned digit;
+        if (c >= '0' && c <= '9') digit = c - '0';
+        else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+        else return -1;
+        *value = (*value << 4) | digit;
+    }
+    return 0;
+}
+
+static int json_emit(JsonStringSink *sink, const char *bytes, size_t size) {
+    if (!sink) return 0;
+    if (sink->expected && sink->equal) {
+        if (size > sink->expected_size - sink->matched ||
+            memcmp(bytes, sink->expected + sink->matched, size) != 0) sink->equal = 0;
+        else sink->matched += size;
+    }
+    if (sink->out) {
+        if (memchr(bytes, 0, size)) return -1; /* C-string API cannot represent NUL. */
+        if (!sink->truncated) {
+            if (size >= sink->capacity - sink->written) sink->truncated = 1;
+            else {
+                memcpy(sink->out + sink->written, bytes, size);
+                sink->written += size;
+                sink->out[sink->written] = '\0';
+            }
+        }
+    }
+    return 0;
+}
+
+static int json_string(JsonReader *r, JsonStringSink *sink) {
+    if (json_take(r, '"') != 0) return -1;
+    while (r->p < r->end) {
+        unsigned char c = (unsigned char)*r->p++;
+        char bytes[4];
+        const char *part = bytes;
+        size_t size = 1;
+        if (c == '"') return 0;
+        if (c < 0x20) return -1;
+        if (c == '\\') {
+            if (r->p == r->end) return -1;
+            switch (*r->p++) {
+                case '"': bytes[0] = '"'; break;
+                case '\\': bytes[0] = '\\'; break;
+                case '/': bytes[0] = '/'; break;
+                case 'b': bytes[0] = '\b'; break;
+                case 'f': bytes[0] = '\f'; break;
+                case 'n': bytes[0] = '\n'; break;
+                case 'r': bytes[0] = '\r'; break;
+                case 't': bytes[0] = '\t'; break;
+                case 'u': {
+                    uint32_t cp, low;
+                    if (json_hex4(r, &cp) != 0) return -1;
+                    if (cp >= 0xd800 && cp <= 0xdbff) {
+                        if (json_take(r, '\\') != 0 || json_take(r, 'u') != 0 ||
+                            json_hex4(r, &low) != 0 || low < 0xdc00 || low > 0xdfff) return -1;
+                        cp = 0x10000 + ((cp - 0xd800) << 10) + (low - 0xdc00);
+                    } else if (cp >= 0xdc00 && cp <= 0xdfff) return -1;
+                    if (cp < 0x80) bytes[0] = (char)cp;
+                    else if (cp < 0x800) {
+                        size = 2;
+                        bytes[0] = (char)(0xc0 | (cp >> 6));
+                        bytes[1] = (char)(0x80 | (cp & 63));
+                    } else if (cp < 0x10000) {
+                        size = 3;
+                        bytes[0] = (char)(0xe0 | (cp >> 12));
+                        bytes[1] = (char)(0x80 | ((cp >> 6) & 63));
+                        bytes[2] = (char)(0x80 | (cp & 63));
+                    } else {
+                        size = 4;
+                        bytes[0] = (char)(0xf0 | (cp >> 18));
+                        bytes[1] = (char)(0x80 | ((cp >> 12) & 63));
+                        bytes[2] = (char)(0x80 | ((cp >> 6) & 63));
+                        bytes[3] = (char)(0x80 | (cp & 63));
+                    }
+                    break;
+                }
+                default: return -1;
+            }
+        } else if (c < 0x80) bytes[0] = (char)c;
+        else {
+            part = r->p - 1;
+            if (c >= 0xc2 && c <= 0xdf) size = 2;
+            else if (c >= 0xe0 && c <= 0xef) size = 3;
+            else if (c >= 0xf0 && c <= 0xf4) size = 4;
+            else return -1;
+            if ((size_t)(r->end - part) < size) return -1;
+            for (size_t i = 1; i < size; i++)
+                if ((unsigned char)part[i] < 0x80 || (unsigned char)part[i] > 0xbf) return -1;
+            unsigned char second = (unsigned char)part[1];
+            if ((c == 0xe0 && second < 0xa0) || (c == 0xed && second >= 0xa0) ||
+                (c == 0xf0 && second < 0x90) || (c == 0xf4 && second > 0x8f)) return -1;
+            r->p = part + size;
+        }
+        if (json_emit(sink, part, size) != 0) return -1;
+    }
+    return -1;
+}
+
+static int json_digit(JsonReader *r) {
+    return r->p < r->end && *r->p >= '0' && *r->p <= '9';
+}
+
+static int json_value(JsonReader *r, unsigned depth) {
+    json_space(r);
+    if (r->p == r->end) return -1;
+    char c = *r->p;
+    if (c == '"') return json_string(r, NULL);
+    if (c == '{' || c == '[') {
+        if (depth >= 64) return -1;
+        r->p++;
+        char close = c == '{' ? '}' : ']';
+        json_space(r);
+        if (r->p < r->end && *r->p == close) { r->p++; return 0; }
+        for (;;) {
+            if (c == '{') {
+                if (json_string(r, NULL) != 0) return -1;
+                json_space(r);
+                if (json_take(r, ':') != 0) return -1;
+            }
+            if (json_value(r, depth + 1) != 0) return -1;
+            json_space(r);
+            if (r->p < r->end && *r->p == close) { r->p++; return 0; }
+            if (json_take(r, ',') != 0) return -1;
+            json_space(r);
+        }
+    }
+    if (c == 't' || c == 'f' || c == 'n') {
+        const char *literal = c == 't' ? "true" : c == 'f' ? "false" : "null";
+        size_t size = strlen(literal);
+        if ((size_t)(r->end - r->p) < size || memcmp(r->p, literal, size) != 0) return -1;
+        r->p += size;
+        return 0;
+    }
+    if (c == '-') r->p++;
+    if (!json_digit(r)) return -1;
+    if (*r->p == '0') r->p++;
+    else while (json_digit(r)) r->p++;
+    if (r->p < r->end && *r->p == '.') {
+        r->p++;
+        if (!json_digit(r)) return -1;
+        while (json_digit(r)) r->p++;
+    }
+    if (r->p < r->end && (*r->p == 'e' || *r->p == 'E')) {
+        r->p++;
+        if (r->p < r->end && (*r->p == '+' || *r->p == '-')) r->p++;
+        if (!json_digit(r)) return -1;
+        while (json_digit(r)) r->p++;
+    }
+    return 0;
+}
+
+int json_find_object_end(const char *start, const char *limit, const char **end) {
+    if (!end) return -1;
+    *end = NULL;
+    if (!start || !limit || start >= limit || *start != '{') return -1;
+    JsonReader r = { start, limit };
+    if (json_value(&r, 0) != 0) return -1;
+    *end = r.p;
+    return 0;
+}
+
+static int json_extract(const char *start, const char *end, const char *key,
+                        char *out, size_t capacity, int prefix) {
+    if (!out || !capacity) return JSON_STRING_INVALID;
+    out[0] = '\0';
+    if (!start || !end || start > end || !key) return JSON_STRING_INVALID;
+    JsonReader r = { start, end };
+    JsonStringSink value = { .out = out, .capacity = capacity };
+    int found = 0;
+    json_space(&r);
+    if (json_take(&r, '{') != 0) goto invalid;
+    json_space(&r);
+    if (r.p < r.end && *r.p == '}') r.p++;
+    else for (;;) {
+        JsonStringSink member = { .expected = key, .expected_size = strlen(key), .equal = 1 };
+        if (json_string(&r, &member) != 0) goto invalid;
+        json_space(&r);
+        if (json_take(&r, ':') != 0) goto invalid;
+        json_space(&r);
+        if (member.equal && member.matched == member.expected_size) {
+            if (found || json_string(&r, &value) != 0) goto invalid;
+            found = 1;
+        } else if (json_value(&r, 1) != 0) goto invalid;
+        json_space(&r);
+        if (r.p < r.end && *r.p == '}') { r.p++; break; }
+        if (json_take(&r, ',') != 0) goto invalid;
+        json_space(&r);
+    }
+    json_space(&r);
+    if (r.p != r.end) goto invalid;
+    if (!found) return JSON_STRING_MISSING;
+    if (!value.truncated) return JSON_STRING_OK;
+    if (prefix) return JSON_STRING_TRUNCATED;
+    out[0] = '\0';
+    return JSON_STRING_TOO_LONG;
+invalid:
+    out[0] = '\0';
+    return JSON_STRING_INVALID;
+}
+
+int json_extract_string(const char *start, const char *end, const char *key,
+                        char *out, size_t capacity) {
+    return json_extract(start, end, key, out, capacity, 0);
+}
+
+int json_extract_string_prefix(const char *start, const char *end, const char *key,
+                               char *out, size_t capacity) {
+    return json_extract(start, end, key, out, capacity, 1);
 }
 
 int read_file_text(const char *path, char **out_buf, size_t *out_size) {

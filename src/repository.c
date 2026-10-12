@@ -194,41 +194,52 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
         }
 
         memset(item, 0, sizeof(*item));
-        if (json_extract_string(p, end, "name", item->name, sizeof(item->name)) != 0 ||
-            json_extract_string(p, end, "filename", item->filename, sizeof(item->filename)) != 0 ||
-            json_extract_string(p, end, "url", item->url, sizeof(item->url)) != 0) {
+        if (json_extract_string(p, end + 1, "name", item->name, sizeof(item->name)) != 0 ||
+            json_extract_string(p, end + 1, "filename", item->filename, sizeof(item->filename)) != 0 ||
+            json_extract_string(p, end + 1, "url", item->url, sizeof(item->url)) != 0) {
             free(item);
             p = end + 1;
             continue;
         }
 
         /* Extract id or fallback to slug(name) */
-        json_extract_string(p, end, "id", item->id, sizeof(item->id));
+        json_extract_string(p, end + 1, "id", item->id, sizeof(item->id));
         if (item->id[0] == '\0') {
             slot_slug(item->name, item->id, sizeof(item->id));
         }
 
-        json_extract_string(p, end, "source", item->source, sizeof(item->source));
-        json_extract_string(p, end, "source_direct", item->source_direct, sizeof(item->source_direct));
-        json_extract_string(p, end, "description", item->description, sizeof(item->description));
-        json_extract_string(p, end, "last_update", item->last_update, sizeof(item->last_update));
-        json_extract_string(p, end, "version", item->version, sizeof(item->version));
-        json_extract_string(p, end, "checksum", item->checksum, sizeof(item->checksum));
-        json_extract_string(p, end, "author", item->author, sizeof(item->author));
-        json_extract_string(p, end, "details_url", item->details_url, sizeof(item->details_url));
+        json_extract_string(p, end + 1, "source", item->source, sizeof(item->source));
+        json_extract_string(p, end + 1, "source_direct", item->source_direct, sizeof(item->source_direct));
+        json_extract_string_prefix(p, end + 1, "description", item->description, sizeof(item->description));
+        json_extract_string(p, end + 1, "last_update", item->last_update, sizeof(item->last_update));
+        json_extract_string(p, end + 1, "version", item->version, sizeof(item->version));
+        int checksum_result = json_extract_string(p, end + 1, "checksum", item->checksum, sizeof(item->checksum));
+        /* A supplied oversized/non-string hash must not turn into an absent,
+         * optional checksum after extraction fails. Hex validation is separate. */
+        if (checksum_result != JSON_STRING_OK && checksum_result != JSON_STRING_MISSING) {
+            free(item);
+            p = end + 1;
+            continue;
+        }
+        json_extract_string(p, end + 1, "author", item->author, sizeof(item->author));
+        json_extract_string(p, end + 1, "details_url", item->details_url, sizeof(item->details_url));
 
-        json_extract_string(p, end, "release_notes", item->release_notes, sizeof(item->release_notes));
-        if (strlen(item->release_notes) == sizeof(item->release_notes) - 1) {
-            strcpy(item->release_notes + sizeof(item->release_notes) - 4, "...");
+        int notes_result = json_extract_string_prefix(p, end + 1, "release_notes",
+                                                     item->release_notes, sizeof(item->release_notes));
+        if (notes_result == JSON_STRING_TRUNCATED) {
+            size_t length = strlen(item->release_notes);
+            if (length > sizeof(item->release_notes) - 4) length = sizeof(item->release_notes) - 4;
+            while (length && ((unsigned char)item->release_notes[length] & 0xc0) == 0x80) length--;
+            strcpy(item->release_notes + length, "...");
         }
 
-        json_extract_string(p, end, "icon", item->icon, sizeof(item->icon));
+        json_extract_string(p, end + 1, "icon", item->icon, sizeof(item->icon));
         /* Only allow inline data URIs (e.g. data:image/svg+xml;base64,... or data:image/png;base64,...); reject external URLs */
         if (strncmp(item->icon, "data:image/", 11) != 0 || strlen(item->icon) > 12288) {
             item->icon[0] = '\0';
         }
 
-        if (json_extract_string(p, end, "category", item->category, sizeof(item->category)) != 0 ||
+        if (json_extract_string(p, end + 1, "category", item->category, sizeof(item->category)) != 0 ||
             strlen(item->category) == 0) {
             strncpy(item->category, "Uncategorized", sizeof(item->category) - 1);
         }

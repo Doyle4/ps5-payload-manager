@@ -231,7 +231,7 @@ int slot_read_meta(const char *slot_dir, SlotMeta *out_meta) {
         json_extract_string(json, end, "source", out_meta->source, sizeof(out_meta->source));
         json_extract_string(json, end, "source_direct", out_meta->source_direct, sizeof(out_meta->source_direct));
         json_extract_string(json, end, "category", out_meta->category, sizeof(out_meta->category));
-        json_extract_string(json, end, "description", out_meta->description, sizeof(out_meta->description));
+        json_extract_string_prefix(json, end, "description", out_meta->description, sizeof(out_meta->description));
         json_extract_string(json, end, "author", out_meta->author, sizeof(out_meta->author));
         json_extract_string(json, end, "details_url", out_meta->details_url, sizeof(out_meta->details_url));
 

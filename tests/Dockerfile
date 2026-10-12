@@ -1,7 +1,7 @@
 FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    clang libclang-rt-18-dev make libc6-dev curl pkg-config python3 ca-certificates \
+    clang libclang-rt-18-dev make libc6-dev curl libcurl4-openssl-dev pkg-config python3 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Match the library shipped by build_deps.sh rather than Ubuntu's older MHD.
