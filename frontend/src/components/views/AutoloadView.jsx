@@ -1,6 +1,6 @@
 import { saveConfigOnExit } from '../../utils/mutationRequest'
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { RefreshCw, ArrowLeft, ArrowRight, Activity, Zap, ChevronUp, ChevronDown, Trash2, Globe } from 'lucide-react'
+import { RefreshCw, Loader2, ArrowLeft, ArrowRight, Activity, Zap, ChevronUp, ChevronDown, Trash2, Globe } from 'lucide-react'
 import { cn, isPS5, isSystemPayload, parsePayloadName } from '../../utils/helpers'
 import { useTranslation } from 'react-i18next'
 import PayloadName from '../ui/PayloadName'
@@ -30,6 +30,7 @@ const AutoloadView = ({
   const setShowDelayModal = setDelayModalProp || setLocalDelayModal
   const [customDelay, setCustomDelay] = useState('')
   const [isInitialized, setIsInitialized] = useState(false)
+  const initializedRef = useRef(false)
   const stateRef = useRef({ enabled: false, list: [] })
   stateRef.current = { enabled, list: autoloadList }
 
@@ -37,9 +38,12 @@ const AutoloadView = ({
   const pendingSaveRef = useRef(false)
   const lastSyncedRef = useRef('')
 
-  // Load initial config
+  // App starts with {}; wait for persisted fields before allowing edits/saves.
   useEffect(() => {
-    if (config && !isInitialized) {
+    const hasConfig = (config?.AUTOLOAD_ENABLED === true || config?.AUTOLOAD_ENABLED === false ||
+      config?.AUTOLOAD_ENABLED === 'true' || config?.AUTOLOAD_ENABLED === 'false') &&
+      typeof config?.AUTOLOAD_LIST === 'string'
+    if (hasConfig && !initializedRef.current) {
       const en = config.AUTOLOAD_ENABLED === true || config.AUTOLOAD_ENABLED === "true"
       const listStr = config.AUTOLOAD_LIST || ''
       setEnabled(en)
@@ -47,12 +51,14 @@ const AutoloadView = ({
       setAutoloadList(parsedList)
       stateRef.current = { enabled: en, list: parsedList }
       lastSyncedRef.current = `${en}:${listStr}`
+      initializedRef.current = true
       setIsInitialized(true)
     }
-  }, [config, isInitialized])
+  }, [config])
 
   // Immediate save coordinator with in-flight queueing
   const saveState = useCallback(async (targetList, targetEnabled) => {
+    if (!initializedRef.current) return
     const listToSave = targetList !== undefined ? targetList : stateRef.current.list
     const enabledToSave = targetEnabled !== undefined ? targetEnabled : stateRef.current.enabled
 
@@ -90,6 +96,7 @@ const AutoloadView = ({
   // Safety flush on component unmount and window unload/pagehide
   useEffect(() => {
     const flushSave = () => {
+      if (!initializedRef.current) return
       const { list, enabled: en } = stateRef.current
       const finalList = list.map((p) => (p === 'DELAY' ? '!1000' : p))
       const finalStr = finalList.join(',')
@@ -115,7 +122,7 @@ const AutoloadView = ({
       window.removeEventListener('beforeunload', flushSave)
       window.removeEventListener('pagehide', flushSave)
     }
-  }, [config])
+  }, [])
 
   const availableSlots = useMemo(() => {
     if (items && items.length > 0) {
@@ -225,6 +232,7 @@ const AutoloadView = ({
   )
 
   const handleToggle = (val) => {
+    if (!initializedRef.current) return
     setEnabled(val)
     stateRef.current = { enabled: val, list: autoloadList }
     saveState(autoloadList, val)
@@ -514,6 +522,15 @@ const AutoloadView = ({
       </div>
     </div>
   )
+
+  if (!isInitialized) {
+    return (
+      <div role="status" className="flex-1 flex flex-col items-center justify-center gap-4 p-6 text-zinc-400">
+        <Loader2 aria-hidden="true" className="w-8 h-8 animate-spin text-ps-blue" />
+        <span>{t("autoload.loading_config", "Loading autoload settings...")}</span>
+      </div>
+    )
+  }
 
   if (!enabled) {
     return (

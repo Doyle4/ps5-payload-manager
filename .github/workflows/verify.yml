@@ -47,6 +47,8 @@ jobs:
 
       - name: Check mock server method/origin contract
         run: node tests/run_mock_security_tests.mjs
+      - name: Check autoload editor reload and delayed configuration
+        run: CHROME_BIN="$(command -v google-chrome)" node tests/run_autoload_editor_browser_tests.mjs
       - name: Build native HTTP fixture for browser security checks
         run: docker build -f tests/Dockerfile -t pldmgr-browser-tests .
       - name: Check Chrome actions, cross-origin attacks, unload beacons, and Vite proxy

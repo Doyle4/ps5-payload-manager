@@ -160,6 +160,15 @@ worker, socketpair loader recorder and real HTTP worker fixtures are part of
 status/reset/start paths. The PS-button detector remains the existing headless
 per-read implementation.
 
+The autoload editor waits for both persisted autoload fields before showing
+controls or saving. The initial empty config, failed fetches, and incomplete
+responses cannot enable autoload or flush an empty list. Run
+`node tests/run_autoload_editor_browser_tests.mjs` with Chrome installed
+(`CHROME_BIN` overrides the default path). It tests the real React editor with
+controlled delayed responses, reloads, navigation, exit saves and list retention;
+CI runs this regression too. `--baseline` reproduces the destructive behavior
+using the editor from `bfbe474` without changing workspace files.
+
 Collected arrays are limited to **4,096 items** and **64 MiB** of allocated array
 capacity, whichever is smaller for the item type. Repository parsing accepts up
 to **16 MiB** of input text. These bounds apply to the parser/scanner collections;
