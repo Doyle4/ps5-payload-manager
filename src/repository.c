@@ -40,10 +40,16 @@ int download_to_file(const char *url, const char *out_path) {
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_URL, url);
 
+        /* Prevent DNS/connection timeouts from sending signals in multi-threaded environment */
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+
         /* Prevent repository connection timeouts from delaying startup and autoload. */
         if (strcmp(url, REPOSITORY_SOURCE_URL) == 0) {
             curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
             curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+        } else {
+            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
         }
 
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);

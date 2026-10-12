@@ -79,6 +79,14 @@ extern int sceUserServiceInitialize(void *);
 
 __attribute__((used)) volatile const char pldmgr_version_sig[] = "PLDMGR_VER:" MENU_VERSION;
 
+static struct MHD_Daemon *start_http_daemon(unsigned int port) {
+    return MHD_start_daemon(
+        MHD_USE_THREAD_PER_CONNECTION | MHD_USE_DEBUG, port,
+        NULL, NULL, &http_on_request, NULL,
+        MHD_OPTION_THREAD_STACK_SIZE, (size_t)(1024 * 1024),
+        MHD_OPTION_END);
+}
+
 int main(int argc, char *argv[]) {
     struct MHD_Daemon *daemon;
     unsigned short port = DEFAULT_PORT;
@@ -124,11 +132,11 @@ int main(int argc, char *argv[]) {
     signal(SIGPIPE, SIG_IGN);
     signal(SIGHUP, SIG_IGN);
     signal(SIGTERM, SIG_IGN);
+    signal(SIGALRM, SIG_IGN);
     signal(SIGCONT, handle_sigcont);
 
-    /* Start the MHD daemon */
-    daemon = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION | MHD_USE_DEBUG, port,
-                              NULL, NULL, &http_on_request, NULL, MHD_OPTION_END);
+    /* Start the MHD daemon with a 1MB stack per connection thread */
+    daemon = start_http_daemon(port);
 
     if (NULL == daemon) {
         pldmgr_log("[PLDMGR] Failed to start HTTP daemon!\n");
@@ -181,9 +189,7 @@ int main(int argc, char *argv[]) {
 
             usleep(1000000); /* 1s for network stack to stabilize */
 
-            daemon = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION | MHD_USE_DEBUG,
-                                      port, NULL, NULL, &http_on_request, NULL,
-                                      MHD_OPTION_END);
+            daemon = start_http_daemon(port);
 
             if (daemon) {
                 /* Re-read current IP */
@@ -217,9 +223,7 @@ int main(int argc, char *argv[]) {
 
                 usleep(800000);
 
-                daemon = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION | MHD_USE_DEBUG,
-                                          port, NULL, NULL, &http_on_request, NULL,
-                                          MHD_OPTION_END);
+                daemon = start_http_daemon(port);
 
                 if (daemon) {
                     strcpy(current_ip, new_ip);
@@ -239,9 +243,7 @@ int main(int argc, char *argv[]) {
 
                 usleep(300000);
 
-                daemon = MHD_start_daemon(
-                    MHD_USE_THREAD_PER_CONNECTION | MHD_USE_DEBUG, port, NULL,
-                    NULL, &http_on_request, NULL, MHD_OPTION_END);
+                daemon = start_http_daemon(port);
 
                 if (daemon) {
                     pldmgr_log("[PLDMGR] Server restarted after network loss "

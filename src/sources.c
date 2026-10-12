@@ -672,24 +672,34 @@ int sources_repo_install(const char *source_url, const char *id,
         return -1;
     }
 
-    RepoPayload entry = items[found_idx];
+    RepoPayload *entry = (RepoPayload *)calloc(1, sizeof(RepoPayload));
+    if (!entry) {
+        if (items) free(items);
+        snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Out of memory\"}");
+        return -1;
+    }
+    *entry = items[found_idx];
     free(items);
+    items = NULL;
 
     /* Block installing pldmgr as a payload */
-    if (is_pldmgr_name(safe_id) || is_pldmgr_name(entry.id) ||
-        is_pldmgr_name(entry.filename) || is_pldmgr_name(entry.name)) {
+    if (is_pldmgr_name(safe_id) || is_pldmgr_name(entry->id) ||
+        is_pldmgr_name(entry->filename) || is_pldmgr_name(entry->name)) {
+        free(entry);
         snprintf(out_json, out_size,
                  "{\"ok\":false,\"message\":\"Payload Manager cannot be installed as a payload\"}");
         return -1;
     }
 
     /* Validate filename */
-    if (entry.filename[0] == '\0' || strstr(entry.filename, "/") || strstr(entry.filename, "..")) {
+    if (entry->filename[0] == '\0' || strstr(entry->filename, "/") || strstr(entry->filename, "..")) {
+        free(entry);
         snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Invalid payload filename in repository\"}");
         return -1;
     }
-    const char *ext = strrchr(entry.filename, '.');
+    const char *ext = strrchr(entry->filename, '.');
     if (!ext || (strcasecmp(ext, ".elf") != 0 && strcasecmp(ext, ".bin") != 0)) {
+        free(entry);
         snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Unsupported file extension in repository\"}");
         return -1;
     }
@@ -698,6 +708,7 @@ int sources_repo_install(const char *source_url, const char *id,
     char slot_dir[640];
     snprintf(slot_dir, sizeof(slot_dir), "%s/%s", PAYLOADS_STORAGE_DIR, target_slot);
     if (ensure_dir_recursive(slot_dir) != 0) {
+        free(entry);
         snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Failed to create slot directory\"}");
         return -1;
     }
@@ -706,7 +717,7 @@ int sources_repo_install(const char *source_url, const char *id,
     snprintf(part_path, sizeof(part_path), "%s/.part", slot_dir);
 
     /* Download attempt */
-    int dl_ok = (download_to_file(entry.url, part_path) == 0);
+    int dl_ok = (download_to_file(entry->url, part_path) == 0);
     if (!dl_ok && !refreshed) {
         /* Retry after refresh */
         sources_ensure_fresh(src.url, 1);
@@ -716,35 +727,39 @@ int sources_repo_install(const char *source_url, const char *id,
             if (parse_repository_payloads(cached, &items, &count) == 0) {
                 for (size_t i = 0; i < count; i++) {
                     if (strcmp(items[i].id, safe_id) == 0) {
-                        entry = items[i];
+                        *entry = items[i];
                         ref_found = 1;
                         break;
                     }
                 }
                 free(items);
+                items = NULL;
             }
             free(cached);
+            cached = NULL;
         }
         if (!ref_found) {
+            free(entry);
             remove(part_path);
             snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Payload no longer in repository\"}");
             return -1;
         }
-        dl_ok = (download_to_file(entry.url, part_path) == 0);
+        dl_ok = (download_to_file(entry->url, part_path) == 0);
     }
 
     if (!dl_ok) {
+        free(entry);
         remove(part_path);
         snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Download failed\"}");
         return -1;
     }
 
     /* Checksum verification */
-    if (strlen(entry.checksum) == 64) {
+    if (strlen(entry->checksum) == 64) {
         char calc[65];
-        if (compute_sha256_file(part_path, calc) != 0 || strcasecmp(calc, entry.checksum) != 0) {
+        if (compute_sha256_file(part_path, calc) != 0 || strcasecmp(calc, entry->checksum) != 0) {
             pldmgr_log("[PLDMGR] Checksum mismatch for %s. Expected: %s, Got: %s\n",
-                       entry.filename, entry.checksum, calc);
+                       entry->filename, entry->checksum, calc);
             if (!refreshed) {
                 /* Retry after refresh */
                 sources_ensure_fresh(src.url, 1);
@@ -754,22 +769,25 @@ int sources_repo_install(const char *source_url, const char *id,
                     if (parse_repository_payloads(cached, &items, &count) == 0) {
                         for (size_t i = 0; i < count; i++) {
                             if (strcmp(items[i].id, safe_id) == 0) {
-                                entry = items[i];
+                                *entry = items[i];
                                 ref_found = 1;
                                 break;
                             }
                         }
                         free(items);
+                        items = NULL;
                     }
                     free(cached);
+                    cached = NULL;
                 }
-                if (ref_found && download_to_file(entry.url, part_path) == 0) {
+                if (ref_found && download_to_file(entry->url, part_path) == 0) {
                     if (compute_sha256_file(part_path, calc) == 0 &&
-                        strcasecmp(calc, entry.checksum) == 0) {
+                        strcasecmp(calc, entry->checksum) == 0) {
                         goto checksum_passed;
                     }
                 }
             }
+            free(entry);
             remove(part_path);
             snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Checksum verification failed\"}");
             return -1;
@@ -799,57 +817,64 @@ checksum_passed:
         closedir(sd);
     }
 
-    /* Commit .part -> entry.filename */
+    /* Commit .part -> entry->filename */
     char final_file[768];
-    snprintf(final_file, sizeof(final_file), "%s/%s", slot_dir, entry.filename);
+    snprintf(final_file, sizeof(final_file), "%s/%s", slot_dir, entry->filename);
     if (rename(part_path, final_file) != 0) {
+        free(entry);
         remove(part_path);
         snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Failed to commit payload file\"}");
         return -1;
     }
 
     /* Write meta.json */
-    SlotMeta meta;
-    memset(&meta, 0, sizeof(meta));
-    meta.schema = PAYLOAD_SLOT_SCHEMA;
-    strcpy(meta.kind, SLOT_KIND_REPO);
-    strncpy(meta.slot_key, target_slot, sizeof(meta.slot_key) - 1);
-    strncpy(meta.slot_dir, slot_dir, sizeof(meta.slot_dir) - 1);
-    strncpy(meta.payload_path, final_file, sizeof(meta.payload_path) - 1);
-    strncpy(meta.filename, entry.filename, sizeof(meta.filename) - 1);
+    SlotMeta *meta = (SlotMeta *)calloc(1, sizeof(SlotMeta));
+    if (!meta) {
+        free(entry);
+        snprintf(out_json, out_size, "{\"ok\":false,\"message\":\"Out of memory\"}");
+        return -1;
+    }
+    meta->schema = PAYLOAD_SLOT_SCHEMA;
+    strcpy(meta->kind, SLOT_KIND_REPO);
+    strncpy(meta->slot_key, target_slot, sizeof(meta->slot_key) - 1);
+    strncpy(meta->slot_dir, slot_dir, sizeof(meta->slot_dir) - 1);
+    strncpy(meta->payload_path, final_file, sizeof(meta->payload_path) - 1);
+    strncpy(meta->filename, entry->filename, sizeof(meta->filename) - 1);
 
     time_t now = time(NULL);
     struct tm tmv;
     localtime_r(&now, &tmv);
-    strftime(meta.installed_at, sizeof(meta.installed_at), "%Y-%m-%dT%H:%M:%S%z", &tmv);
+    strftime(meta->installed_at, sizeof(meta->installed_at), "%Y-%m-%dT%H:%M:%S%z", &tmv);
 
-    strncpy(meta.id, safe_id, sizeof(meta.id) - 1);
-    strncpy(meta.source_url, src.url, sizeof(meta.source_url) - 1);
-    strncpy(meta.source_name, src.name, sizeof(meta.source_name) - 1);
-    strncpy(meta.name, entry.name, sizeof(meta.name) - 1);
-    strncpy(meta.version, entry.version, sizeof(meta.version) - 1);
-    strncpy(meta.checksum, entry.checksum, sizeof(meta.checksum) - 1);
-    strncpy(meta.last_update, entry.last_update, sizeof(meta.last_update) - 1);
-    strncpy(meta.url, entry.url, sizeof(meta.url) - 1);
-    strncpy(meta.source, entry.source, sizeof(meta.source) - 1);
-    strncpy(meta.source_direct, entry.source_direct, sizeof(meta.source_direct) - 1);
-    strncpy(meta.category, entry.category, sizeof(meta.category) - 1);
-    strncpy(meta.description, entry.description, sizeof(meta.description) - 1);
-    strncpy(meta.author, entry.author, sizeof(meta.author) - 1);
-    strncpy(meta.details_url, entry.details_url, sizeof(meta.details_url) - 1);
+    strncpy(meta->id, safe_id, sizeof(meta->id) - 1);
+    strncpy(meta->source_url, src.url, sizeof(meta->source_url) - 1);
+    strncpy(meta->source_name, src.name, sizeof(meta->source_name) - 1);
+    strncpy(meta->name, entry->name, sizeof(meta->name) - 1);
+    strncpy(meta->version, entry->version, sizeof(meta->version) - 1);
+    strncpy(meta->checksum, entry->checksum, sizeof(meta->checksum) - 1);
+    strncpy(meta->last_update, entry->last_update, sizeof(meta->last_update) - 1);
+    strncpy(meta->url, entry->url, sizeof(meta->url) - 1);
+    strncpy(meta->source, entry->source, sizeof(meta->source) - 1);
+    strncpy(meta->source_direct, entry->source_direct, sizeof(meta->source_direct) - 1);
+    strncpy(meta->category, entry->category, sizeof(meta->category) - 1);
+    strncpy(meta->description, entry->description, sizeof(meta->description) - 1);
+    strncpy(meta->author, entry->author, sizeof(meta->author) - 1);
+    strncpy(meta->details_url, entry->details_url, sizeof(meta->details_url) - 1);
 
-    slot_write_meta(slot_dir, &meta);
+    slot_write_meta(slot_dir, meta);
+    free(meta);
 
     char sk_e[256], id_e[256], ver_e[128], fn_e[512];
     pldmgr_json_escape(target_slot, sk_e, sizeof(sk_e));
     pldmgr_json_escape(safe_id, id_e, sizeof(id_e));
-    pldmgr_json_escape(entry.version, ver_e, sizeof(ver_e));
-    pldmgr_json_escape(entry.filename, fn_e, sizeof(fn_e));
+    pldmgr_json_escape(entry->version, ver_e, sizeof(ver_e));
+    pldmgr_json_escape(entry->filename, fn_e, sizeof(fn_e));
 
     snprintf(out_json, out_size,
              "{\"ok\":true,\"slot\":\"%s\",\"id\":\"%s\",\"version\":\"%s\",\"filename\":\"%s\",\"refreshed\":%s}",
              sk_e, id_e, ver_e, fn_e, refreshed ? "true" : "false");
 
-    pldmgr_log("[PLDMGR] Repo install success: slot=%s id=%s ver=%s\n", target_slot, id, entry.version);
+    pldmgr_log("[PLDMGR] Repo install success: slot=%s id=%s ver=%s\n", target_slot, id, entry->version);
+    free(entry);
     return 0;
 }
