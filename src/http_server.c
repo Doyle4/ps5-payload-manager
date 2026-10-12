@@ -962,33 +962,24 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
                                                MHD_RESPMEM_MUST_COPY);
         add_response_header(resp, "Content-Type", "text/plain");
     } else if (strcmp(url, ROUTE_AUTOLOAD_STATUS) == 0) {
-        int total, done;
-        char current[128];
-        pldmgr_autoload_get_status(&total, &done, current);
-        int remaining = pldmgr_autoload_get_remaining_seconds();
-        long long remaining_ms = pldmgr_autoload_get_remaining_ms();
-
-        char list_buf[4096];
-        if (read_autoload_list(list_buf, sizeof(list_buf), 0) != 0)
-            return send_request_error(conn, MHD_HTTP_INTERNAL_SERVER_ERROR,
-                                      "Autoload list is unreadable or exceeds the size limit");
-
-        PldmgrConfig cfg;
-        config_read(&cfg);
-
-        char current_escaped[6 * 128];
-        char list_escaped[6 * 4096];
-        pldmgr_json_escape(current, current_escaped, sizeof(current_escaped));
-        pldmgr_json_escape(list_buf, list_escaped, sizeof(list_escaped));
+        if (mutation_authorized(conn)) pldmgr_autoload_frontend_ready();
+        AutoloadSnapshot snapshot;
+        pldmgr_autoload_get_snapshot(&snapshot);
+        char current_escaped[6 * 128], list_escaped[6 * 4096];
+        if (pldmgr_json_escape(snapshot.current,current_escaped,sizeof(current_escaped)) ||
+            pldmgr_json_escape(snapshot.list,list_escaped,sizeof(list_escaped)))
+            return send_request_error(conn,MHD_HTTP_INTERNAL_SERVER_ERROR,"Invalid autoload snapshot");
 
         char *resp_buf;
         if (!alloc_response_buffer_small(&resp_buf))
             return send_out_of_memory(conn);
         json_format(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
                  "{\"remaining\":%d,\"remaining_ms\":%lld,\"total\":%d,\"done\":%d,\"current\":\"%s\","
-                 "\"list\":\"%s\",\"delay\":%d,\"SCAN_USB_PAYLOADS\":%s}",
-                 remaining, remaining_ms, total, done, current_escaped, list_escaped, cfg.autoload_delay,
-                 cfg.scan_usb_payloads ? "true" : "false");
+                 "\"list\":\"%s\",\"delay\":%d,\"SCAN_USB_PAYLOADS\":%s,"
+                 "\"state\":\"%s\",\"successful\":%d,\"failed\":%d,\"skipped\":%d,\"outcomes\":\"%s\"}",
+                 snapshot.remaining, snapshot.remaining_ms, snapshot.total, snapshot.done, current_escaped,
+                 list_escaped, snapshot.delay, snapshot.scan_usb_payloads ? "true" : "false",
+                 pldmgr_autoload_state_name(snapshot.state),snapshot.successful,snapshot.failed,snapshot.skipped,snapshot.outcomes);
         if (!resp_buf[0]) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(strlen(resp_buf),
                                                (void *)resp_buf,

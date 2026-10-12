@@ -10,6 +10,12 @@
  */
 int ps5_launch_elf(const char* path);
 
+/* Stop callback is checked before socket work and between send/wait chunks.
+ * Connect and total transfer have finite deadlines. Cancellation cannot undo
+ * bytes already delivered or a payload the loader has already executed. */
+typedef int (*PayloadLaunchCancelled)(void *context);
+int ps5_launch_elf_cancellable(const char *path, PayloadLaunchCancelled cancelled, void *context);
+
 /**
  * Launch the PS5 web browser with a specific URL.
  * @param uri The URL to open.

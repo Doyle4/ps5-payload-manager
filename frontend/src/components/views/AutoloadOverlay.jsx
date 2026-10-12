@@ -3,12 +3,14 @@ import { CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../utils/helpers'
 import PayloadName from '../ui/PayloadName'
+import { autoloadPhase, autoloadItemProgress } from '../../utils/autoloadProgress'
 
 const AutoloadOverlay = ({ status, onCancel, onFinish, isPS5 }) => {
   const { t } = useTranslation()
-  const isCountdown = status.remaining > 0 || (status.remaining === 0 && !status.current);
-  const isExecuting = status.remaining === 0 && !!status.current && status.current !== 'DONE';
-  const isDone = status.current === 'DONE';
+  const phase = autoloadPhase(status);
+  const isCountdown = phase === 'waiting' || phase === 'countdown';
+  const isExecuting = phase === 'executing';
+  const isDone = phase === 'done';
   const payloadList = (typeof status.list === 'string') ? status.list.split(',').filter(p => p.trim() !== '') : [];
   const listRef = useRef(null);
   const displayTotal = status.total > 0 ? status.total : payloadList.length;
@@ -139,7 +141,7 @@ const AutoloadOverlay = ({ status, onCancel, onFinish, isPS5 }) => {
               >
                 {t("autoload_overlay.return_btn", "Return to Dashboard")}
               </button>
-            ) : isCountdown ? (
+            ) : (isCountdown || isExecuting) ? (
               <button
                 onClick={onCancel}
                 autoFocus
@@ -178,8 +180,7 @@ const AutoloadOverlay = ({ status, onCancel, onFinish, isPS5 }) => {
 
             <div className="space-y-3">
               {payloadList.map((name, i) => {
-                const active = !isDone && isExecuting && i === status.done;
-                const done = isDone || i < status.done;
+                const { active, processed: done, failed, skipped } = autoloadItemProgress(status, i);
                 return (
                   <div
                     key={i}
@@ -187,10 +188,13 @@ const AutoloadOverlay = ({ status, onCancel, onFinish, isPS5 }) => {
                     className={cn(
                       "flex items-center justify-between p-5 rounded-2xl border transition-all duration-500",
                       active ? 'bg-ps-blue/20 border-ps-blue scale-[1.02] z-10' :
-                        done ? 'bg-emerald-500/5 border-emerald-500/20 opacity-100' : 'bg-white/5 border-white/10 opacity-40'
+                        failed ? 'bg-red-500/5 border-red-500/20 opacity-100' :
+                          skipped ? 'bg-white/5 border-white/10 opacity-70' :
+                          done ? 'bg-emerald-500/5 border-emerald-500/20 opacity-100' : 'bg-white/5 border-white/10 opacity-40'
                     )}>
                     <div className="flex items-center space-x-5">
-                      {done ? <CheckCircle2 className="w-6 h-6 text-emerald-500" /> :
+                      {failed || skipped ? <AlertTriangle className="w-6 h-6 text-amber-500" /> :
+                        done ? <CheckCircle2 className="w-6 h-6 text-emerald-500" /> :
                         active ? <Loader2 className="w-6 h-6 text-ps-blue animate-spin" /> :
                           <div className="w-6 h-6 rounded-full border-2 border-white/10" />}
                       <PayloadName
@@ -200,8 +204,8 @@ const AutoloadOverlay = ({ status, onCancel, onFinish, isPS5 }) => {
                       />
                     </div>
                     {done && (
-                      <span className="text-emerald-500 text-[10px] font-black uppercase tracking-widest italic">
-                        {t("autoload_overlay.success", "Success")}
+                      <span className={cn("text-[10px] font-black uppercase tracking-widest italic", failed ? "text-red-400" : skipped ? "text-zinc-400" : "text-emerald-500")}>
+                        {failed ? t("autoload_overlay.failed", "Failed") : skipped ? t("autoload_overlay.skipped", "Skipped") : t("autoload_overlay.success", "Success")}
                       </span>
                     )}
                   </div>

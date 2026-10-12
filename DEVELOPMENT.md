@@ -144,6 +144,22 @@ A multi-file settings request validates fully first, publishes lists before scal
 settings, and reports 500 if any publication fails. Earlier completed files stay
 published; per-file atomicity does not provide an all-or-nothing transaction.
 
+Autoload now owns one joinable worker and returns a coherent locked snapshot.
+Active reset preserves waiting/countdown/execution; terminal reset cannot rerun
+it. Abort/stop interrupt delays and loader waits. Sequences are parsed once from
+one regular file (4095 bytes, entries up to 511 bytes, delays up to one hour);
+status retains that running sequence if the file is edited. Processed counts and
+per-entry outcomes distinguish success/failure/skip. Anonymous/foreign status
+reads remain passive; an authorized read explicitly signals frontend readiness.
+
+Loader connects time out after five seconds, and full transfers after thirty;
+nonblocking/poll loops handle partial sends and cooperative cancellation. A
+cancel cannot undo a payload already executed or bytes already sent. The actual
+worker, socketpair loader recorder and real HTTP worker fixtures are part of
+`make test-host`; `run_autoload_tests.py --thread-sanitize` covers concurrent
+status/reset/start paths. The PS-button detector remains the existing headless
+per-read implementation.
+
 Collected arrays are limited to **4,096 items** and **64 MiB** of allocated array
 capacity, whichever is smaller for the item type. Repository parsing accepts up
 to **16 MiB** of input text. These bounds apply to the parser/scanner collections;
@@ -182,7 +198,7 @@ build a candidate under `scratch/` rather than run `make clean`:
 ```bash
 mkdir -p scratch
 docker run --rm --network=none -v "$(pwd):/src" -w /src \
-  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-step5.elf
+  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-candidate.elf
 ```
 
 This command assumes the SDK image, frontend distribution, and embedded CA

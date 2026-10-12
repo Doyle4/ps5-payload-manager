@@ -26,6 +26,7 @@ unsigned int test_config_saves, test_source_saves, test_imports;
 size_t test_post_size;
 
 void pldmgr_log(const char *fmt, ...) { (void)fmt; }
+void pldmgr_notify(const char *fmt, ...) { (void)fmt; }
 void log_server_set_active(void) { test_active_calls++; }
 #ifndef PLDMGR_TEST_REAL_CONFIG
 void config_read(PldmgrConfig *cfg) { memset(cfg, 0, sizeof(*cfg)); cfg->autoload_delay = 5; }
@@ -41,6 +42,13 @@ int config_get_favorites_csv(char *out, size_t size, int *exists) {
     return test_json_failure ? -1 : 0;
 }
 #endif
+AutoloadSnapshot test_autoload_snapshot={.state=AUTOLOAD_DISABLED,.remaining=-1,.remaining_ms=-1000,.delay=5};
+#ifndef PLDMGR_TEST_REAL_AUTOLOAD
+void pldmgr_autoload_frontend_ready(void) {}
+void pldmgr_autoload_get_snapshot(AutoloadSnapshot *snapshot) {
+    *snapshot=test_autoload_snapshot;
+}
+const char *pldmgr_autoload_state_name(AutoloadState state) { (void)state; return "disabled"; }
 void pldmgr_autoload_get_status(int *total, int *done, char *current) {
     *total = 0; *done = 0; current[0] = '\0';
 }
@@ -48,6 +56,8 @@ int pldmgr_autoload_get_remaining_seconds(void) { return -1; }
 long long pldmgr_autoload_get_remaining_ms(void) { return -1000; }
 void pldmgr_autoload_reset(void) { test_mutation_calls++; }
 void pldmgr_autoload_abort(void) { test_mutation_calls++; }
+#endif
+int pldmgr_server_is_active(void) { return test_active_calls != 0; }
 int slot_resolve(const char *key, char *out, size_t size) {
     test_mutation_calls++; (void)key; (void)out; (void)size; return -1;
 }
@@ -55,6 +65,7 @@ int slot_local_key(const char *name, char *out, size_t size) {
     snprintf(out, size, "%s", name); return 0;
 }
 int ps5_launch_elf(const char *path) { (void)path; abort(); }
+int ps5_launch_elf_cancellable(const char *path, PayloadLaunchCancelled cancelled, void *context) { (void)path; (void)cancelled; (void)context; abort(); }
 int payload_mgr_delete_payload(const char *key) { (void)key; test_mutation_calls++; return 0; }
 int payload_mgr_import_to_storage_mode(const char *filename, const char *path,
     const char *mode, const char *origin, const char *detail,

@@ -264,6 +264,8 @@ int main(int argc, char *argv[]) {
     }
 
     pldmgr_log("[PLDMGR] Shutting down...\n");
+    pldmgr_autoload_stop();
+
     if (daemon)
         MHD_stop_daemon(daemon);
 

@@ -530,8 +530,11 @@ static void request_tests(void) {
     assert(autoload);
     fputs("\r\nlocal/one\r\n!500\nlocal/two\n", autoload);
     fclose(autoload);
+    extern AutoloadSnapshot test_autoload_snapshot;
+    strcpy(test_autoload_snapshot.list,"local/running");
     run_request((struct Request){"/autoload_status", "GET", 200, {{0}}}, 0, 0, 0);
-    expect(strstr(body, "local/one,local/two") != NULL, "status excludes delays and CRLF blank lines");
+    expect(strstr(body,"local/running") != NULL && !strstr(body,"local/one"),
+           "status returns the worker snapshot rather than a newly edited sequence");
     run_request((struct Request){"/get_config", "GET", 200, {{0}}}, 0, 0, 0);
     expect(strstr(body, "local/one,!500,local/two") != NULL, "config retains delay entries");
     for (int size = 4095; size <= 4096; size++) {
@@ -541,7 +544,7 @@ static void request_tests(void) {
         fclose(autoload);
         for (int config = 0; config < 2; config++) {
             run_request((struct Request){config ? "/get_config" : "/autoload_status", "GET",
-                                        size == 4095 ? 200 : 500, {{0}}}, 0, 0, 0);
+                                        !config || size == 4095 ? 200 : 500, {{0}}}, 0, 0, 0);
         }
     }
     autoload = fopen(AUTOLOAD_CONFIG_PATH, "w");
@@ -550,7 +553,8 @@ static void request_tests(void) {
     fputc('\0', autoload);
     fputs("local/two", autoload);
     fclose(autoload);
-    run_request((struct Request){"/autoload_status", "GET", 500, {{0}}}, 0, 0, 0);
+    run_request((struct Request){"/get_config", "GET", 500, {{0}}}, 0, 0, 0);
+    memset(test_autoload_snapshot.list,0,sizeof(test_autoload_snapshot.list));
     remove(AUTOLOAD_CONFIG_PATH);
     printf("HTTP request lifecycle: %d additional checks, %d total failures\n", checks - initial_checks, failures);
 }
@@ -595,9 +599,15 @@ static int serve(void) {
         MHD_OPTION_SOCK_ADDR, &address, MHD_OPTION_END);
     if (!daemon) return 1;
     const union MHD_DaemonInfo *info = MHD_get_daemon_info(daemon, MHD_DAEMON_INFO_BIND_PORT);
+#ifdef PLDMGR_TEST_REAL_AUTOLOAD
+    if (pldmgr_autoload_start()) { MHD_stop_daemon(daemon); return 1; }
+#endif
     printf("PORT %u\n", info->port);
     fflush(stdout);
     (void)getchar();
+#ifdef PLDMGR_TEST_REAL_AUTOLOAD
+    pldmgr_autoload_stop();
+#endif
     MHD_stop_daemon(daemon);
     printf("Application response references: created=%u released=%u\n", created, destroyed);
     return created == destroyed ? 0 : 1;

@@ -131,7 +131,7 @@ def lifecycle_tests(port, storage, server):
         # Newlines are list separators; other controls remain string content.
         sample = 'Zażółć Україна 日本語 😀 "quoted" \\path\t\b\f\x01'
         autoload.write_text(sample, encoding="utf-8")
-        for route, key in [("/get_config", "AUTOLOAD_LIST"), ("/autoload_status", "list")]:
+        for route, key in [("/get_config", "AUTOLOAD_LIST")]:
             connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
             try:
                 connection.request("GET", route)
@@ -142,7 +142,7 @@ def lifecycle_tests(port, storage, server):
             finally:
                 connection.close()
         autoload.write_bytes(b"\x01" * 4095)
-        for route, key in [("/get_config", "AUTOLOAD_LIST"), ("/autoload_status", "list")]:
+        for route, key in [("/get_config", "AUTOLOAD_LIST")]:
             connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
             try:
                 connection.request("GET", route)
@@ -153,7 +153,7 @@ def lifecycle_tests(port, storage, server):
                 connection.close()
         for size in [4095, 4096, 20000]:
             autoload.write_text("a" * size)
-            for route in ["/get_config", "/autoload_status"]:
+            for route in ["/get_config"]:
                 connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
                 try:
                     connection.request("GET", route)
@@ -396,6 +396,51 @@ def config_network_tests(binary, storage):
         if server.poll() is None: server.kill(); server.communicate()
 
 
+def autoload_network_tests(binary, storage):
+    server = subprocess.Popen([str(binary), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        line = server.stdout.readline().strip()
+        assert line.startswith("PORT "), line
+        port = int(line.split()[1])
+        def request(method="GET", route="/autoload_status", headers=None):
+            connection = http.client.HTTPConnection("127.0.0.1",port,timeout=10)
+            try:
+                connection.request(method,route,headers=headers or {})
+                response = connection.getresponse()
+                body = response.read()
+                assert response.status == 200,(response.status,body)
+                return json.loads(body) if route == "/autoload_status" else body
+            finally: connection.close()
+        def state_is(wanted, headers=None):
+            snapshot = request(headers=headers)
+            assert snapshot["done"] == snapshot["successful"] + snapshot["failed"] + snapshot["skipped"]
+            return snapshot["state"] == wanted
+        eventually(lambda: state_is("waiting"), "worker did not enter frontend wait")
+        time.sleep(0.1)
+        assert state_is("waiting", {"Origin":"http://evil.invalid"})
+        assert state_is("waiting"), "anonymous or foreign status read triggered the worker"
+        marked = {"X-PLDMGR-Request":"1"}
+        eventually(lambda: state_is("countdown",marked), "authorized frontend read did not start countdown")
+        (storage / "autoload.txt").write_text("local/changed\n")
+        snapshot = request()
+        assert snapshot["list"] == "local/running" and snapshot["total"] == 1
+        request("POST","/autoload_clear",marked)
+        assert state_is("countdown"), "reset erased active countdown"
+        request("POST","/abort",marked)
+        eventually(lambda: state_is("aborted"), "abort did not stop countdown")
+        assert request()["remaining"] == -1
+        request("POST","/autoload_clear",marked)
+        snapshot = request()
+        assert snapshot["state"] == "disabled" and snapshot["total"] == 0
+        server.stdin.write("\n");server.stdin.flush()
+        output,_=server.communicate(timeout=10)
+        assert server.returncode == 0,output
+        print(output.strip())
+        print("HTTP actual autoload: foreign/anonymous reads stay passive; authorized readiness, coherent sequence, active reset, abort and terminal clear passed")
+    finally:
+        if server.poll() is None: server.kill();server.communicate()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ownership-only", action="store_true",
@@ -408,6 +453,7 @@ def main():
     parser.add_argument("--legacy-security", action="store_true")
     parser.add_argument("--serve-only", action="store_true")
     parser.add_argument("--config-only", action="store_true")
+    parser.add_argument("--autoload-only", action="store_true")
     parser.add_argument("--source", default="src/http_server.c",
                         help="Alternate HTTP source snapshot for regression reproduction")
     args = parser.parse_args()
@@ -435,8 +481,10 @@ def main():
                 f"static const unsigned int assets_{name}_len = sizeof(assets_{name});\n")
         common = compiler + ["-std=c11", "-D_DEFAULT_SOURCE", "-g", "-O1", "-Wall", "-Wextra",
                              "-I" + str(build), "-Iinclude", "-pthread"]
-        if args.config_only:
+        if args.config_only or args.autoload_only:
             common += ["-DPLDMGR_TEST_REAL_CONFIG"]
+        if args.autoload_only:
+            common += ["-DPLDMGR_TEST_REAL_AUTOLOAD"]
         if not args.no_sanitize:
             common += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
         cflags = [flag for flag in flags if flag.startswith("-I") or flag.startswith("-D")]
@@ -444,10 +492,16 @@ def main():
         run(common + cflags + ["-include", "tests/http_test_hooks.h", "-c",
                                args.source, "-o", str(object_file)])
         binary = build / "http_tests"
-        extra_sources = ["src/config.c"] if args.config_only else []
+        extra_sources = ["src/config.c"] if args.config_only or args.autoload_only else []
+        if args.autoload_only:
+            extra_sources += ["src/autoload.c"]
+            (storage / "pldmgr_config.txt").write_text("AUTOLOAD_ENABLED=1\nAUTO_BROWSER_OPEN=1\nAUTOLOAD_DELAY=5\n")
+            (storage / "autoload.txt").write_text("local/running\n")
         run(common + cflags + extra_sources + [str(object_file), "src/utils.c", "src/json_helpers.c", "tests/http_backend_stubs.c",
                                "tests/http_responses_test.c", "-o", str(binary)] + flags)
         selected = ["--ownership-only"] if args.ownership_only else (["--oom-only"] if args.oom_only else [])
+        if args.autoload_only:
+            autoload_network_tests(binary, storage); return
         if args.config_only:
             config_network_tests(binary, storage); return
         if args.serve_only:

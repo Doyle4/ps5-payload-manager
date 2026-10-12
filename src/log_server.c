@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <errno.h>
 #include <time.h>
+#include <stdatomic.h>
 
 #include "log_server.h"
 #include "utils.h"
@@ -18,7 +19,7 @@ static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t log_cond = PTHREAD_COND_INITIALIZER;
 static int log_updated = 0;
 
-static volatile int server_active_flag = 0;
+static _Atomic int server_active_flag = 0;
 
 void log_server_set_active(void) { server_active_flag = 1; }
 int pldmgr_server_is_active(void) { return server_active_flag; }
