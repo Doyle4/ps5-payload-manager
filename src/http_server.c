@@ -10,7 +10,9 @@
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
+#include <errno.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <microhttpd.h>
 
 #include "http_server.h"
@@ -73,6 +75,17 @@ static enum MHD_Result send_out_of_memory(struct MHD_Connection *conn) {
         sizeof(oom) - 1, (void *)oom, MHD_RESPMEM_PERSISTENT);
     add_response_header(resp, "Content-Type", "application/json");
     return send_response(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, resp);
+}
+
+/* Messages passed here are fixed application strings, not user input. */
+static enum MHD_Result send_request_error(struct MHD_Connection *conn,
+                                          unsigned int status, const char *message) {
+    char json[256];
+    snprintf(json, sizeof(json), "{\"error\":\"%s\"}", message);
+    struct MHD_Response *resp = create_buffer_response(
+        strlen(json), json, MHD_RESPMEM_MUST_COPY);
+    add_response_header(resp, "Content-Type", "application/json");
+    return send_response(conn, status, resp);
 }
 
 /* Success is separate from response creation: a failed OOM response must not
@@ -152,18 +165,201 @@ static void url_decode_in_place(char *str) {
 struct PostStatus {
     char *data;
     size_t size;
-    int error;
+    size_t capacity;
+    unsigned int error;
 };
 
 struct UploadStatus {
     FILE *fp;
     size_t total_size;
-    int error;
+    unsigned int error;
     char filename[256];
     char temp_path[512];
     char mode[32];
-    char repo_url[512];
 };
+
+enum RequestKind { REQUEST_CONFIG, REQUEST_SOURCES, REQUEST_UPLOAD };
+
+struct RequestContext {
+    enum RequestKind kind;
+    int finished;
+    union {
+        struct PostStatus post;
+        struct UploadStatus upload;
+    } state;
+};
+
+/* Read-only requests need no allocation. This marker is never dereferenced. */
+#define REQUEST_MARKER ((void *)1)
+
+void http_request_completed(void *cls, struct MHD_Connection *conn,
+                            void **con_cls, enum MHD_RequestTerminationCode reason) {
+    (void)cls;
+    (void)conn;
+    (void)reason;
+    if (!con_cls || !*con_cls)
+        return;
+    void *context = *con_cls;
+    *con_cls = NULL;
+    if (context == REQUEST_MARKER)
+        return;
+
+    struct RequestContext *request = context;
+    if (request->kind == REQUEST_UPLOAD) {
+        struct UploadStatus *upload = &request->state.upload;
+        if (upload->fp && fclose(upload->fp) != 0)
+            pldmgr_log("[PLDMGR] Warning: Failed to close upload during cleanup\n");
+        /* Each request owns a unique path. A committed file was renamed out
+         * of this path; remove any uncommitted remainder on every exit. */
+        if (upload->temp_path[0] && remove(upload->temp_path) != 0 && errno != ENOENT)
+            pldmgr_log("[PLDMGR] Warning: Failed to remove upload temp file: %s\n",
+                       upload->temp_path);
+    } else {
+        free(request->state.post.data);
+    }
+    free(request);
+}
+
+static unsigned int check_body_length(struct MHD_Connection *conn, size_t limit) {
+    const char *value = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Content-Length");
+    if (!value)
+        return 0; /* Chunked/unknown length is checked while receiving data. */
+    if (!isdigit((unsigned char)*value))
+        return MHD_HTTP_BAD_REQUEST;
+    errno = 0;
+    char *end;
+    unsigned long long length = strtoull(value, &end, 10);
+    if (errno == ERANGE || *end)
+        return MHD_HTTP_BAD_REQUEST;
+    return length > limit ? MHD_HTTP_CONTENT_TOO_LARGE : 0;
+}
+
+static void append_post_data(struct PostStatus *post, const char *data, size_t size) {
+    if (post->error)
+        return;
+    if (size > HTTP_POST_BODY_LIMIT - post->size) {
+        post->error = MHD_HTTP_CONTENT_TOO_LARGE;
+        return;
+    }
+    size_t needed = post->size + size + 1;
+    if (needed > post->capacity) {
+        size_t capacity = post->capacity ? post->capacity : 4096;
+        while (capacity < needed) {
+            capacity = capacity > (HTTP_POST_BODY_LIMIT + 1) / 2
+                ? HTTP_POST_BODY_LIMIT + 1 : capacity * 2;
+        }
+        char *new_data = realloc(post->data, capacity);
+        if (!new_data) {
+            post->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+            return;
+        }
+        post->data = new_data;
+        post->capacity = capacity;
+    }
+    memcpy(post->data + post->size, data, size);
+    post->size += size;
+    post->data[post->size] = '\0';
+}
+
+static void prepare_upload(struct MHD_Connection *conn, struct UploadStatus *upload) {
+    const char *filename = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "filename");
+    const char *mode = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "mode");
+    if (!mode)
+        mode = "new";
+    if (!is_safe_filename(filename) || strlen(filename) >= sizeof(upload->filename) ||
+        strlen(mode) >= sizeof(upload->mode)) {
+        upload->error = MHD_HTTP_BAD_REQUEST;
+        return;
+    }
+    strcpy(upload->filename, filename);
+    strcpy(upload->mode, mode);
+    upload->error = check_body_length(conn, HTTP_UPLOAD_BODY_LIMIT);
+    if (upload->error)
+        return;
+
+    if ((mkdir(BASE_DATA_DIR, 0777) != 0 && errno != EEXIST) ||
+        (mkdir(PAYLOADS_STORAGE_DIR, 0777) != 0 && errno != EEXIST)) {
+        upload->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+        return;
+    }
+    int n = snprintf(upload->temp_path, sizeof(upload->temp_path),
+                     "%s/.upload-XXXXXX", PAYLOADS_STORAGE_DIR);
+    if (n < 0 || (size_t)n >= sizeof(upload->temp_path)) {
+        upload->temp_path[0] = '\0';
+        upload->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+        return;
+    }
+    int fd = mkstemp(upload->temp_path);
+    if (fd < 0) {
+        upload->temp_path[0] = '\0'; /* No file was acquired to clean up. */
+        upload->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+        return;
+    }
+    upload->fp = fdopen(fd, "wb");
+    if (!upload->fp) {
+        close(fd);
+        upload->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+        return;
+    }
+    pldmgr_log("[PLDMGR] Starting upload: %s (mode: %s)\n", filename, mode);
+}
+
+static enum MHD_Result finish_request_error(struct MHD_Connection *conn,
+                                           struct RequestContext *request,
+                                           unsigned int status) {
+    request->finished = 1;
+    if (status == MHD_HTTP_CONTENT_TOO_LARGE)
+        return send_request_error(conn, status, "Request body exceeds the size limit");
+    if (status == MHD_HTTP_BAD_REQUEST)
+        return send_request_error(conn, status, "Invalid or empty request");
+    return send_request_error(conn, status, "Failed to receive or save request");
+}
+
+/* Build complete CSV entries within the output limit, including lines that
+ * span read chunks. Excess input is reported rather than silently truncated. */
+static int read_autoload_list(char *out, size_t size, int include_delays) {
+    if (!size)
+        return -1;
+    out[0] = '\0';
+    FILE *file = fopen(AUTOLOAD_CONFIG_PATH, "r");
+    if (!file)
+        return errno == ENOENT ? 0 : -1;
+    size_t pos = 0;
+    int line_start = 1, has_data = 0, skip = 0, result = 0;
+    int c;
+    while ((c = fgetc(file)) != EOF) {
+        if (c == '\0') {
+            result = -1;
+            break;
+        }
+        if (c == '\n') {
+            line_start = 1; has_data = 0; skip = 0;
+            continue;
+        }
+        if (line_start) {
+            skip = !include_delays && c == '!';
+            line_start = 0;
+        }
+        if (c == '\r')
+            skip = 1;
+        if (skip)
+            continue;
+        size_t needed = (!has_data && pos ? 1 : 0) + 1;
+        if (needed >= size - pos) {
+            result = -1;
+            break;
+        }
+        if (!has_data && pos)
+            out[pos++] = ',';
+        out[pos++] = (char)c;
+        has_data = 1;
+    }
+    out[pos] = '\0';
+    if (ferror(file))
+        result = -1;
+    fclose(file);
+    return result;
+}
 
 /* ── Helper: Noisy routes ──────────────────────────────────── */
 
@@ -212,188 +408,112 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
     /* Set flag that we received a request (meaning browser is open) */
     log_server_set_active();
 
-    /* ── Initial call for a new request ────────────────────── */
+    /* The completion callback owns request state on success, error, disconnect,
+     * and daemon stop. Keep it alive until MHD finishes the request. */
     if (*con_cls == NULL) {
-        if (strncmp(url, ROUTE_UPLOAD, strlen(ROUTE_UPLOAD)) == 0) {
-            struct UploadStatus *status = malloc(sizeof(struct UploadStatus));
-            status->fp = NULL;
-            status->total_size = 0;
-            status->error = 0;
-            status->mode[0] = '\0';
-
-            const char *mode =
-                MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "mode");
-            strncpy(status->mode, mode ? mode : "new", sizeof(status->mode) - 1);
-            status->mode[sizeof(status->mode) - 1] = '\0';
-
-            const char *filename =
-                MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "filename");
-            if (filename && !strstr(filename, "/") && !strstr(filename, "..")) {
-                char path[512];
-                mkdir(BASE_DATA_DIR, 0777);
-                mkdir(PAYLOADS_STORAGE_DIR, 0777);
-                snprintf(path, sizeof(path), "%s/%s.tmp", PAYLOADS_STORAGE_DIR, filename);
-
-                strncpy(status->filename, filename, sizeof(status->filename) - 1);
-                status->filename[sizeof(status->filename) - 1] = '\0';
-                strncpy(status->temp_path, path, sizeof(status->temp_path) - 1);
-                status->temp_path[sizeof(status->temp_path) - 1] = '\0';
-
-                status->fp = fopen(path, "wb");
-                if (!status->fp) {
-                    pldmgr_log("[PLDMGR] !!! FAILED to open temp file: %s\n", path);
-                    status->error = 1;
-                } else {
-                    pldmgr_log("[PLDMGR] Starting upload to temp: %s (mode: %s)\n", path, status->mode);
-                }
-            } else {
-                pldmgr_log("[PLDMGR] !!! Upload failed: Missing filename parameter\n");
-                status->error = 1;
+        int upload = strncmp(url, ROUTE_UPLOAD, strlen(ROUTE_UPLOAD)) == 0;
+        int config = strcmp(url, ROUTE_SET_CONFIG) == 0 && strcmp(method, "POST") == 0;
+        int sources = strcmp(url, ROUTE_SOURCES_SET) == 0 && strcmp(method, "POST") == 0;
+        if (upload || config || sources) {
+            struct RequestContext *request = malloc(sizeof(*request));
+            if (!request) {
+                *con_cls = REQUEST_MARKER;
+                return send_out_of_memory(conn);
             }
-            *con_cls = status;
-            return MHD_YES;
+            memset(request, 0, sizeof(*request));
+            request->kind = upload ? REQUEST_UPLOAD : (config ? REQUEST_CONFIG : REQUEST_SOURCES);
+            *con_cls = request;
+            unsigned int error;
+            if (upload) {
+                prepare_upload(conn, &request->state.upload);
+                error = request->state.upload.error;
+            } else {
+                error = check_body_length(conn, HTTP_POST_BODY_LIMIT);
+                request->state.post.error = error;
+            }
+            if (error)
+                return finish_request_error(conn, request, error);
+        } else {
+            *con_cls = REQUEST_MARKER;
         }
-
-        if (strcmp(url, ROUTE_SET_CONFIG) == 0 && strcmp(method, "POST") == 0) {
-            struct PostStatus *status = malloc(sizeof(struct PostStatus));
-            status->data = NULL;
-            status->size = 0;
-            status->error = 0;
-            *con_cls = status;
-            return MHD_YES;
-        }
-
-        if (strcmp(url, ROUTE_SOURCES_SET) == 0 && strcmp(method, "POST") == 0) {
-            struct PostStatus *status = malloc(sizeof(struct PostStatus));
-            status->data = NULL;
-            status->size = 0;
-            status->error = 0;
-            *con_cls = status;
-            return MHD_YES;
-        }
-
-        *con_cls = (void *)1;
         return MHD_YES;
     }
 
-    /* ── Handle POST data for /set_config ──────────────────── */
-    if (strcmp(url, ROUTE_SET_CONFIG) == 0 && strcmp(method, "POST") == 0) {
-        struct PostStatus *status = (struct PostStatus *)*con_cls;
-        if (*upload_data_size != 0) {
-            char *new_data = realloc(status->data, status->size + *upload_data_size + 1);
-            if (!new_data) {
-                status->error = 1;
-            } else {
-                status->data = new_data;
-                memcpy(status->data + status->size, upload_data, *upload_data_size);
-                status->size += *upload_data_size;
-                status->data[status->size] = '\0';
-            }
+    if (*con_cls != REQUEST_MARKER) {
+        struct RequestContext *request = *con_cls;
+        if (request->finished) {
             *upload_data_size = 0;
             return MHD_YES;
-        } else {
-            /* Finished receiving JSON */
-            pldmgr_log("[PLDMGR] Received config update: %s\n",
-                       status->data ? status->data : "(null)");
-
-            if (status->data && !status->error) {
-                config_handle_set_json(status->data);
+        }
+        if (request->kind != REQUEST_UPLOAD) {
+            struct PostStatus *post = &request->state.post;
+            if (*upload_data_size) {
+                append_post_data(post, upload_data, *upload_data_size);
+                *upload_data_size = 0;
+                if (post->error)
+                    return finish_request_error(conn, request, post->error);
+                return MHD_YES;
             }
-
-            if (status->data)
-                free(status->data);
-            free(status);
-            *con_cls = NULL;
-
+            if (!post->size)
+                return finish_request_error(conn, request, MHD_HTTP_BAD_REQUEST);
+            int rc = request->kind == REQUEST_CONFIG
+                ? config_handle_set_json(post->data) : sources_save(post->data, post->size);
+            if (rc != 0)
+                return finish_request_error(conn, request, MHD_HTTP_INTERNAL_SERVER_ERROR);
+            request->finished = 1;
             struct MHD_Response *resp = create_buffer_response(
-                strlen(MSG_OK), (void *)MSG_OK, MHD_RESPMEM_MUST_COPY);
-
+                strlen(MSG_OK), (void *)MSG_OK, MHD_RESPMEM_PERSISTENT);
+            add_response_header(resp, "Content-Type", "text/plain");
             return send_response(conn, MHD_HTTP_OK, resp);
         }
-    }
 
-
-    /* ── Handle POST data for /sources_set ─────────────────── */
-    if (strcmp(url, ROUTE_SOURCES_SET) == 0 && strcmp(method, "POST") == 0) {
-        struct PostStatus *status = (struct PostStatus *)*con_cls;
-        if (*upload_data_size != 0) {
-            char *nd = realloc(status->data, status->size + *upload_data_size + 1);
-            if (!nd) {
-                status->error = 1;
+        struct UploadStatus *status = &request->state.upload;
+        if (*upload_data_size) {
+            if (*upload_data_size > HTTP_UPLOAD_BODY_LIMIT - status->total_size) {
+                status->error = MHD_HTTP_CONTENT_TOO_LARGE;
             } else {
-                status->data = nd;
-                memcpy(status->data + status->size, upload_data, *upload_data_size);
-                status->size += *upload_data_size;
-                status->data[status->size] = '\0';
-            }
-            *upload_data_size = 0;
-            return MHD_YES;
-        } else {
-            int ok = -1;
-            if (status->data && !status->error)
-                ok = sources_save(status->data, status->size);
-            if (status->data)
-                free(status->data);
-            free(status);
-            *con_cls = NULL;
-
-            const char *msg = ok == 0 ? MSG_OK : "Failed to save sources";
-            struct MHD_Response *resp_ss = create_buffer_response(
-                strlen(msg), (void *)msg, MHD_RESPMEM_MUST_COPY);
-
-            return send_response(
-                conn, ok == 0 ? MHD_HTTP_OK : MHD_HTTP_INTERNAL_SERVER_ERROR, resp_ss);
-        }
-    }
-
-    /* ── Chunked upload for /manage:upload ─────────────────── */
-    if (strncmp(url, ROUTE_UPLOAD, strlen(ROUTE_UPLOAD)) == 0) {
-        struct UploadStatus *status = (struct UploadStatus *)*con_cls;
-        if (*upload_data_size != 0) {
-            if (status->fp && !status->error) {
                 size_t written = fwrite(upload_data, 1, *upload_data_size, status->fp);
-                if (written != *upload_data_size) {
-                    pldmgr_log("[PLDMGR] !!! Write error: expected %zu, got %zu\n",
-                               *upload_data_size, written);
-                    status->error = 1;
-                }
                 status->total_size += written;
+                if (written != *upload_data_size)
+                    status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
             }
             *upload_data_size = 0;
+            if (status->error)
+                return finish_request_error(conn, request, status->error);
             return MHD_YES;
-        } else {
-            /* Upload finished */
-            if (status->fp) {
-                fflush(status->fp);
-                fclose(status->fp);
-                status->fp = NULL;
-
-                if (!status->error) {
-                    char msg[256];
-                    char out_slot[128];
-                    if (payload_mgr_import_to_storage_mode(status->filename, status->temp_path,
-                                                          status->mode, "web_upload", "",
-                                                          msg, sizeof(msg),
-                                                          out_slot, sizeof(out_slot)) != 0) {
-                        pldmgr_log("[PLDMGR] !!! Failed to commit upload: %s\n", msg);
-                        status->error = 1;
-                    }
-                }
-            }
-            pldmgr_log("[PLDMGR] Upload finished. Total bytes: %zu, Error: %d\n",
-                       status->total_size, status->error);
-
-            int err = status->error;
-            free(status);
-            *con_cls = NULL;
-
-            const char *msg = err ? "Error during upload\n" : MSG_OK;
-            struct MHD_Response *resp = create_buffer_response(
-                strlen(msg), (void *)msg, MHD_RESPMEM_MUST_COPY);
-
-            return send_response(
-                conn, err ? MHD_HTTP_INTERNAL_SERVER_ERROR : MHD_HTTP_OK, resp);
         }
+
+        /* Both operations must run: a failed flush must not skip fclose. */
+        if (fflush(status->fp) != 0)
+            status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+        if (fclose(status->fp) != 0)
+            status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+        status->fp = NULL;
+        if (!status->total_size && !status->error)
+            status->error = MHD_HTTP_BAD_REQUEST;
+        if (!status->error) {
+            char msg[256] = "";
+            char out_slot[128];
+            if (payload_mgr_import_to_storage_mode(status->filename, status->temp_path,
+                                                  status->mode, "web_upload", "",
+                                                  msg, sizeof(msg), out_slot, sizeof(out_slot)) != 0) {
+                pldmgr_log("[PLDMGR] !!! Failed to commit upload: %s\n", msg);
+                status->error = MHD_HTTP_INTERNAL_SERVER_ERROR;
+            } else {
+                /* Import consumed the temp file. Relinquish its pathname so
+                 * completion cannot unlink a later owner of the same name. */
+                status->temp_path[0] = '\0';
+            }
+        }
+        pldmgr_log("[PLDMGR] Upload finished. Total bytes: %zu, Error: %u\n",
+                   status->total_size, status->error);
+        if (status->error)
+            return finish_request_error(conn, request, status->error);
+        request->finished = 1;
+        struct MHD_Response *resp = create_buffer_response(
+            strlen(MSG_OK), (void *)MSG_OK, MHD_RESPMEM_PERSISTENT);
+        add_response_header(resp, "Content-Type", "text/plain");
+        return send_response(conn, MHD_HTTP_OK, resp);
     }
 
     /* ── Log significant requests ──────────────────────────── */
@@ -773,21 +893,10 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         int remaining = pldmgr_autoload_get_remaining_seconds();
         long long remaining_ms = pldmgr_autoload_get_remaining_ms();
 
-        char list_buf[4096] = "";
-        FILE *f = fopen(AUTOLOAD_CONFIG_PATH, "r");
-        if (f) {
-            char line[256];
-            int first = 1;
-            while (fgets(line, sizeof(line), f)) {
-                line[strcspn(line, "\r\n")] = 0;
-                if (strlen(line) == 0 || line[0] == '!')
-                    continue;
-                if (!first) strcat(list_buf, ",");
-                strcat(list_buf, line);
-                first = 0;
-            }
-            fclose(f);
-        }
+        char list_buf[4096];
+        if (read_autoload_list(list_buf, sizeof(list_buf), 0) != 0)
+            return send_request_error(conn, MHD_HTTP_INTERNAL_SERVER_ERROR,
+                                      "Autoload list is unreadable or exceeds the size limit");
 
         PldmgrConfig cfg;
         config_read(&cfg);
@@ -821,35 +930,14 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         resp = create_buffer_response(strlen(msg), (void *)msg,
                                                MHD_RESPMEM_PERSISTENT);
         add_response_header(resp, "Content-Type", "text/plain");
-    } else if (strcmp(url, "/autoload_status") == 0) {
-        char resp_buf[64];
-        snprintf(resp_buf, sizeof(resp_buf), "{\"remaining\":%d}",
-                 pldmgr_autoload_get_remaining_seconds());
-        resp = create_buffer_response(strlen(resp_buf),
-                                               (void *)resp_buf,
-                                               MHD_RESPMEM_MUST_COPY);
-        add_response_header(resp, "Content-Type", "application/json");
     } else if (strcmp(url, ROUTE_GET_CONFIG) == 0) {
         PldmgrConfig cfg;
         config_read(&cfg);
 
-        /* Get list */
-        char list_buf[4096] = {0};
-        FILE *f = fopen(AUTOLOAD_CONFIG_PATH, "r");
-        if (f) {
-            char line[256];
-            int first = 1;
-            while (fgets(line, sizeof(line), f)) {
-                line[strcspn(line, "\r\n")] = 0;
-                if (strlen(line) == 0)
-                    continue;
-                if (!first)
-                    strncat(list_buf, ",", sizeof(list_buf) - strlen(list_buf) - 1);
-                strncat(list_buf, line, sizeof(list_buf) - strlen(list_buf) - 1);
-                first = 0;
-            }
-            fclose(f);
-        }
+        char list_buf[4096];
+        if (read_autoload_list(list_buf, sizeof(list_buf), 1) != 0)
+            return send_request_error(conn, MHD_HTTP_INTERNAL_SERVER_ERROR,
+                                      "Autoload list is unreadable or exceeds the size limit");
 
         char list_escaped[8192];
         pldmgr_json_escape(list_buf, list_escaped, sizeof(list_escaped));

@@ -83,6 +83,7 @@ static struct MHD_Daemon *start_http_daemon(unsigned int port) {
     return MHD_start_daemon(
         MHD_USE_THREAD_PER_CONNECTION | MHD_USE_DEBUG, port,
         NULL, NULL, &http_on_request, NULL,
+        MHD_OPTION_NOTIFY_COMPLETED, &http_request_completed, NULL,
         MHD_OPTION_THREAD_STACK_SIZE, (size_t)(1024 * 1024),
         MHD_OPTION_END);
 }

@@ -18,11 +18,18 @@ static size_t json(char *out, size_t size, const char *value) {
     return n < 0 ? 0 : (size_t)n;
 }
 
+unsigned int test_config_saves, test_source_saves, test_imports;
+size_t test_post_size;
+
 void pldmgr_log(const char *fmt, ...) { (void)fmt; }
 void log_server_set_active(void) {}
 void config_read(PldmgrConfig *cfg) { memset(cfg, 0, sizeof(*cfg)); cfg->autoload_delay = 5; }
 int config_read_bool(const char *key, int fallback) { (void)key; return fallback; }
-int config_handle_set_json(const char *data) { (void)data; return 0; }
+int config_handle_set_json(const char *data) {
+    test_config_saves++;
+    test_post_size = strlen(data);
+    return strcmp(data, "fail_test") == 0 ? -1 : 0;
+}
 int config_get_favorites_csv(char *out, size_t size, int *exists) {
     if (size) out[0] = '\0';
     *exists = 0;
@@ -47,7 +54,12 @@ int payload_mgr_import_to_storage_mode(const char *filename, const char *path,
     const char *mode, const char *origin, const char *detail,
     char *msg, size_t msg_size, char *slot, size_t slot_size) {
     (void)filename; (void)path; (void)mode; (void)origin; (void)detail;
-    snprintf(msg, msg_size, "Test import"); snprintf(slot, slot_size, "local/test"); return 0;
+    snprintf(msg, msg_size, "Test import"); snprintf(slot, slot_size, "local/test");
+    test_imports++;
+    if (mode && strcmp(mode, "fail_test") == 0) return -1;
+    char destination[1024];
+    snprintf(destination, sizeof(destination), "%s/%s", PAYLOADS_STORAGE_DIR, filename);
+    return rename(path, destination);
 }
 int payload_mgr_check_existing(const char *filename, char *out, size_t size) {
     (void)filename; json(out, size, "{\"status\":\"ready\"}"); return 0;
@@ -73,7 +85,11 @@ int sources_repo_install(const char *url, const char *id, const char *mode,
     (void)url; (void)id; (void)mode; (void)replace; json(out, size, "{\"ok\":true}"); return 0;
 }
 int sources_list_json(char *out, size_t size) { json(out, size, "{\"sources\":[]}"); return 0; }
-int sources_save(const char *data, size_t size) { (void)data; (void)size; return 0; }
+int sources_save(const char *data, size_t size) {
+    test_source_saves++;
+    test_post_size = size;
+    return strcmp(data, "fail_test") == 0 ? -1 : 0;
+}
 int sources_add(const char *url, char *msg, size_t size) {
     (void)url; snprintf(msg, size, "Test source"); return 0;
 }

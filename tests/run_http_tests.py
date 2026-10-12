@@ -10,8 +10,10 @@ import json
 import os
 from pathlib import Path
 import shlex
+import socket
 import subprocess
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,14 +22,147 @@ def run(args):
     subprocess.run(args, cwd=ROOT, check=True)
 
 
-def network_tests(binary):
+def eventually(predicate, message, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.02)
+    raise AssertionError(message)
+
+
+def lifecycle_tests(port, storage, server):
+    payloads = storage / "payloads"
+
+    def temporary_uploads():
+        return list(payloads.glob(".upload-*")) + list(payloads.glob("*.tmp"))
+
+    def partial_upload(filename="cancelled.elf", size=100000):
+        sock = socket.create_connection(("127.0.0.1", port), timeout=10)
+        sock.sendall(f"POST /manage:upload?filename={filename} HTTP/1.1\r\n"
+                     f"Host: localhost\r\nContent-Length: {size}\r\n\r\n".encode() + b"first chunk")
+        return sock
+
+    # Abort after the daemon has opened its file, not before accepting the socket.
+    for _ in range(8):
+        sock = partial_upload()
+        try:
+            eventually(lambda: bool(temporary_uploads()), "Upload never opened a temporary file")
+        finally:
+            sock.close()
+        eventually(lambda: not temporary_uploads(), "Disconnected upload left a temporary file")
+    assert not (payloads / "cancelled.elf").exists()
+
+    # Incomplete config/source bodies must be released without being saved.
+    fd_directory = Path(f"/proc/{server.pid}/fd")
+    baseline_fds = len(list(fd_directory.iterdir())) if fd_directory.exists() else None
+    for route in ["/set_config", "/sources_set"] * 8:
+        with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
+            sock.sendall(f"POST {route} HTTP/1.1\r\nHost: localhost\r\n"
+                         "Content-Length: 100000\r\n\r\n".encode() + b'{"incomplete":')
+    if baseline_fds is not None:
+        eventually(lambda: len(list(fd_directory.iterdir())) <= baseline_fds,
+                   "Aborted requests leaked file descriptors")
+
+    # Two in-flight requests for the same destination must have separate files.
+    first = partial_upload("same.elf")
+    second = None
+    try:
+        eventually(lambda: len(temporary_uploads()) == 1, "First upload did not open")
+        second = partial_upload("same.elf")
+        eventually(lambda: len(temporary_uploads()) == 2, "Same-name uploads shared a temporary file")
+        first.close()
+        eventually(lambda: len(temporary_uploads()) == 1, "Cancelling one upload affected the other")
+    finally:
+        first.close()
+        if second:
+            second.close()
+    eventually(lambda: not temporary_uploads(), "Concurrent upload cleanup failed")
+
+    # A normal import consumes the file; a failed import must still remove it.
+    for filename, mode, status in [("success.elf", "new", 200), ("failed.elf", "fail_test", 500)]:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            connection.request("POST", f"/manage:upload?filename={filename}&mode={mode}", b"test payload")
+            response = connection.getresponse()
+            data = response.read()
+            assert response.status == status, (response.status, data)
+        finally:
+            connection.close()
+        eventually(lambda: not temporary_uploads(), "Completed upload left its temporary file")
+    assert (payloads / "success.elf").read_bytes() == b"test payload"
+    assert not (payloads / "failed.elf").exists()
+
+    # Real chunked bodies exercise the unknown-length path, not just mock callbacks.
+    for route in ["/set_config", "/sources_set", "/manage:upload?filename=chunked.elf"]:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            connection.request("POST", route, iter([b"{", b'"value":', b"true}"]), encode_chunked=True)
+            response = connection.getresponse()
+            assert response.status == 200, (response.status, response.read())
+            response.read()
+        finally:
+            connection.close()
+    eventually(lambda: not temporary_uploads(), "Chunked upload left a temporary file")
+    assert (payloads / "chunked.elf").read_bytes() == b'{"value":true}'
+
+    for route, limit in [("/set_config", 1024 * 1024), ("/sources_set", 1024 * 1024),
+                         ("/manage:upload?filename=oversized.elf", 512 * 1024 * 1024)]:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            connection.putrequest("POST", route)
+            connection.putheader("Content-Length", str(limit + 1))
+            connection.endheaders()
+            response = connection.getresponse()
+            data = response.read()
+            assert response.status == 413, (response.status, data)
+            json.loads(data)
+        finally:
+            connection.close()
+    assert not (payloads / "oversized.elf").exists()
+    eventually(lambda: not temporary_uploads(), "Rejected oversized upload created a file")
+
+    # Check large-list error responses using the actual HTTP transport and JSON parser.
+    autoload = storage / "autoload.txt"
+    try:
+        for size in [4095, 4096, 20000]:
+            autoload.write_text("a" * size)
+            for route in ["/get_config", "/autoload_status"]:
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+                try:
+                    connection.request("GET", route)
+                    response = connection.getresponse()
+                    data = json.loads(response.read())
+                    assert response.status == (200 if size == 4095 else 500), (response.status, data)
+                    if response.status == 200:
+                        assert data["AUTOLOAD_LIST" if route == "/get_config" else "list"] == "a" * size
+                    else:
+                        assert "error" in data
+                finally:
+                    connection.close()
+    finally:
+        autoload.unlink(missing_ok=True)
+
+    # Daemon stop must clean requests whose clients remain connected.
+    pending = [partial_upload("shutdown.elf")]
+    eventually(lambda: bool(temporary_uploads()), "Shutdown test upload did not open")
+    for route in ["/set_config", "/sources_set"]:
+        sock = socket.create_connection(("127.0.0.1", port), timeout=10)
+        sock.sendall(f"POST {route} HTTP/1.1\r\nHost: localhost\r\n"
+                     "Content-Length: 100000\r\n\r\n".encode() + b'{"incomplete":')
+        pending.append(sock)
+    return pending, temporary_uploads
+
+
+def network_tests(binary, storage):
     server = subprocess.Popen([str(binary), "--serve"], stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, text=True)
     try:
         line = server.stdout.readline().strip()
         if not line.startswith("PORT "):
             raise RuntimeError(f"Test HTTP server did not start: {line}")
-        connection = http.client.HTTPConnection("127.0.0.1", int(line.split()[1]), timeout=10)
+        port = int(line.split()[1])
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
         routes = ["/manage:check?filename=test.elf", "/history_list", "/update_check",
                   "/repository_payloads", "/sources_list", "/get_config", "/autoload_status"]
         try:
@@ -42,12 +177,19 @@ def network_tests(binary):
                 json.loads(data)
         finally:
             connection.close()
+        pending, temporary_uploads = lifecycle_tests(port, storage, server)
         server.stdin.write("\n")
         server.stdin.flush()
-        output = server.communicate(timeout=15)[0]
+        try:
+            output = server.communicate(timeout=15)[0]
+        finally:
+            for sock in pending:
+                sock.close()
         print(output.strip())
         assert server.returncode == 0, "Unreleased responses or sanitizer failure during soak"
+        assert not temporary_uploads(), "Daemon stop left an upload temporary file"
         print("HTTP integration: 10,000 real loopback requests passed")
+        print("HTTP lifecycle: disconnects, concurrent uploads, failed commits, and daemon stop passed")
     finally:
         if server.poll() is None:
             server.kill()
@@ -61,6 +203,7 @@ def main():
     parser.add_argument("--oom-only", action="store_true",
                         help="Reproduce OOM status/header bugs without deeper failure injection")
     parser.add_argument("--no-sanitize", action="store_true")
+    parser.add_argument("--network-only", action="store_true")
     parser.add_argument("--source", default="src/http_server.c",
                         help="Alternate HTTP source snapshot for regression reproduction")
     args = parser.parse_args()
@@ -98,9 +241,10 @@ def main():
         run(common + cflags + [str(object_file), "src/utils.c", "tests/http_backend_stubs.c",
                                "tests/http_responses_test.c", "-o", str(binary)] + flags)
         selected = ["--ownership-only"] if args.ownership_only else (["--oom-only"] if args.oom_only else [])
-        run([str(binary)] + selected)
+        if not args.network_only:
+            run([str(binary)] + selected)
         if not selected:
-            network_tests(binary)
+            network_tests(binary, storage)
 
 
 if __name__ == "__main__":

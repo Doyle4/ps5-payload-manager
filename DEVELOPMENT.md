@@ -41,8 +41,10 @@ For a quick build & deploy cycle, use the `deploy.sh` script. It will automatica
 
 The HTTP response suite compiles the actual `src/http_server.c` with stubbed
 PS5 services and real libmicrohttpd response objects. It injects response-buffer,
-response-creation, CORS-header, and queue failures, then sends 10,000 requests
-through a real loopback HTTP server. ASan (including leak detection) and UBSan
+response-creation, CORS-header, queue, reallocation, and file I/O failures, then
+sends 10,000 requests through a real loopback HTTP server. It also checks
+disconnected/chunked requests, concurrent uploads, and server-stop cleanup in
+thread-per-connection mode. ASan (including leak detection) and UBSan
 are enabled by default. Test files, storage paths, and binaries are temporary;
 the suite does not connect to a console or launch payloads.
 
@@ -68,8 +70,18 @@ the default sanitizer run for verification.
 
 `.github/workflows/verify.yml` runs the HTTP suite, existing frontend tests,
 and frontend build without publishing or deploying. Frontend lint still reports existing errors. The host suite tests response
-ownership/status handling; it does not yet cover aborted request cleanup,
-storage transactions, autoload concurrency, or PS5 firmware behavior.
+ownership/status handling, request cleanup, and autoload-list bounds. Storage
+transactions, autoload worker concurrency, and PS5 firmware behavior remain
+separate validation scopes. Backend storage/service calls in the HTTP tests are
+stubbed; successful mock imports move actual files inside temporary fixtures.
+
+The HTTP server accepts config/source bodies up to **1 MiB** and streamed uploads
+up to **512 MiB**. Larger declared or accumulated bodies return HTTP 413; empty
+request bodies return HTTP 400. Upload staging files use private, unique
+`.upload-*` names and are removed by request teardown if uncommitted. This does
+not purge older orphan files or guarantee cleanup after power loss/SIGKILL.
+Autoload CSV responses currently allow 4,095 bytes; larger/unreadable lists return
+HTTP 500 with JSON rather than a truncated list.
 
 Native compilation remains a separate gate. To preserve the previous ELF,
 build a candidate under `scratch/` rather than run `make clean`:
