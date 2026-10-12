@@ -8,6 +8,7 @@
 #include <curl/curl.h>
 
 #include "repository.h"
+#include "collection_helpers.h"
 #include "sources.h"
 #include "slot.h"
 #include "json_helpers.h"
@@ -160,11 +161,13 @@ static const char *find_next_object_start(const char *p) {
 int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t *out_count) {
     const char *p;
     RepoPayload *items = NULL;
-    size_t count = 0;
+    size_t count = 0, capacity = 0;
 
+    if (!out_items || !out_count) return -1;
     *out_items = NULL;
     *out_count = 0;
 
+    if (!json || strnlen(json, 16 * 1024 * 1024 + 1) > 16 * 1024 * 1024) return -1;
     p = skip_top_level_wrapper(json);
     if (!p) return 0;
 
@@ -185,19 +188,15 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
             if (depth > 0) end++;
         }
 
-        if (!*end && depth > 0) break;
+        if (!*end && depth > 0) { free(items); return -1; }
 
-        RepoPayload *item = (RepoPayload *)malloc(sizeof(RepoPayload));
-        if (!item) {
-            free(items);
-            return -1;
-        }
+        RepoPayload entry;
+        RepoPayload *item = &entry;
 
         memset(item, 0, sizeof(*item));
         if (json_extract_string(p, end + 1, "name", item->name, sizeof(item->name)) != 0 ||
             json_extract_string(p, end + 1, "filename", item->filename, sizeof(item->filename)) != 0 ||
             json_extract_string(p, end + 1, "url", item->url, sizeof(item->url)) != 0) {
-            free(item);
             p = end + 1;
             continue;
         }
@@ -217,7 +216,6 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
         /* A supplied oversized/non-string hash must not turn into an absent,
          * optional checksum after extraction fails. Hex validation is separate. */
         if (checksum_result != JSON_STRING_OK && checksum_result != JSON_STRING_MISSING) {
-            free(item);
             p = end + 1;
             continue;
         }
@@ -244,15 +242,13 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
             strncpy(item->category, "Uncategorized", sizeof(item->category) - 1);
         }
 
-        RepoPayload *tmp = (RepoPayload *)realloc(items, (count + 1) * sizeof(RepoPayload));
+        RepoPayload *tmp = (RepoPayload *)collection_reserve(items, &capacity, count + 1, sizeof(RepoPayload));
         if (!tmp) {
-            free(item);
             free(items);
             return -1;
         }
         items = tmp;
         items[count] = *item;
-        free(item);
         count++;
         p = end + 1;
     }

@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <stdint.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include "json_helpers.h"
 #include "utils.h"
@@ -318,6 +319,7 @@ int read_file_text(const char *path, char **out_buf, size_t *out_size) {
     buf = (char *)malloc((size_t)fsize + 1);
     if (!buf) {
         fclose(f);
+        errno = ENOMEM;
         return -1;
     }
 

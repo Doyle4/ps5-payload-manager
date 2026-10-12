@@ -84,7 +84,7 @@ UTF-8-safe prefixes. The backend suite uses real repository, source save/load,
 and slot metadata read/write code inside temporary storage. It parses their
 results independently with Python. Unused network/PS5 code is discarded at
 link time, and no download or payload launch occurs. `make test-host` runs all
-five host suites with sanitizers.
+six host suites with sanitizers.
 
 The serializer suite exercises actual history/log/payload/process/repository
 output at small and large capacities, sixfold escape expansion, failed format
@@ -93,6 +93,19 @@ fixtures use fresh temporary caches and a recording download function that
 aborts if called. Process records use a host fixture; this checks serialization,
 not the PS5 kernel ABI. The existing unused SSE `pos` parameter produces a host
 `-Wextra` warning; the native build has no new warnings.
+
+The allocation suite executes actual repository parsing, managed-slot discovery,
+cached-source serialization, and all USB discovery branches. It faults every
+observed growth/read/path-copy allocation in its current fixtures and verifies
+that failure clears results and releases partial collections. USB paths are
+redirected to temporary fixtures using `PLDMGR_USB_ROOT_FORMAT`; production
+defaults remain `/mnt/usb%d`. No fixture payload is launched.
+
+Collected arrays are limited to **4,096 items** and **64 MiB** of allocated array
+capacity, whichever is smaller for the item type. Repository parsing accepts up
+to **16 MiB** of input text. These bounds apply to the parser/scanner collections;
+they do not impose download-stream limits or an aggregate daemon memory budget.
+Collection failures become explicit errors rather than successful partial lists.
 
 `.github/workflows/verify.yml` runs all host suites, existing frontend tests,
 and frontend build without publishing or deploying. Frontend lint still reports existing errors. The host suite tests response

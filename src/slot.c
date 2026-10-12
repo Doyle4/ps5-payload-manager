@@ -3,12 +3,14 @@
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
+#include <errno.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
 
 #include "slot.h"
+#include "collection_helpers.h"
 #include "sha256.h"
 #include "json_helpers.h"
 #include "pldmgr.h"
@@ -203,7 +205,9 @@ int slot_read_meta(const char *slot_dir, SlotMeta *out_meta) {
 
     char *json = NULL;
     size_t size = 0;
-    if (read_file_text(meta_path, &json, &size) == 0 && json && size > 0) {
+    int read_result = read_file_text(meta_path, &json, &size);
+    if (read_result != 0 && errno != ENOENT) return -1;
+    if (read_result == 0 && json && size > 0) {
         const char *end = json + size;
         char schema_str[16] = "";
         json_extract_string(json, end, "schema", schema_str, sizeof(schema_str));
@@ -377,9 +381,9 @@ int slot_write_meta(const char *slot_dir, const SlotMeta *meta) {
     return rename(tmp_path, final_path);
 }
 
-static void scan_slot_subdir(const char *parent_dir, SlotMeta **out_slots, size_t *out_count) {
+static int scan_slot_subdir(const char *parent_dir, SlotMeta **out_slots, size_t *out_count, size_t *capacity) {
     DIR *d = opendir(parent_dir);
-    if (!d) return;
+    if (!d) return errno == ENOENT ? 0 : -1;
 
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
@@ -392,15 +396,17 @@ static void scan_slot_subdir(const char *parent_dir, SlotMeta **out_slots, size_
         if (stat(sub_path, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
 
         SlotMeta meta;
-        if (slot_read_meta(sub_path, &meta) == 0 && meta.payload_path[0] != '\0') {
-            SlotMeta *tmp = realloc(*out_slots, (*out_count + 1) * sizeof(SlotMeta));
-            if (!tmp) break;
+        if (slot_read_meta(sub_path, &meta) != 0) { closedir(d); return -1; }
+        if (meta.payload_path[0] != '\0') {
+            SlotMeta *tmp = collection_reserve(*out_slots, capacity, *out_count + 1, sizeof(SlotMeta));
+            if (!tmp) { closedir(d); return -1; }
             *out_slots = tmp;
             (*out_slots)[*out_count] = meta;
             (*out_count)++;
         }
     }
     closedir(d);
+    return 0;
 }
 
 int slot_list_all(SlotMeta **out_slots, size_t *out_count) {
@@ -412,8 +418,14 @@ int slot_list_all(SlotMeta **out_slots, size_t *out_count) {
     snprintf(repo_dir, sizeof(repo_dir), "%s/repo", PAYLOADS_STORAGE_DIR);
     snprintf(local_dir, sizeof(local_dir), "%s/local", PAYLOADS_STORAGE_DIR);
 
-    scan_slot_subdir(repo_dir, out_slots, out_count);
-    scan_slot_subdir(local_dir, out_slots, out_count);
+    size_t capacity = 0;
+    if (scan_slot_subdir(repo_dir, out_slots, out_count, &capacity) != 0 ||
+        scan_slot_subdir(local_dir, out_slots, out_count, &capacity) != 0) {
+        free(*out_slots);
+        *out_slots = NULL;
+        *out_count = 0;
+        return -1;
+    }
 
     return 0;
 }

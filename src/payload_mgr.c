@@ -17,6 +17,12 @@
 #include "pldmgr.h"
 #include "autoload.h"
 #include "utils.h"
+#include "collection_helpers.h"
+#include <errno.h>
+
+#ifndef PLDMGR_USB_ROOT_FORMAT
+#define PLDMGR_USB_ROOT_FORMAT "/mnt/usb%d"
+#endif
 
 /* ── Extension / path checks ──────────────────────────────── */
 
@@ -61,9 +67,19 @@ static int copy_file(const char *src, const char *dst) {
 
 /* ── USB Scanning (Unmanaged, run-in-place) ─────────────────── */
 
-static void scan_usb_dir(const char *dir_path, char ***out_paths, int *count, int *cap) {
+static int append_usb_path(char ***paths, size_t *count, size_t *capacity, const char *path) {
+    char **grown = collection_reserve(*paths, capacity, *count + 1, sizeof(char *));
+    if (!grown) return -1;
+    *paths = grown;
+    char *copy = strdup(path);
+    if (!copy) return -1;
+    (*paths)[(*count)++] = copy;
+    return 0;
+}
+
+static int scan_usb_dir(const char *dir_path, char ***out_paths, size_t *count, size_t *cap) {
     DIR *d = opendir(dir_path);
-    if (!d) return;
+    if (!d) return errno == ENOENT ? 0 : -1;
 
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
@@ -85,26 +101,19 @@ static void scan_usb_dir(const char *dir_path, char ***out_paths, int *count, in
                     if (is_supported_extension(sub_ent->d_name)) {
                         char sub_full[640];
                         snprintf(sub_full, sizeof(sub_full), "%s/%s", full, sub_ent->d_name);
-                        if (*count >= *cap) {
-                            *cap = (*cap == 0) ? 32 : (*cap * 2);
-                            *out_paths = realloc(*out_paths, *cap * sizeof(char *));
+                        if (append_usb_path(out_paths, count, cap, sub_full) != 0) {
+                            closedir(sub); closedir(d); return -1;
                         }
-                        (*out_paths)[*count] = strdup(sub_full);
-                        (*count)++;
                     }
                 }
                 closedir(sub);
             }
         } else if (is_supported_extension(ent->d_name)) {
-            if (*count >= *cap) {
-                *cap = (*cap == 0) ? 32 : (*cap * 2);
-                *out_paths = realloc(*out_paths, *cap * sizeof(char *));
-            }
-            (*out_paths)[*count] = strdup(full);
-            (*count)++;
+            if (append_usb_path(out_paths, count, cap, full) != 0) { closedir(d); return -1; }
         }
     }
     closedir(d);
+    return 0;
 }
 
 /* ── Listing API ───────────────────────────────────────────── */
@@ -113,21 +122,22 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
     if (!json_buf || !buf_size) return 0;
     SlotMeta *slots = NULL;
     size_t slot_count = 0;
-    slot_list_all(&slots, &slot_count);
+    json_buf[0] = '\0';
+    if (slot_list_all(&slots, &slot_count) != 0) return 0;
 
     /* Enumerate USB payloads */
     char **usb_paths = NULL;
-    int usb_count = 0, usb_cap = 0;
+    size_t usb_count = 0, usb_cap = 0;
     int scan_usb = config_read_bool("SCAN_USB_PAYLOADS", 0);
 
     for (int u = 0; u < 8; u++) {
         char pldmgr_usb[64];
-        snprintf(pldmgr_usb, sizeof(pldmgr_usb), "/mnt/usb%d/pldmgr", u);
-        scan_usb_dir(pldmgr_usb, &usb_paths, &usb_count, &usb_cap);
+        snprintf(pldmgr_usb, sizeof(pldmgr_usb), PLDMGR_USB_ROOT_FORMAT "/pldmgr", u);
+        if (scan_usb_dir(pldmgr_usb, &usb_paths, &usb_count, &usb_cap) != 0) goto scan_failed;
 
         if (scan_usb) {
             char root_usb[64];
-            snprintf(root_usb, sizeof(root_usb), "/mnt/usb%d", u);
+            snprintf(root_usb, sizeof(root_usb), PLDMGR_USB_ROOT_FORMAT, u);
             DIR *d = opendir(root_usb);
             if (d) {
                 struct dirent *ent;
@@ -136,11 +146,9 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
                     if (is_supported_extension(ent->d_name)) {
                         char full[512];
                         snprintf(full, sizeof(full), "%s/%s", root_usb, ent->d_name);
-                        if (usb_count >= usb_cap) {
-                            usb_cap = (usb_cap == 0) ? 32 : (usb_cap * 2);
-                            usb_paths = realloc(usb_paths, usb_cap * sizeof(char *));
+                        if (append_usb_path(&usb_paths, &usb_count, &usb_cap, full) != 0) {
+                            closedir(d); goto scan_failed;
                         }
-                        usb_paths[usb_count++] = strdup(full);
                     }
                 }
                 closedir(d);
@@ -218,7 +226,7 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
     }
 
     json_append(&jb, "  ],\n  \"usb\": [\n");
-    for (int u = 0; u < usb_count; u++) {
+    for (size_t u = 0; u < usb_count; u++) {
         char u_e[6 * 512];
         json_escape_checked(&jb, usb_paths[u], u_e, sizeof(u_e));
         json_append(&jb, "    \"%s\"%s\n", u_e, (u + 1 < usb_count) ? "," : "");
@@ -234,7 +242,7 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
         curr_p++;
         json_append(&jb, "    \"%s\"%s\n", pp_e, (curr_p < total_p) ? "," : "");
     }
-    for (int u = 0; u < usb_count; u++) {
+    for (size_t u = 0; u < usb_count; u++) {
         char u_e[6 * 512];
         json_escape_checked(&jb, usb_paths[u], u_e, sizeof(u_e));
         curr_p++;
@@ -248,10 +256,16 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
     }
 
     slot_free_all(slots);
-    for (int u = 0; u < usb_count; u++) free(usb_paths[u]);
+    for (size_t u = 0; u < usb_count; u++) free(usb_paths[u]);
     if (usb_paths) free(usb_paths);
 
     return jb.pos;
+scan_failed:
+    slot_free_all(slots);
+    for (size_t u = 0; u < usb_count; u++) free(usb_paths[u]);
+    free(usb_paths);
+    json_buf[0] = '\0';
+    return 0;
 }
 
 int payload_mgr_delete_payload(const char *slot_or_filename) {
@@ -315,7 +329,11 @@ int payload_mgr_check_existing(const char *filename, char *out_json, size_t out_
     snprintf(check_dir, sizeof(check_dir), "%s/local/%s", PAYLOADS_STORAGE_DIR, lkey);
 
     SlotMeta meta;
-    int exists = (slot_read_meta(check_dir, &meta) == 0 && meta.payload_path[0] != '\0');
+    if (slot_read_meta(check_dir, &meta) != 0) {
+        json_append(&jb, "{\"error\":\"Failed to read slot metadata\"}");
+        return -1;
+    }
+    int exists = meta.payload_path[0] != '\0';
 
     char key_e[6 * 128];
     json_escape_checked(&jb, lkey, key_e, sizeof(key_e));
@@ -440,7 +458,11 @@ int payload_mgr_usb_check(const char *usb_path, char *out_json, size_t out_size)
     snprintf(check_dir, sizeof(check_dir), "%s/local/%s", PAYLOADS_STORAGE_DIR, lkey);
 
     SlotMeta meta;
-    int exists = (slot_read_meta(check_dir, &meta) == 0 && meta.payload_path[0] != '\0');
+    if (slot_read_meta(check_dir, &meta) != 0) {
+        json_append(&jb, "{\"error\":\"Failed to read slot metadata\"}");
+        return -1;
+    }
+    int exists = meta.payload_path[0] != '\0';
 
     char name_e[6 * 256], path_e[6 * 512], key_e[6 * 128];
     json_escape_checked(&jb, filename, name_e, sizeof(name_e));

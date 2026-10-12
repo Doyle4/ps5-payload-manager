@@ -473,9 +473,17 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
             RepoPayload *items = NULL;
             size_t count = 0;
 
-            if (read_file_text(cache_path, &cached, &cached_size) == 0 && cached) {
-                parse_repository_payloads(cached, &items, &count);
-                free(cached);
+            if (read_file_text(cache_path, &cached, &cached_size) != 0 || !cached) {
+                free(cached); free(sources);
+                json_builder_fail(&jb);
+                return 0;
+            }
+            int parsed = parse_repository_payloads(cached, &items, &count);
+            free(cached);
+            if (parsed != 0) {
+                free(items); free(sources);
+                json_builder_fail(&jb);
+                return 0;
             }
 
             size_t icon_capacity = 6 * sizeof(items[0].icon);
@@ -618,7 +626,11 @@ int sources_repo_install(const char *source_url, const char *id,
     if (!is_mode_replace && !is_mode_keep_both) {
         SlotMeta *existing_slots = NULL;
         size_t existing_count = 0;
-        if (slot_list_all(&existing_slots, &existing_count) == 0 && existing_slots) {
+        if (slot_list_all(&existing_slots, &existing_count) != 0) {
+            json_append(&jb, "{\"ok\":false,\"message\":\"Failed to scan installed slots\"}");
+            return -1;
+        }
+        if (existing_slots) {
             for (size_t i = 0; i < existing_count; i++) {
                 if (strcmp(existing_slots[i].kind, SLOT_KIND_REPO) == 0 &&
                     strcmp(existing_slots[i].id, safe_id) == 0 &&
@@ -651,8 +663,12 @@ int sources_repo_install(const char *source_url, const char *id,
     char *cached = NULL;
     size_t csize = 0;
     if (read_file_text(cache_path, &cached, &csize) == 0 && cached) {
-        parse_repository_payloads(cached, &items, &count);
+        int parsed = parse_repository_payloads(cached, &items, &count);
         free(cached);
+        if (parsed != 0) {
+            json_append(&jb, "{\"ok\":false,\"message\":\"Failed to parse repository\"}");
+            return -1;
+        }
     }
 
     int found_idx = -1;
@@ -672,8 +688,12 @@ int sources_repo_install(const char *source_url, const char *id,
         refreshed = 1;
 
         if (read_file_text(cache_path, &cached, &csize) == 0 && cached) {
-            parse_repository_payloads(cached, &items, &count);
+            int parsed = parse_repository_payloads(cached, &items, &count);
             free(cached);
+            if (parsed != 0) {
+                json_append(&jb, "{\"ok\":false,\"message\":\"Failed to parse repository\"}");
+                return -1;
+            }
             for (size_t i = 0; i < count; i++) {
                 if (strcmp(items[i].id, safe_id) == 0) {
                     found_idx = (int)i;
