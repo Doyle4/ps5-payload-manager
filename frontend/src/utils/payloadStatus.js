@@ -5,6 +5,91 @@ export function normalizeUrl(url) {
   return url.trim().replace(/\/+$/, '');
 }
 
+export function formatRepoNameFromUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  const stripped = trimmed
+    .replace(/\/payloads\.json(\?.*)?$/i, '')
+    .replace(/\.json(\?.*)?$/i, '')
+    .replace(/\/+$/, '');
+
+  // 1. GitHub raw URLs: https://raw.githubusercontent.com/<owner>/<repo>/...
+  const ghRawMatch = stripped.match(/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)/i);
+  if (ghRawMatch) return `${ghRawMatch[1]}/${ghRawMatch[2]}`;
+
+  // 2. GitHub repo URLs: https://github.com/<owner>/<repo>
+  const ghMatch = stripped.match(/github\.com\/([^/]+)\/([^/]+)/i);
+  if (ghMatch) return `${ghMatch[1]}/${ghMatch[2]}`;
+
+  // 3. GitHub Pages: https://<owner>.github.io/<repo>
+  const ghIoMatch = stripped.match(/([^/:]+)\.github\.io\/([^/]+)/i);
+  if (ghIoMatch) return `${ghIoMatch[1]}/${ghIoMatch[2]}`;
+  const ghIoBase = stripped.match(/([^/:]+)\.github\.io/i);
+  if (ghIoBase) return ghIoBase[1];
+
+  // 4. Cloudflare Pages: https://<name>.pages.dev
+  const pagesDevMatch = stripped.match(/([^/:]+)\.pages\.dev/i);
+  if (pagesDevMatch) return pagesDevMatch[1];
+
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.replace(/^www\./, '');
+    const pathParts = parsed.pathname.split('/').filter((p) => p && !p.toLowerCase().endsWith('.json'));
+    if (pathParts.length > 0) {
+      return `${host}/${pathParts[0]}`;
+    }
+    return host;
+  } catch {
+    return trimmed;
+  }
+}
+
+export function resolveSourceDisplayName(slot, sources = []) {
+  if (!slot) return 'another repository';
+
+  // 1. If slot already has a valid source_name (not a URL)
+  if (slot.source_name && typeof slot.source_name === 'string') {
+    const sName = slot.source_name.trim();
+    if (sName && !sName.startsWith('http://') && !sName.startsWith('https://')) {
+      return sName;
+    }
+  }
+
+  // 2. Look up matching source by URL or id in sources list
+  const normSlotUrl = normalizeUrl(slot.source_url || slot.source_name);
+  if (Array.isArray(sources)) {
+    const matched = sources.find((s) => {
+      if (!s) return false;
+      if (s.url && normalizeUrl(s.url) === normSlotUrl) return true;
+      if (s.id && (s.id === slot.source_url || s.id === slot.source_name)) return true;
+      return false;
+    });
+    if (matched && matched.name && typeof matched.name === 'string') {
+      const mName = matched.name.trim();
+      if (mName && !mName.startsWith('http://') && !mName.startsWith('https://')) {
+        return mName;
+      }
+    }
+  }
+
+  // 3. Known official repo URL fallback
+  if (
+    normSlotUrl.includes('ps5-payloads-mirror') ||
+    normSlotUrl.includes('ps5-payloads.pages.dev')
+  ) {
+    return 'Official Repository';
+  }
+
+  // 4. Extract clean repo name from URL
+  const rawUrl = slot.source_url || (typeof slot.source_name === 'string' && slot.source_name.startsWith('http') ? slot.source_name : '');
+  if (rawUrl) {
+    const clean = formatRepoNameFromUrl(rawUrl);
+    if (clean) return clean;
+  }
+
+  return (slot.source_name && !slot.source_name.startsWith('http')) ? slot.source_name : 'another repository';
+}
+
 /**
  * Computes status for a repository payload according to redesign spec §4:
  *
@@ -18,7 +103,7 @@ export function normalizeUrl(url) {
  *
  * Local slots never show up on repo cards.
  */
-export function getPayloadStatus({ payload, srcUrl, items = [], multiSources = false }) {
+export function getPayloadStatus({ payload, srcUrl, items = [], sources = [], multiSources = false }) {
   void multiSources;
   if (!payload) {
     return {
@@ -56,7 +141,7 @@ export function getPayloadStatus({ payload, srcUrl, items = [], multiSources = f
   if (!installedSlot) {
     const conflictSlot = otherSlots.length > 0 ? otherSlots[0] : null;
     const alsoInstalledFrom = conflictSlot
-      ? conflictSlot.source_name || conflictSlot.source_url || 'another repository'
+      ? resolveSourceDisplayName(conflictSlot, sources)
       : null;
 
     return {

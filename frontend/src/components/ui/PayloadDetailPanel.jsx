@@ -64,7 +64,17 @@ const getReadmeUrls = (payload, srcUrl) => {
   return urls;
 };
 
-const PayloadDetailPanel = ({ payload, onClose, onInstall, statusInfo, isInstalled, isUpdate, srcUrl, srcId }) => {
+const PayloadDetailPanel = ({
+  payload,
+  onClose,
+  onInstall,
+  statusInfo,
+  isInstalled,
+  isUpdate,
+  isInstalling = false,
+  srcUrl,
+  srcId,
+}) => {
   const { t } = useTranslation();
   const [detailsHtml, setDetailsHtml] = useState(null);
   const [detailsError, setDetailsError] = useState(false);
@@ -159,6 +169,18 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, statusInfo, isInstall
                 {String(payload.version).startsWith('v') ? payload.version : `v${payload.version}`}
               </span>
             )}
+            {isInstalled && (
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-extrabold text-xs sm:text-sm tracking-wider uppercase inline-flex items-center gap-1.5 shrink-0">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>{t("payload_detail.installed", "Installed")}</span>
+              </span>
+            )}
+            {isUpdate && !isInstalled && (
+              <span className="px-2.5 py-1 rounded-lg bg-ps-blue/20 text-ps-blue border border-ps-blue/40 font-extrabold text-xs sm:text-sm tracking-wider uppercase inline-flex items-center gap-1.5 shrink-0">
+                <ArrowUpCircle className="w-3.5 h-3.5" />
+                <span>{t("storage_hub.update_badge", "Update")}</span>
+              </span>
+            )}
             {payload.category && (
               <span className="px-2.5 py-1 rounded-lg bg-white/5 text-zinc-400 border border-white/10 font-bold text-xs uppercase tracking-wider shrink-0">
                 {t(`category.${payload.category}`, payload.category)}
@@ -215,6 +237,22 @@ const PayloadDetailPanel = ({ payload, onClose, onInstall, statusInfo, isInstall
         <div className="shrink-0 w-full sm:w-auto md:self-start pt-1">
           {(() => {
             const buttonAction = statusInfo ? statusInfo.buttonAction : (isUpdate ? 'update' : (isInstalled ? 'reinstall' : 'install'));
+
+            if (isInstalling) {
+              const label = (buttonAction === 'update' || isUpdate)
+                ? t("payload_detail.updating", "Updating...")
+                : t("payload_detail.installing", "Installing...");
+              return (
+                <button
+                  type="button"
+                  disabled
+                  className="w-full sm:w-auto inline-flex items-center justify-center space-x-2.5 px-7 py-3.5 rounded-2xl font-extrabold text-base transition-all bg-ps-blue/60 text-white cursor-not-allowed opacity-90 shadow-lg"
+                >
+                  <Loader2 className="w-5 h-5 shrink-0 animate-spin" />
+                  <span>{label}</span>
+                </button>
+              );
+            }
 
             if (buttonAction === 'update') {
               return (

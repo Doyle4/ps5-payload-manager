@@ -23,6 +23,7 @@ import { useRepository } from './contexts/RepositoryContext'
 // Utilities
 import { cn, isPS5, isSystemPayload, parsePayloadName } from './utils/helpers'
 import { slug } from './utils/versions'
+import { resolveSourceDisplayName } from './utils/payloadStatus'
 
 // UI Components
 import Toast from './components/ui/Toast'
@@ -48,11 +49,12 @@ let toastSeq = 0
 
 function App() {
   const { t } = useTranslation();
-  const { getRepoEntry, findRepoEntryById, fetchRemote } = useRepository()
+  const { getRepoEntry, findRepoEntryById, fetchRemote, sources } = useRepository()
   const [items, setItems] = useState([])
   const [usbPayloads, setUsbPayloads] = useState([])
   const [uploadConflictModal, setUploadConflictModal] = useState({ show: false, file: null, folderName: '' })
   const [conflictPrompt, setConflictPrompt] = useState(null)
+  const [installingPayloadId, setInstallingPayloadId] = useState(null)
   const [view, setView] = useState(() => {
     if (typeof window !== 'undefined' && window.location?.hash) {
       const route = getRouteFromHash(window.location.hash)
@@ -498,10 +500,11 @@ function App() {
   const performInstall = async (p, sourceId, repoUrl, options = {}) => {
     setConfirmModal({ show: false })
     const displayName = p.name || p.filename
+    const payloadId = p.id || slug(p.name || p.filename)
+    setInstallingPayloadId(payloadId)
     setDownloadModal({ show: true, name: displayName, progress: 10 })
     try {
       setDownloadModal((prev) => ({ ...prev, progress: 30 }))
-      const payloadId = p.id || slug(p.name || p.filename)
       let url = `/repository_install?id=${encodeURIComponent(payloadId)}`
       if (repoUrl) url += `&source_url=${encodeURIComponent(repoUrl)}`
       if (options.mode) url += `&mode=${encodeURIComponent(options.mode)}`
@@ -518,13 +521,14 @@ function App() {
             fileName: displayName,
           })
         )
-        refreshPayloads()
+        await refreshPayloads()
         if (data.refreshed) {
           fetchRemote(true)
         }
       } else if (data?.conflict) {
         setDownloadModal({ show: false, name: '', progress: 0 })
         const conflict = data.conflict
+        const thisRepoName = resolveSourceDisplayName({ source_url: repoUrl }, sources)
         setConfirmModal({
           show: true,
           title: t("storage_hub.conflict_title", "Payload Conflict"),
@@ -533,9 +537,9 @@ function App() {
             "\"{{name}}\" is already installed from {{otherSource}} ({{version}}). Install from {{thisSource}} too?",
             {
               name: displayName,
-              otherSource: conflict.source_name || "another repository",
+              otherSource: resolveSourceDisplayName(conflict, sources),
               version: conflict.version || "",
-              thisSource: repoUrl || "this repository",
+              thisSource: thisRepoName,
             }
           ),
           onConfirm: () =>
@@ -550,6 +554,8 @@ function App() {
       }
     } catch (e) {
       addToast(e.message || t("app.toasts.install_failed", "Installation failed"), 'error')
+    } finally {
+      setInstallingPayloadId(null)
     }
     setTimeout(() => setDownloadModal({ show: false }), 800)
   }
@@ -1032,6 +1038,7 @@ function App() {
               onClosePayload={handleClosePayload}
               conflictPrompt={conflictPrompt}
               setConflictPrompt={setConflictPrompt}
+              installingPayloadId={installingPayloadId}
             />
           )}
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getPayloadStatus } from '../src/utils/payloadStatus.js';
+import { getPayloadStatus, formatRepoNameFromUrl, resolveSourceDisplayName } from '../src/utils/payloadStatus.js';
 
 const OFFICIAL_URL = 'https://official.repo/payloads.json';
 const OTHER_URL = 'https://other.repo/payloads.json';
@@ -179,4 +179,86 @@ test('getPayloadStatus: repo older -> installed badge and no button', () => {
   assert.equal(status.isUpdate, false);
   assert.equal(status.badge, 'installed');
   assert.equal(status.buttonAction, null);
+});
+
+test('formatRepoNameFromUrl formats various repository URLs correctly', () => {
+  assert.equal(
+    formatRepoNameFromUrl('https://raw.githubusercontent.com/Lightning-Mods/PS5-Payloads/main/payloads.json'),
+    'Lightning-Mods/PS5-Payloads'
+  );
+  assert.equal(
+    formatRepoNameFromUrl('https://github.com/itsplk/ps5-payloads-mirror/releases/latest/download/payloads.json'),
+    'itsplk/ps5-payloads-mirror'
+  );
+  assert.equal(
+    formatRepoNameFromUrl('https://itsplk.github.io/ps5-payloads-mirror/payloads.json'),
+    'itsplk/ps5-payloads-mirror'
+  );
+  assert.equal(
+    formatRepoNameFromUrl('https://ps5-payloads.pages.dev/payloads.json'),
+    'ps5-payloads'
+  );
+  assert.equal(
+    formatRepoNameFromUrl('https://example.com/custom-repo/payloads.json'),
+    'example.com/custom-repo'
+  );
+});
+
+test('resolveSourceDisplayName resolves friendly name from sources or URL', () => {
+  const sources = [
+    { id: 'default', name: 'Official Repository', url: 'https://itsplk.github.io/ps5-payloads-mirror/payloads.json' },
+    { id: 'community', name: 'Community Hub', url: 'https://community.org/repo/payloads.json' },
+  ];
+
+  // 1. Existing friendly source_name takes precedence
+  assert.equal(
+    resolveSourceDisplayName({ source_url: 'https://other.com', source_name: 'Custom Repo' }, sources),
+    'Custom Repo'
+  );
+
+  // 2. Looks up matching source in sources list
+  assert.equal(
+    resolveSourceDisplayName({ source_url: 'https://community.org/repo/payloads.json' }, sources),
+    'Community Hub'
+  );
+
+  // 3. Fallback for official mirror URL
+  assert.equal(
+    resolveSourceDisplayName({ source_url: 'https://itsplk.github.io/ps5-payloads-mirror/payloads.json' }, []),
+    'Official Repository'
+  );
+
+  // 4. Extracts clean name from URL when not in sources
+  assert.equal(
+    resolveSourceDisplayName({ source_url: 'https://raw.githubusercontent.com/Lightning-Mods/PS5-Payloads/main/payloads.json' }, []),
+    'Lightning-Mods/PS5-Payloads'
+  );
+});
+
+test('getPayloadStatus resolves alsoInstalledFrom using repo name instead of URL', () => {
+  const payload = {
+    id: 'etaHEN',
+    name: 'etaHEN',
+    version: '2.0b',
+  };
+  const items = [
+    {
+      kind: 'repo',
+      slot: 'repo/etaHEN@12345678',
+      id: 'etaHEN',
+      source_url: 'https://raw.githubusercontent.com/Lightning-Mods/PS5-Payloads/main/payloads.json',
+      source_name: '', // Empty or missing
+      version: '1.9b',
+    },
+  ];
+  const sources = [
+    { id: 'official', name: 'Official Repository', url: OFFICIAL_URL },
+    { id: 'lm', name: 'LightningMods Hub', url: 'https://raw.githubusercontent.com/Lightning-Mods/PS5-Payloads/main/payloads.json' },
+  ];
+
+  const status = getPayloadStatus({ payload, srcUrl: OFFICIAL_URL, items, sources });
+
+  assert.equal(status.hasConflict, true);
+  assert.equal(status.alsoInstalledFrom, 'LightningMods Hub');
+  assert.notEqual(status.alsoInstalledFrom, 'https://raw.githubusercontent.com/Lightning-Mods/PS5-Payloads/main/payloads.json');
 });

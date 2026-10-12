@@ -3,7 +3,8 @@ import { CloudDownload, Upload, Package, Database, RefreshCw, Loader2, AlertTria
 import { useTranslation } from 'react-i18next'
 import { QRCodeSVG } from 'qrcode.react'
 import { cn, isPS5, isIOS, isSystemPayload } from '../../utils/helpers'
-import { getPayloadStatus } from '../../utils/payloadStatus'
+import { getPayloadStatus, resolveSourceDisplayName } from '../../utils/payloadStatus'
+import { slug } from '../../utils/versions'
 import PayloadName from '../ui/PayloadName'
 import Modal from '../ui/Modal'
 import { useRepository } from '../../contexts/RepositoryContext'
@@ -25,6 +26,7 @@ const StorageHub = ({
   onClosePayload,
   conflictPrompt: externalConflictPrompt,
   setConflictPrompt: externalSetConflictPrompt,
+  installingPayloadId = null,
 }) => {
   const { t, i18n } = useTranslation()
   const multiSources = config?.MULTI_SOURCES_ENABLED === true
@@ -107,6 +109,7 @@ const StorageHub = ({
           payload: p,
           srcUrl: src.url,
           items,
+          sources,
           multiSources,
         })
         return {
@@ -128,56 +131,42 @@ const StorageHub = ({
   const resolvedPayloadData = useMemo(() => {
     if (!selectedPayload) return null
 
-    // If it already contains the full payload object
-    if (
-      selectedPayload.payload &&
-      (selectedPayload.payload.name || selectedPayload.payload.id || selectedPayload.payload.filename)
-    ) {
-      const p = selectedPayload.payload
-      const srcUrl =
-        selectedPayload.srcUrl ||
-        (selectedPayload.srcId
-          ? enrichedSources.find((s) => s.id === selectedPayload.srcId)?.url
-          : enrichedSources[0]?.url) ||
-        ''
-      const statusInfo =
-        selectedPayload.statusInfo ||
-        getPayloadStatus({ payload: p, srcUrl, items, multiSources })
+    const targetPayload =
+      selectedPayload.payload ||
+      (typeof selectedPayload === 'object' && (selectedPayload.name || selectedPayload.id || selectedPayload.filename)
+        ? selectedPayload
+        : null)
 
-      return {
-        ...selectedPayload,
-        payload: p,
-        srcUrl,
-        statusInfo,
-        isInstalled: statusInfo.isInstalled,
-        isUpdate: statusInfo.isUpdate,
-      }
-    }
-
-    // If it's an id or filename reference (e.g. from URL deep link or reload)
     const targetIdentifier =
-      selectedPayload.filename ||
-      selectedPayload.payload?.filename ||
       selectedPayload.payload?.id ||
+      selectedPayload.id ||
+      selectedPayload.payload?.filename ||
+      selectedPayload.filename ||
       (typeof selectedPayload === 'string' ? selectedPayload : null)
 
-    if (!targetIdentifier) return null
+    const targetSrcId = selectedPayload.srcId || null
+    const targetSrcUrl = selectedPayload.srcUrl || null
 
-    // If a specific source ID was requested in the URL (?src=...), check that source first
-    const candidateSources = selectedPayload.srcId
+    // Check candidate sources from enrichedSources first so that fresh status is always picked up
+    const candidateSources = targetSrcId
       ? [
-          enrichedSources.find((s) => s.id === selectedPayload.srcId),
-          ...enrichedSources.filter((s) => s.id !== selectedPayload.srcId),
+          enrichedSources.find((s) => s.id === targetSrcId),
+          ...enrichedSources.filter((s) => s.id !== targetSrcId),
         ].filter(Boolean)
-      : enrichedSources
+      : (targetSrcUrl
+          ? [
+              enrichedSources.find((s) => s.url === targetSrcUrl),
+              ...enrichedSources.filter((s) => s.url !== targetSrcUrl),
+            ].filter(Boolean)
+          : enrichedSources)
 
     for (const src of candidateSources) {
-      // Find by id first, then by filename
       const match = src.payloads?.find(
-        (p) =>
-          p.id === targetIdentifier ||
-          p.filename === targetIdentifier ||
-          p.filename?.toLowerCase() === targetIdentifier.toLowerCase()
+        (candidate) =>
+          (targetIdentifier && candidate.id === targetIdentifier) ||
+          (targetIdentifier && candidate.filename === targetIdentifier) ||
+          (targetIdentifier && candidate.filename?.toLowerCase() === targetIdentifier.toLowerCase()) ||
+          (targetPayload && (candidate.id === targetPayload.id || candidate.filename === targetPayload.filename))
       )
       if (match) {
         return {
@@ -191,8 +180,38 @@ const StorageHub = ({
       }
     }
 
+    if (targetPayload && (targetPayload.name || targetPayload.id || targetPayload.filename)) {
+      const srcUrl =
+        targetSrcUrl ||
+        (targetSrcId ? enrichedSources.find((s) => s.id === targetSrcId)?.url : enrichedSources[0]?.url) ||
+        ''
+      const statusInfo = getPayloadStatus({
+        payload: targetPayload,
+        srcUrl,
+        items,
+        sources,
+        multiSources,
+      })
+      return {
+        ...selectedPayload,
+        payload: targetPayload,
+        srcId: targetSrcId || enrichedSources[0]?.id || '',
+        srcUrl,
+        statusInfo,
+        isInstalled: statusInfo.isInstalled,
+        isUpdate: statusInfo.isUpdate,
+      }
+    }
+
     return null
-  }, [selectedPayload, enrichedSources, items, multiSources])
+  }, [selectedPayload, enrichedSources, items, sources, multiSources])
+
+  const currentDetailId =
+    resolvedPayloadData?.payload?.id ||
+    (resolvedPayloadData?.payload
+      ? slug(resolvedPayloadData.payload.name || resolvedPayloadData.payload.filename)
+      : null)
+  const isDetailInstalling = Boolean(installingPayloadId && currentDetailId === installingPayloadId)
 
   useLayoutEffect(() => {
     const mainEl = document.querySelector('main')
@@ -247,10 +266,10 @@ const StorageHub = ({
           statusInfo={resolvedPayloadData.statusInfo}
           isInstalled={resolvedPayloadData.isInstalled}
           isUpdate={resolvedPayloadData.isUpdate}
+          isInstalling={isDetailInstalling}
           onClose={handleCloseDetail}
           onInstall={(p, sid, surl, sInfo) => {
             handleInstallClick(p, sid, surl, sInfo || resolvedPayloadData.statusInfo)
-            handleCloseDetail()
           }}
         />
 
@@ -305,10 +324,7 @@ const StorageHub = ({
                 "\"{{name}}\" is already installed from {{otherSource}} ({{version}}). Install from {{thisSource}} too?",
                 {
                   name: conflictPrompt.payload.name || conflictPrompt.payload.id,
-                  otherSource:
-                    conflictPrompt.conflictSlot.source_name ||
-                    conflictPrompt.conflictSlot.source_url ||
-                    "another repository",
+                  otherSource: resolveSourceDisplayName(conflictPrompt.conflictSlot, sources),
                   version: conflictPrompt.conflictSlot.version || "",
                   thisSource: conflictPrompt.thisSourceName,
                 }
@@ -372,10 +388,7 @@ const StorageHub = ({
               "\"{{name}}\" is already installed from {{otherSource}} ({{version}}). Install from {{thisSource}} too?",
               {
                 name: conflictPrompt.payload.name || conflictPrompt.payload.id,
-                otherSource:
-                  conflictPrompt.conflictSlot.source_name ||
-                  conflictPrompt.conflictSlot.source_url ||
-                  "another repository",
+                otherSource: resolveSourceDisplayName(conflictPrompt.conflictSlot, sources),
                 version: conflictPrompt.conflictSlot.version || "",
                 thisSource: conflictPrompt.thisSourceName,
               }

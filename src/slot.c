@@ -218,6 +218,11 @@ int slot_read_meta(const char *slot_dir, SlotMeta *out_meta) {
         json_extract_string(json, end, "id", out_meta->id, sizeof(out_meta->id));
         json_extract_string(json, end, "source_url", out_meta->source_url, sizeof(out_meta->source_url));
         json_extract_string(json, end, "source_name", out_meta->source_name, sizeof(out_meta->source_name));
+        if (out_meta->source_name[0] == '\0' && out_meta->source_url[0] != '\0') {
+            if (strcmp(out_meta->source_url, REPOSITORY_SOURCE_URL) == 0) {
+                strncpy(out_meta->source_name, "Official Repository", sizeof(out_meta->source_name) - 1);
+            }
+        }
         json_extract_string(json, end, "name", out_meta->name, sizeof(out_meta->name));
         json_extract_string(json, end, "version", out_meta->version, sizeof(out_meta->version));
         json_extract_string(json, end, "checksum", out_meta->checksum, sizeof(out_meta->checksum));
@@ -705,6 +710,9 @@ int slot_migrate_legacy(void) {
                 strcpy(new_meta.kind, SLOT_KIND_REPO);
                 const char *surl = inst_detail[0] ? inst_detail : REPOSITORY_SOURCE_URL;
                 strncpy(new_meta.source_url, surl, sizeof(new_meta.source_url) - 1);
+                if (strcmp(new_meta.source_url, REPOSITORY_SOURCE_URL) == 0) {
+                    strncpy(new_meta.source_name, "Official Repository", sizeof(new_meta.source_name) - 1);
+                }
                 if (sc_name[0]) {
                     strncpy(new_meta.name, sc_name, sizeof(new_meta.name) - 1);
                 } else {
