@@ -2,6 +2,7 @@
 
 # Tools
 PYTHON := python3
+HOST_CC ?= clang
 CC     := /opt/ps5-payload-sdk/bin/prospero-clang
 STRIP  := /opt/ps5-payload-sdk/bin/prospero-strip
 
@@ -44,6 +45,17 @@ CFLAGS := -Os -Wall -ffunction-sections -fdata-sections $(INCLUDES)
 LDFLAGS := -Wl,--gc-sections
 
 all: $(ELF)
+
+# These tests execute the HTTP handler on the host with PS5 services stubbed.
+# See DEVELOPMENT.md for the isolated container option and native build gate.
+.PHONY: test-host test-frontend test
+test-host:
+	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_http_tests.py
+
+test-frontend:
+	cd frontend && npm test
+
+test: test-host test-frontend
 
 # Build the React frontend
 .PHONY: frontend-build

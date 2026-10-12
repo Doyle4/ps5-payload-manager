@@ -1,0 +1,37 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  http-responses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build host-test environment
+        run: docker build -f tests/Dockerfile -t pldmgr-tests .
+      - name: Test HTTP responses with sanitizers and real sockets
+        run: docker run --rm --network=none -v "$GITHUB_WORKSPACE:/src:ro" pldmgr-tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      # Existing lint findings remain tracked in REMEDIATION_EXECUTION_PLAN.md.
+      # Promote lint to a required check when step 8a clears that baseline.
