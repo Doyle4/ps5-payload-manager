@@ -50,6 +50,7 @@ all: $(ELF)
 # See DEVELOPMENT.md for the isolated container option and native build gate.
 .PHONY: test-host test-frontend test
 test-host:
+	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_json_escape_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_http_tests.py
 
 test-frontend:

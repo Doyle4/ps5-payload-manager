@@ -125,6 +125,20 @@ def lifecycle_tests(port, storage, server):
     # Check large-list error responses using the actual HTTP transport and JSON parser.
     autoload = storage / "autoload.txt"
     try:
+        # Exercise the production encoder through both real HTTP list routes.
+        # Newlines are list separators; other controls remain string content.
+        sample = 'Zażółć Україна 日本語 😀 "quoted" \\path\t\b\f\x01'
+        autoload.write_text(sample, encoding="utf-8")
+        for route, key in [("/get_config", "AUTOLOAD_LIST"), ("/autoload_status", "list")]:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            try:
+                connection.request("GET", route)
+                response = connection.getresponse()
+                data = json.loads(response.read())
+                assert response.status == 200, (response.status, data)
+                assert data[key] == sample, data
+            finally:
+                connection.close()
         for size in [4095, 4096, 20000]:
             autoload.write_text("a" * size)
             for route in ["/get_config", "/autoload_status"]:

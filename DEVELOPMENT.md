@@ -61,6 +61,8 @@ The container option builds libmicrohttpd **1.0.1**, matching `build_deps.sh`:
 ```bash
 docker build -f tests/Dockerfile -t ps5-payload-manager-tests .
 docker run --rm --network=none -v "$(pwd):/src:ro" ps5-payload-manager-tests
+docker run --rm --network=none -v "$(pwd):/src:ro" ps5-payload-manager-tests \
+  python3 tests/run_json_escape_tests.py
 ```
 
 The build downloads test dependencies; the test container itself has external
@@ -68,7 +70,14 @@ networking disabled. Linux sanitizer support is included in the image. The
 optional `--no-sanitize` argument is for hosts without sanitizer support; use
 the default sanitizer run for verification.
 
-`.github/workflows/verify.yml` runs the HTTP suite, existing frontend tests,
+The JSON encoder suite compiles actual `src/utils.c` and checks its output with
+Python's independent JSON and UTF-8 decoders. It covers Unicode, all non-NUL
+control bytes, invalid UTF-8 replacement, every small escape/scalar boundary,
+truncation status, and guarded destination bounds, with ASan/UBSan enabled.
+C strings cannot represent embedded NUL; escaped-NUL decoding belongs to the
+separate decoder contract. `make test-host` runs both host suites.
+
+`.github/workflows/verify.yml` runs both host suites, existing frontend tests,
 and frontend build without publishing or deploying. Frontend lint still reports existing errors. The host suite tests response
 ownership/status handling, request cleanup, and autoload-list bounds. Storage
 transactions, autoload worker concurrency, and PS5 firmware behavior remain

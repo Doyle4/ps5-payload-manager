@@ -17,6 +17,8 @@ jobs:
         run: docker build -f tests/Dockerfile -t pldmgr-tests .
       - name: Test HTTP responses with sanitizers and real sockets
         run: docker run --rm --network=none -v "$GITHUB_WORKSPACE:/src:ro" pldmgr-tests
+      - name: Test JSON encoding with sanitizers and an independent decoder
+        run: docker run --rm --network=none -v "$GITHUB_WORKSPACE:/src:ro" pldmgr-tests python3 tests/run_json_escape_tests.py
 
   frontend:
     runs-on: ubuntu-latest
