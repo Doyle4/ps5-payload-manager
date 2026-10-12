@@ -20,7 +20,7 @@ ssize_t log_stream_callback(void *cls, uint64_t pos, char *buf, size_t max);
 /* MHD free callback for SSE connections */
 void log_stream_cleanup(void *cls);
 
-/* Build the /log JSON response into buf. Returns bytes written. */
+/* Build complete /log JSON. Returns bytes written, or 0 on serialization failure. */
 size_t log_build_json(char *buf, size_t buf_size);
 
 /* Track whether any browser client has connected */

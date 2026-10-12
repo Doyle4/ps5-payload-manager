@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 /* Build a JSON list of all running processes.
- * Returns bytes written. */
+ * Returns complete bytes written, or 0 on serialization failure. */
 size_t process_list_json(char *buf, size_t max_size);
 
 /* Kill a process by PID. Returns 0 on success, -1 on failure. */

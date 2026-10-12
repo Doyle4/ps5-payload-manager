@@ -51,14 +51,15 @@ void history_mgr_add(const char *path) {
 }
 
 size_t history_mgr_to_json(char *buf, size_t max_size) {
-    JsonListBuilder jb = { buf, max_size, 0, 1 };
+    if (!buf || !max_size) return 0;
+    JsonListBuilder jb = { buf, max_size, 0, 1, 0 };
     buf[0] = '\0';
 
     json_append(&jb, "{\"history\":[\n");
 
     for (int i = 0; i < history_count; i++) {
-        char path_escaped[1024];
-        pldmgr_json_escape(history[i], path_escaped, sizeof(path_escaped));
+        char path_escaped[6 * 512];
+        json_escape_checked(&jb, history[i], path_escaped, sizeof(path_escaped));
         json_append(&jb, "%s  \"%s\"", (i > 0) ? ",\n" : "", path_escaped);
     }
 

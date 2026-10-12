@@ -5,7 +5,7 @@
 
 /*
  * Populates json_buf with items (slot layout) and usb payloads.
- * Returns the length of the string written.
+ * Returns the complete length, or 0 with empty output on serialization failure.
  */
 size_t payload_mgr_list_json(char *json_buf, size_t buf_size);
 

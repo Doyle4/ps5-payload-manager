@@ -87,6 +87,21 @@ def main():
         actual = run("M", local)
         for field, content in local.items():
             assert actual[field] == content, (field, actual)
+        maximum_sources = [{"id": f"custom-{i}", "name": "\x01" * 250,
+                            "url": "\x01" * 1000, "removable": True} for i in range(49)]
+        actual = run("S", {"sources": maximum_sources})
+        assert actual["sources"][1:] == maximum_sources
+        maximum_meta = dict(meta)
+        capacities = {"filename": 256, "installed_at": 64, "id": 128, "source_url": 1024,
+                      "source_name": 256, "name": 256, "version": 64, "checksum": 65,
+                      "last_update": 64, "url": 1024, "source": 1024, "source_direct": 1024,
+                      "category": 128, "description": 1024, "author": 128, "details_url": 1024}
+        maximum_meta.update({field: "\x01" * (size - 1) for field, size in capacities.items()})
+        actual = run("M", maximum_meta)
+        for field, content in maximum_meta.items():
+            assert actual[field] == content, (field, actual)
+        quoted_kind = dict(local, kind='lo"cal')
+        assert run("M", quoted_kind)["kind"] == quoted_kind["kind"]
         print(f"JSON backend: {checks} real repository/source/metadata scenarios passed")
 
 

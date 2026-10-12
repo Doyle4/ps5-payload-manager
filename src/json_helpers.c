@@ -6,31 +6,44 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include "json_helpers.h"
+#include "utils.h"
+
+int json_builder_fail(JsonListBuilder *jb) {
+    jb->error = 1;
+    jb->pos = 0;
+    if (jb->buf && jb->size) jb->buf[0] = '\0';
+    return -1;
+}
+
+static int json_append_args(JsonListBuilder *jb, const char *fmt, va_list args) {
+    if (jb->error) return -1;
+    if (!jb->buf || jb->pos >= jb->size) return json_builder_fail(jb);
+    int written = vsnprintf(jb->buf + jb->pos, jb->size - jb->pos, fmt, args);
+    if (written < 0 || (size_t)written >= jb->size - jb->pos) return json_builder_fail(jb);
+    jb->pos += (size_t)written;
+    return 0;
+}
 
 int json_append(JsonListBuilder *jb, const char *fmt, ...) {
     va_list args;
-    int written;
-
-    if (jb->pos >= jb->size) {
-        return -1;
-    }
-
     va_start(args, fmt);
-    written = vsnprintf(jb->buf + jb->pos, jb->size - jb->pos, fmt, args);
+    int result = json_append_args(jb, fmt, args);
     va_end(args);
+    return result;
+}
 
-    if (written < 0) {
-        return -1;
-    }
+int json_escape_checked(JsonListBuilder *jb, const char *src, char *dst, size_t size) {
+    if (pldmgr_json_escape(src, dst, size) != 0) return json_builder_fail(jb);
+    return jb->error ? -1 : 0;
+}
 
-    if ((size_t)written >= jb->size - jb->pos) {
-        jb->pos = jb->size - 1;
-        jb->buf[jb->pos] = '\0';
-        return -1;
-    }
-
-    jb->pos += (size_t)written;
-    return 0;
+size_t json_format(char *buf, size_t size, const char *fmt, ...) {
+    JsonListBuilder jb = { buf, size, 0, 1, 0 };
+    va_list args;
+    va_start(args, fmt);
+    json_append_args(&jb, fmt, args);
+    va_end(args);
+    return jb.pos;
 }
 
 typedef struct {

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 #include <sys/stat.h>
 
 #include "config.h"
@@ -290,35 +291,53 @@ int config_handle_set_json(const char *json_data) {
 /* ── Favorites Management ──────────────────────────────────── */
 
 int config_get_favorites_csv(char *out_buf, size_t max_size, int *out_file_exists) {
-    if (!out_buf || max_size == 0) return -1;
+    if (!out_buf || !max_size) return -1;
     out_buf[0] = '\0';
     if (out_file_exists) *out_file_exists = 0;
-
     FILE *f = fopen(FAVORITES_CONFIG_PATH, "r");
-    if (!f) return 0;
-
+    if (!f) return errno == ENOENT ? 0 : -1;
     if (out_file_exists) *out_file_exists = 1;
-
-    char line[512];
+    char *line = malloc(max_size);
+    if (!line) { fclose(f); return -1; }
+    size_t length = 0, written = 0;
     int first = 1;
-    while (fgets(line, sizeof(line), f)) {
-        line[strcspn(line, "\r\n")] = '\0';
-        char *start = line;
-        while (*start && isspace((unsigned char)*start)) start++;
-        char *end = start + strlen(start);
-        while (end > start && isspace((unsigned char)*(end - 1))) end--;
-        *end = '\0';
-
-        if (*start == '\0') continue;
-
-        if (!first) {
-            strncat(out_buf, ",", max_size - strlen(out_buf) - 1);
+    for (;;) {
+        int c = fgetc(f);
+        if (c == 0 || (c == EOF && ferror(f))) goto failed;
+        if (c == EOF || c == '\r' || c == '\n') {
+            line[length] = '\0';
+            char *start = line;
+            while (*start && isspace((unsigned char)*start)) start++;
+            char *end = line + length;
+            while (end > start && isspace((unsigned char)end[-1])) end--;
+            size_t count = (size_t)(end - start);
+            if (count) {
+                if (!first) {
+                    if (written + 1 >= max_size) goto failed;
+                    out_buf[written++] = ',';
+                }
+                if (count >= max_size - written) goto failed;
+                memcpy(out_buf + written, start, count);
+                written += count;
+                out_buf[written] = '\0';
+                first = 0;
+            }
+            length = 0;
+            if (c == EOF) break;
+        } else {
+            if (length + 1 >= max_size) goto failed;
+            line[length++] = (char)c;
         }
-        strncat(out_buf, start, max_size - strlen(out_buf) - 1);
-        first = 0;
     }
+    free(line);
+    if (fclose(f) == 0) return 0;
+    out_buf[0] = '\0';
+    return -1;
+failed:
+    free(line);
     fclose(f);
-    return 0;
+    out_buf[0] = '\0';
+    return -1;
 }
 
 int config_save_favorites_csv(const char *csv) {

@@ -205,6 +205,7 @@ static void run_request(struct Request request, int oom, int creation_failure, i
 }
 
 static int unit_tests(int ownership_only, int oom_only) {
+    extern int test_json_failure;
     struct Request requests[] = {
         {"/", "OPTIONS", 200, {{0}}},
         {"/", "GET", 200, {{0}}},
@@ -288,6 +289,30 @@ static int unit_tests(int ownership_only, int oom_only) {
             run_request(allocated[i], 1, 0, 0);
             if (!oom_only) run_request(allocated[i], 1, 1, 0);
         }
+    }
+    if (!ownership_only && !oom_only) {
+        test_json_failure = 1;
+        struct Request invalid[] = {
+            {"/manage:check", "GET", 500, {{"filename", "test.elf"}}},
+            {"/list_payloads", "GET", 500, {{0}}},
+            {"/processes_list", "GET", 500, {{0}}},
+            {"/history_list", "GET", 500, {{0}}},
+            {"/repository_payloads", "GET", 500, {{0}}},
+            {"/repository_refresh", "GET", 500, {{0}}},
+            {"/repository_install", "GET", 500, {{"id", "test"}}},
+            {"/sources_list", "GET", 500, {{0}}},
+            {"/usb_move_check", "GET", 500, {{"path", "test"}}},
+            {"/usb_move_perform", "GET", 500, {{"path", "test"}}},
+            {"/log", "GET", 500, {{0}}},
+            {"/get_config", "GET", 500, {{0}}},
+        };
+        for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+            run_request(invalid[i], 0, 0, 0);
+            if (!strstr(body, "error")) { failures++; fprintf(stderr, "FAIL incomplete JSON error document\n"); }
+            run_request(invalid[i], 0, 0, 1);
+            run_request(invalid[i], 0, 1, 0);
+        }
+        test_json_failure = 0;
     }
     printf("HTTP response tests: %d checks, %d failures (libmicrohttpd %s)\n",
            checks, failures, MHD_get_version());

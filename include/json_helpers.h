@@ -9,10 +9,17 @@ typedef struct JsonListBuilder {
     size_t size;
     size_t pos;
     int first;
+    int error;
 } JsonListBuilder;
 
-/* Append formatted text to the builder. Returns 0 on success, -1 on overflow. */
+/* Overflow/format/escape errors are sticky: discard the whole output (pos=0,
+ * terminated empty buffer when available), and all subsequent appends fail. */
 int json_append(JsonListBuilder *jb, const char *fmt, ...);
+int json_builder_fail(JsonListBuilder *jb);
+int json_escape_checked(JsonListBuilder *jb, const char *src, char *dst, size_t size);
+/* Single formatted response: returns bytes written, or 0 with empty output on
+ * overflow/format failure. Successful JSON is always nonempty. */
+size_t json_format(char *buf, size_t size, const char *fmt, ...);
 
 enum {
     JSON_STRING_OK = 0,

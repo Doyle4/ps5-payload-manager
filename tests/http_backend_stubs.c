@@ -13,7 +13,9 @@
 #include "slot.h"
 #include "log_server.h"
 
+int test_json_failure;
 static size_t json(char *out, size_t size, const char *value) {
+    if (test_json_failure) { if (size) out[0] = 0; return 0; }
     int n = snprintf(out, size, "%s", value);
     return n < 0 ? 0 : (size_t)n;
 }
@@ -33,7 +35,7 @@ int config_handle_set_json(const char *data) {
 int config_get_favorites_csv(char *out, size_t size, int *exists) {
     if (size) out[0] = '\0';
     *exists = 0;
-    return 0;
+    return test_json_failure ? -1 : 0;
 }
 void pldmgr_autoload_get_status(int *total, int *done, char *current) {
     *total = 0; *done = 0; current[0] = '\0';
@@ -84,7 +86,7 @@ int sources_repo_install(const char *url, const char *id, const char *mode,
                         const char *replace, char *out, size_t size) {
     (void)url; (void)id; (void)mode; (void)replace; json(out, size, "{\"ok\":true}"); return 0;
 }
-int sources_list_json(char *out, size_t size) { json(out, size, "{\"sources\":[]}"); return 0; }
+int sources_list_json(char *out, size_t size) { json(out, size, "{\"sources\":[]}"); return test_json_failure ? -1 : 0; }
 int sources_save(const char *data, size_t size) {
     test_source_saves++;
     test_post_size = size;

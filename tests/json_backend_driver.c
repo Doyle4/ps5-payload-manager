@@ -18,9 +18,9 @@ static void string(const char *value) {
 
 int main(int argc, char **argv) {
     if (argc != 3) return 2;
-    char *input = malloc(65536);
+    char *input = malloc(1048577);
     if (!input) return 2;
-    size_t size = fread(input, 1, 65535, stdin);
+    size_t size = fread(input, 1, 1048576, stdin);
     input[size] = 0;
     if (argv[1][0] == 'R') {
         RepoPayload *items;
@@ -41,9 +41,9 @@ int main(int argc, char **argv) {
         free(items);
     } else if (argv[1][0] == 'S') {
         if (sources_save(input, size) != 0) return 3;
-        char *output = malloc(65536);
+        char *output = malloc(524288);
         if (!output) return 2;
-        int result = sources_list_json(output, 65536);
+        int result = sources_list_json(output, 524288);
         if (result != 0) { free(output); free(input); return 4; }
         fwrite(output, 1, strlen(output), stdout);
         free(output);

@@ -8,6 +8,7 @@
 
 #include "log_server.h"
 #include "utils.h"
+#include "json_helpers.h"
 
 /* Ring buffer state */
 static char log_buffer[MAX_LOG_LINES][MAX_LOG_LINE_LEN];
@@ -109,20 +110,20 @@ ssize_t log_stream_callback(void *cls, uint64_t pos, char *buf, size_t max) {
 void log_stream_cleanup(void *cls) { free(cls); }
 
 size_t log_build_json(char *buf, size_t buf_size) {
-    size_t bpos = 0;
-    bpos += snprintf(buf + bpos, buf_size - bpos, "{\"logs\":[");
+    JsonListBuilder jb = { buf, buf_size, 0, 1, 0 };
+    json_append(&jb, "{\"logs\":[");
 
     pthread_mutex_lock(&log_mutex);
     for (int i = 0; i < log_count; i++) {
         int idx = (log_head - log_count + i + MAX_LOG_LINES) % MAX_LOG_LINES;
-        char escaped[MAX_LOG_LINE_LEN * 2];
-        pldmgr_json_escape(log_buffer[idx], escaped, sizeof(escaped));
-        bpos += snprintf(buf + bpos, buf_size - bpos,
+        char escaped[MAX_LOG_LINE_LEN * 6];
+        json_escape_checked(&jb, log_buffer[idx], escaped, sizeof(escaped));
+        json_append(&jb,
                          "\"%s\"%s", escaped,
                          (i == log_count - 1) ? "" : ",");
     }
     pthread_mutex_unlock(&log_mutex);
 
-    bpos += snprintf(buf + bpos, buf_size - bpos, "]}");
-    return bpos;
+    json_append(&jb, "]}");
+    return jb.pos;
 }

@@ -120,7 +120,7 @@ def main():
             command += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
         if args.legacy_api:
             command += ["-DLEGACY_DECODE"]
-        subprocess.run(command + [args.source, "tests/json_decode_driver.c", "-o", str(binary)],
+        subprocess.run(command + [args.source, "src/utils.c", "tests/json_decode_driver.c", "-o", str(binary)],
                        cwd=ROOT, check=True)
         protocol = "".join(f"{mode} {capacity} {bound} {doc.hex() or '-'} {key.encode().hex() or '-'}\n"
                            for mode, capacity, bound, doc, key, _, _ in cases)

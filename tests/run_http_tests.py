@@ -5,6 +5,7 @@ All artifacts and storage fixtures live in a temporary directory. The network
 soak uses real libmicrohttpd over loopback; no console or external service runs.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import http.client
 import json
 import os
@@ -139,6 +140,16 @@ def lifecycle_tests(port, storage, server):
                 assert data[key] == sample, data
             finally:
                 connection.close()
+        autoload.write_bytes(b"\x01" * 4095)
+        for route, key in [("/get_config", "AUTOLOAD_LIST"), ("/autoload_status", "list")]:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            try:
+                connection.request("GET", route)
+                response = connection.getresponse()
+                data = json.loads(response.read())
+                assert response.status == 200 and data[key] == "\x01" * 4095, data
+            finally:
+                connection.close()
         for size in [4095, 4096, 20000]:
             autoload.write_text("a" * size)
             for route in ["/get_config", "/autoload_status"]:
@@ -178,7 +189,7 @@ def network_tests(binary, storage):
         port = int(line.split()[1])
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
         routes = ["/manage:check?filename=test.elf", "/history_list", "/update_check",
-                  "/repository_payloads", "/sources_list", "/get_config", "/autoload_status"]
+                  "/repository_payloads", "/sources_list", "/get_config", "/autoload_status", "/list_payloads"]
         try:
             for i in range(10000):
                 connection.request("GET", routes[i % len(routes)])
@@ -191,6 +202,20 @@ def network_tests(binary, storage):
                 json.loads(data)
         finally:
             connection.close()
+        def parallel_poll(index):
+            route = ["/list_payloads", "/repository_payloads", "/sources_list", "/log"][index % 4]
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            try:
+                connection.request("GET", route)
+                response = connection.getresponse()
+                assert response.status == 200
+                assert [value for key, value in response.getheaders()
+                        if key.lower() == "access-control-allow-origin"] == ["*"]
+                json.loads(response.read())
+            finally:
+                connection.close()
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            list(executor.map(parallel_poll, range(64)))
         pending, temporary_uploads = lifecycle_tests(port, storage, server)
         server.stdin.write("\n")
         server.stdin.flush()
@@ -203,6 +228,7 @@ def network_tests(binary, storage):
         assert server.returncode == 0, "Unreleased responses or sanitizer failure during soak"
         assert not temporary_uploads(), "Daemon stop left an upload temporary file"
         print("HTTP integration: 10,000 real loopback requests passed")
+        print("HTTP concurrency: 64 requests across 8 concurrent clients passed")
         print("HTTP lifecycle: disconnects, concurrent uploads, failed commits, and daemon stop passed")
     finally:
         if server.poll() is None:
@@ -252,7 +278,7 @@ def main():
         run(common + cflags + ["-include", "tests/http_test_hooks.h", "-c",
                                args.source, "-o", str(object_file)])
         binary = build / "http_tests"
-        run(common + cflags + [str(object_file), "src/utils.c", "tests/http_backend_stubs.c",
+        run(common + cflags + [str(object_file), "src/utils.c", "src/json_helpers.c", "tests/http_backend_stubs.c",
                                "tests/http_responses_test.c", "-o", str(binary)] + flags)
         selected = ["--ownership-only"] if args.ownership_only else (["--oom-only"] if args.oom_only else [])
         if not args.network_only:

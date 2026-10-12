@@ -27,6 +27,7 @@
 #include "process_mgr.h"
 #include "ps5_launcher.h"
 #include "slot.h"
+#include "json_helpers.h"
 
 #include "assets_index_html.h"
 #include "assets_cache_appcache.h"
@@ -35,6 +36,8 @@
 
 #define RESPONSE_BUFFER_SIZE 4194304
 #define SMALL_RESPONSE_BUFFER_SIZE 65536
+#define SOURCES_RESPONSE_BUFFER_SIZE 524288
+#define LOG_RESPONSE_BUFFER_SIZE (MAX_LOG_LINES * (6 * MAX_LOG_LINE_LEN + 4) + 32)
 #define CORS_ORIGIN "*"
 
 /* Shared flag — set from main() shutdown route, read by main loop */
@@ -88,10 +91,17 @@ static enum MHD_Result send_request_error(struct MHD_Connection *conn,
     return send_response(conn, status, resp);
 }
 
+static enum MHD_Result send_serialization_error(struct MHD_Connection *conn, char *buffer) {
+    free(buffer);
+    return send_request_error(conn, MHD_HTTP_INTERNAL_SERVER_ERROR,
+                              "JSON serialization failed or exceeds the size limit");
+}
+
 /* Success is separate from response creation: a failed OOM response must not
  * be mistaken for a successful buffer allocation. */
 static int alloc_response_buffer_sized(char **out, size_t size) {
     *out = malloc(size);
+    if (*out && size) (*out)[0] = '\0';
     return *out != NULL;
 }
 
@@ -532,6 +542,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             if (!alloc_response_buffer_small(&resp_buf))
                 return send_out_of_memory(conn);
             int rc = payload_mgr_usb_check(path, resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
+            if (!resp_buf[0]) return send_serialization_error(conn, resp_buf);
             resp = create_buffer_response(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
             add_response_header(resp, "Content-Type", "application/json");
 
@@ -560,6 +571,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             if (!alloc_response_buffer_small(&resp_buf))
                 return send_out_of_memory(conn);
             int rc = payload_mgr_usb_move(path, mode, keep_original, resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
+            if (!resp_buf[0]) return send_serialization_error(conn, resp_buf);
             resp = create_buffer_response(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
             add_response_header(resp, "Content-Type", "application/json");
 
@@ -626,15 +638,17 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         if (!alloc_response_buffer_small(&resp_buf))
             return send_out_of_memory(conn);
         payload_mgr_check_existing(filename, resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
+        if (!resp_buf[0]) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         add_response_header(resp, "Content-Type", "application/json");
 
         return send_response(conn, MHD_HTTP_OK, resp);
     } else if (strcmp(url, ROUTE_LIST_PAYLOADS) == 0) {
         char *resp_buf;
-        if (!alloc_response_buffer_small(&resp_buf))
+        if (!alloc_response_buffer(&resp_buf))
             return send_out_of_memory(conn);
-        size_t len = payload_mgr_list_json(resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
+        size_t len = payload_mgr_list_json(resp_buf, RESPONSE_BUFFER_SIZE);
+        if (!len || len >= RESPONSE_BUFFER_SIZE) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(len, (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         add_response_header(resp, "Content-Type", "application/json");
     } else if (strcmp(url, ROUTE_PROCESSES_LIST) == 0) {
@@ -642,12 +656,14 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         if (!alloc_response_buffer_small(&resp_buf))
             return send_out_of_memory(conn);
         size_t len = process_list_json(resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
+        if (!len || len >= SMALL_RESPONSE_BUFFER_SIZE) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(len, (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         add_response_header(resp, "Content-Type", "application/json");
     } else if (strcmp(url, ROUTE_HISTORY_LIST) == 0) {
-        char *json = malloc(8192);
+        char *json = malloc(SMALL_RESPONSE_BUFFER_SIZE);
         if (json) {
-            size_t len = history_mgr_to_json(json, 8192);
+            size_t len = history_mgr_to_json(json, SMALL_RESPONSE_BUFFER_SIZE);
+            if (!len) return send_serialization_error(conn, json);
             resp = create_buffer_response(len, (void *)json, MHD_RESPMEM_MUST_FREE);
             add_response_header(resp, "Content-Type", "application/json");
 
@@ -687,6 +703,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             len = sources_multi_repository_list_json(resp_buf, RESPONSE_BUFFER_SIZE, 0);
         else
             len = repository_list_json(resp_buf, RESPONSE_BUFFER_SIZE, 0);
+        if (!len || len >= RESPONSE_BUFFER_SIZE) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(len, (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         add_response_header(resp, "Content-Type", "application/json");
     } else if (strcmp(url, ROUTE_REPO_REFRESH) == 0) {
@@ -700,6 +717,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             len2 = sources_multi_repository_list_json(resp_buf, RESPONSE_BUFFER_SIZE, 1);
         else
             len2 = repository_list_json(resp_buf, RESPONSE_BUFFER_SIZE, 1);
+        if (!len2 || len2 >= RESPONSE_BUFFER_SIZE) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(len2, (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         add_response_header(resp, "Content-Type", "application/json");
     } else if (strcmp(url, ROUTE_REPO_INSTALL) == 0) {
@@ -731,15 +749,17 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             return send_out_of_memory(conn);
 
         int rc = sources_repo_install(source_url, id, mode, replace_slot, resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
+        if (!resp_buf[0]) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         add_response_header(resp, "Content-Type", "application/json");
 
         return send_response(conn, rc == 0 ? MHD_HTTP_OK : MHD_HTTP_BAD_REQUEST, resp);
     } else if (strcmp(url, ROUTE_SOURCES_LIST) == 0) {
         char *resp_buf;
-        if (!alloc_response_buffer_small(&resp_buf))
+        if (!alloc_response_buffer_sized(&resp_buf, SOURCES_RESPONSE_BUFFER_SIZE))
             return send_out_of_memory(conn);
-        sources_list_json(resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
+        if (sources_list_json(resp_buf, SOURCES_RESPONSE_BUFFER_SIZE) != 0) resp_buf[0] = '\0';
+        if (!resp_buf[0]) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(strlen(resp_buf), (void *)resp_buf, MHD_RESPMEM_MUST_FREE);
         add_response_header(resp, "Content-Type", "application/json");
     } else if (strcmp(url, ROUTE_SOURCES_ADD) == 0) {
@@ -753,18 +773,19 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         }
         char msg_buf_src[512] = "";
         int rc_src = sources_add(src_url, msg_buf_src, sizeof(msg_buf_src));
-        char json_resp_src[1024];
+        char json_resp_src[4096];
         if (rc_src == 0) {
-            char name_escaped[512];
+            char name_escaped[6 * 512];
             pldmgr_json_escape(msg_buf_src, name_escaped, sizeof(name_escaped));
-            snprintf(json_resp_src, sizeof(json_resp_src),
+            json_format(json_resp_src, sizeof(json_resp_src),
                      "{\"ok\":true,\"name\":\"%s\"}", name_escaped);
         } else {
-            char msg_escaped[512];
+            char msg_escaped[6 * 512];
             pldmgr_json_escape(msg_buf_src, msg_escaped, sizeof(msg_escaped));
-            snprintf(json_resp_src, sizeof(json_resp_src),
+            json_format(json_resp_src, sizeof(json_resp_src),
                      "{\"ok\":false,\"message\":\"%s\"}", msg_escaped);
         }
+        if (!json_resp_src[0]) return send_request_error(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, "JSON serialization failed or exceeds the size limit");
         resp = create_buffer_response(strlen(json_resp_src), (void *)json_resp_src, MHD_RESPMEM_MUST_COPY);
         add_response_header(resp, "Content-Type", "application/json");
 
@@ -782,10 +803,11 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         char msg_rm[256] = "";
         int rc_rm = sources_remove(idx, msg_rm, sizeof(msg_rm));
         char json_rm[512];
-        char msg_rm_e[256];
+        char msg_rm_e[6 * 512];
         pldmgr_json_escape(msg_rm, msg_rm_e, sizeof(msg_rm_e));
-        snprintf(json_rm, sizeof(json_rm), "{\"ok\":%s,\"message\":\"%s\"}",
+        json_format(json_rm, sizeof(json_rm), "{\"ok\":%s,\"message\":\"%s\"}",
                  rc_rm == 0 ? "true" : "false", msg_rm_e);
+        if (!json_rm[0]) return send_request_error(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, "JSON serialization failed or exceeds the size limit");
         resp = create_buffer_response(strlen(json_rm), (void *)json_rm, MHD_RESPMEM_MUST_COPY);
         add_response_header(resp, "Content-Type", "application/json");
 
@@ -868,9 +890,10 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         http_keep_running = 0;
     } else if (strcmp(url, ROUTE_LOG) == 0) {
         char *resp_buf;
-        if (!alloc_response_buffer_small(&resp_buf))
+        if (!alloc_response_buffer_sized(&resp_buf, LOG_RESPONSE_BUFFER_SIZE))
             return send_out_of_memory(conn);
-        size_t pos = log_build_json(resp_buf, SMALL_RESPONSE_BUFFER_SIZE);
+        size_t pos = log_build_json(resp_buf, LOG_RESPONSE_BUFFER_SIZE);
+        if (!pos || pos >= LOG_RESPONSE_BUFFER_SIZE) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(pos, (void *)resp_buf,
                                                MHD_RESPMEM_MUST_FREE);
         add_response_header(resp, "Content-Type", "application/json");
@@ -901,19 +924,20 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         PldmgrConfig cfg;
         config_read(&cfg);
 
-        char current_escaped[256];
-        char list_escaped[8192];
+        char current_escaped[6 * 128];
+        char list_escaped[6 * 4096];
         pldmgr_json_escape(current, current_escaped, sizeof(current_escaped));
         pldmgr_json_escape(list_buf, list_escaped, sizeof(list_escaped));
 
         char *resp_buf;
         if (!alloc_response_buffer_small(&resp_buf))
             return send_out_of_memory(conn);
-        snprintf(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
+        json_format(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
                  "{\"remaining\":%d,\"remaining_ms\":%lld,\"total\":%d,\"done\":%d,\"current\":\"%s\","
                  "\"list\":\"%s\",\"delay\":%d,\"SCAN_USB_PAYLOADS\":%s}",
                  remaining, remaining_ms, total, done, current_escaped, list_escaped, cfg.autoload_delay,
                  cfg.scan_usb_payloads ? "true" : "false");
+        if (!resp_buf[0]) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(strlen(resp_buf),
                                                (void *)resp_buf,
                                                MHD_RESPMEM_MUST_FREE);
@@ -939,19 +963,20 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             return send_request_error(conn, MHD_HTTP_INTERNAL_SERVER_ERROR,
                                       "Autoload list is unreadable or exceeds the size limit");
 
-        char list_escaped[8192];
+        char list_escaped[6 * 4096];
         pldmgr_json_escape(list_buf, list_escaped, sizeof(list_escaped));
 
         int fav_exists = 0;
         char fav_buf[4096] = {0};
-        config_get_favorites_csv(fav_buf, sizeof(fav_buf), &fav_exists);
-        char fav_escaped[8192];
+        if (config_get_favorites_csv(fav_buf, sizeof(fav_buf), &fav_exists) != 0)
+            return send_request_error(conn, MHD_HTTP_INTERNAL_SERVER_ERROR, "Favorites list is unreadable or exceeds the size limit");
+        char fav_escaped[6 * 4096];
         pldmgr_json_escape(fav_buf, fav_escaped, sizeof(fav_escaped));
 
         char *resp_buf;
         if (!alloc_response_buffer_small(&resp_buf))
             return send_out_of_memory(conn);
-        snprintf(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
+        json_format(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
                  "{\"AUTOLOAD_ENABLED\":%s,\"AUTOLOAD_LIST\":\"%s\",\"LAST_"
                  "REPOSITORY_UPDATE\":%ld,"
                  "\"AUTO_BROWSER_OPEN\":%s,\"AUTOLOAD_DELAY\":%d,"
@@ -963,6 +988,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
                  cfg.auto_install_app ? "true" : "false",
                  cfg.multi_sources_enabled ? "true" : "false",
                  fav_escaped, fav_exists ? "true" : "false");
+        if (!resp_buf[0]) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(strlen(resp_buf),
                                                (void *)resp_buf,
                                                MHD_RESPMEM_MUST_FREE);

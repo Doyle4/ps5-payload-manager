@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-/* List all configured sources as JSON. */
+/* List all configured sources as complete JSON. Returns 0, or -1 on failure. */
 int sources_list_json(char *buf, size_t size);
 
 /* Replace the sources list from a JSON POST body. */
@@ -19,7 +19,7 @@ int sources_remove(int index, char *msg_buf, size_t msg_size);
 int sources_ensure_fresh(const char *url, int force_refresh);
 
 /* Build multi-source repository JSON (grouped by source).
- * Returns bytes written. */
+ * Returns complete bytes written, or 0 on serialization failure. */
 size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refresh);
 
 /* Unified repository install pipeline.

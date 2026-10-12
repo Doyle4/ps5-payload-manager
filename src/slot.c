@@ -293,12 +293,15 @@ int slot_read_meta(const char *slot_dir, SlotMeta *out_meta) {
 int slot_write_meta(const char *slot_dir, const SlotMeta *meta) {
     if (!slot_dir || !meta) return -1;
 
-    char buf[8192];
-    JsonListBuilder jb = { buf, sizeof(buf), 0, 1 };
+    char buf[65536];
+    JsonListBuilder jb = { buf, sizeof(buf), 0, 1, 0 };
 
-    char fn_e[512], at_e[128];
-    pldmgr_json_escape(meta->filename, fn_e, sizeof(fn_e));
-    pldmgr_json_escape(meta->installed_at, at_e, sizeof(at_e));
+    char fn_e[6 * 256], at_e[6 * 64];
+    char kind_e[6 * sizeof(meta->kind)];
+    json_escape_checked(&jb, meta->kind[0] ? meta->kind : SLOT_KIND_LOCAL,
+                        kind_e, sizeof(kind_e));
+    json_escape_checked(&jb, meta->filename, fn_e, sizeof(fn_e));
+    json_escape_checked(&jb, meta->installed_at, at_e, sizeof(at_e));
 
     json_append(&jb, "{\n"
                      "  \"schema\": %d,\n"
@@ -306,28 +309,28 @@ int slot_write_meta(const char *slot_dir, const SlotMeta *meta) {
                      "  \"filename\": \"%s\",\n"
                      "  \"installed_at\": \"%s\"",
                 meta->schema ? meta->schema : PAYLOAD_SLOT_SCHEMA,
-                meta->kind[0] ? meta->kind : SLOT_KIND_LOCAL,
+                kind_e,
                 fn_e, at_e);
 
     if (strcmp(meta->kind, SLOT_KIND_REPO) == 0) {
-        char id_e[256], surl_e[2048], sname_e[512], name_e[512], ver_e[128];
-        char csum_e[128], lup_e[128], url_e[2048], src_e[2048], sd_e[2048];
-        char cat_e[256], desc_e[2048], auth_e[256], det_e[2048];
+        char id_e[6 * 128], surl_e[6 * 1024], sname_e[6 * 256], name_e[6 * 256], ver_e[6 * 64];
+        char csum_e[6 * 65], lup_e[6 * 64], url_e[6 * 1024], src_e[6 * 1024], sd_e[6 * 1024];
+        char cat_e[6 * 128], desc_e[6 * 1024], auth_e[6 * 128], det_e[6 * 1024];
 
-        pldmgr_json_escape(meta->id, id_e, sizeof(id_e));
-        pldmgr_json_escape(meta->source_url, surl_e, sizeof(surl_e));
-        pldmgr_json_escape(meta->source_name, sname_e, sizeof(sname_e));
-        pldmgr_json_escape(meta->name, name_e, sizeof(name_e));
-        pldmgr_json_escape(meta->version, ver_e, sizeof(ver_e));
-        pldmgr_json_escape(meta->checksum, csum_e, sizeof(csum_e));
-        pldmgr_json_escape(meta->last_update, lup_e, sizeof(lup_e));
-        pldmgr_json_escape(meta->url, url_e, sizeof(url_e));
-        pldmgr_json_escape(meta->source, src_e, sizeof(src_e));
-        pldmgr_json_escape(meta->source_direct, sd_e, sizeof(sd_e));
-        pldmgr_json_escape(meta->category, cat_e, sizeof(cat_e));
-        pldmgr_json_escape(meta->description, desc_e, sizeof(desc_e));
-        pldmgr_json_escape(meta->author, auth_e, sizeof(auth_e));
-        pldmgr_json_escape(meta->details_url, det_e, sizeof(det_e));
+        json_escape_checked(&jb, meta->id, id_e, sizeof(id_e));
+        json_escape_checked(&jb, meta->source_url, surl_e, sizeof(surl_e));
+        json_escape_checked(&jb, meta->source_name, sname_e, sizeof(sname_e));
+        json_escape_checked(&jb, meta->name, name_e, sizeof(name_e));
+        json_escape_checked(&jb, meta->version, ver_e, sizeof(ver_e));
+        json_escape_checked(&jb, meta->checksum, csum_e, sizeof(csum_e));
+        json_escape_checked(&jb, meta->last_update, lup_e, sizeof(lup_e));
+        json_escape_checked(&jb, meta->url, url_e, sizeof(url_e));
+        json_escape_checked(&jb, meta->source, src_e, sizeof(src_e));
+        json_escape_checked(&jb, meta->source_direct, sd_e, sizeof(sd_e));
+        json_escape_checked(&jb, meta->category, cat_e, sizeof(cat_e));
+        json_escape_checked(&jb, meta->description, desc_e, sizeof(desc_e));
+        json_escape_checked(&jb, meta->author, auth_e, sizeof(auth_e));
+        json_escape_checked(&jb, meta->details_url, det_e, sizeof(det_e));
 
         json_append(&jb, ",\n"
                          "  \"id\": \"%s\",\n"
@@ -348,9 +351,9 @@ int slot_write_meta(const char *slot_dir, const SlotMeta *meta) {
                     csum_e, lup_e, url_e, src_e, sd_e,
                     cat_e, desc_e, auth_e, det_e);
     } else {
-        char org_e[128], od_e[2048];
-        pldmgr_json_escape(meta->origin, org_e, sizeof(org_e));
-        pldmgr_json_escape(meta->origin_detail, od_e, sizeof(od_e));
+        char org_e[6 * 64], od_e[6 * 1024];
+        json_escape_checked(&jb, meta->origin, org_e, sizeof(org_e));
+        json_escape_checked(&jb, meta->origin_detail, od_e, sizeof(od_e));
 
         json_append(&jb, ",\n"
                          "  \"origin\": \"%s\",\n"
@@ -359,6 +362,8 @@ int slot_write_meta(const char *slot_dir, const SlotMeta *meta) {
     }
 
     json_append(&jb, "\n}\n");
+
+    if (jb.error) return -1;
 
     char tmp_path[640], final_path[640];
     snprintf(tmp_path, sizeof(tmp_path), "%s/meta.json.tmp", slot_dir);
@@ -866,18 +871,21 @@ int slot_migrate_legacy(void) {
 
         /* Write legacy paths JSON file for frontend favorites remapping */
         char lp_buf[16384];
-        JsonListBuilder jb = { lp_buf, sizeof(lp_buf), 0, 1 };
+        JsonListBuilder jb = { lp_buf, sizeof(lp_buf), 0, 1, 0 };
         json_append(&jb, "{\n");
         for (size_t m = 0; m < map_count; m++) {
-            char op_e[1024], of_e[512], sk_e[256];
-            pldmgr_json_escape(map[m].old_path, op_e, sizeof(op_e));
-            pldmgr_json_escape(map[m].old_filename, of_e, sizeof(of_e));
-            pldmgr_json_escape(map[m].slot_key, sk_e, sizeof(sk_e));
+            char op_e[6 * 512], of_e[6 * 256], sk_e[6 * 128];
+            json_escape_checked(&jb, map[m].old_path, op_e, sizeof(op_e));
+            json_escape_checked(&jb, map[m].old_filename, of_e, sizeof(of_e));
+            json_escape_checked(&jb, map[m].slot_key, sk_e, sizeof(sk_e));
             json_append(&jb, "  \"%s\": \"%s\",\n", op_e, sk_e);
             json_append(&jb, "  \"%s\": \"%s\"%s\n", of_e, sk_e, (m + 1 < map_count) ? "," : "");
         }
         json_append(&jb, "}\n");
-        write_file_text(LEGACY_PATHS_MAP_PATH, lp_buf, jb.pos);
+        if (jb.error || write_file_text(LEGACY_PATHS_MAP_PATH, lp_buf, jb.pos) != 0) {
+            free(map);
+            return -1;
+        }
         free(map);
     }
 
@@ -892,7 +900,14 @@ int slot_pop_legacy_paths_json(char *buf, size_t buf_size) {
     char *content = NULL;
     size_t size = 0;
     if (read_file_text(LEGACY_PATHS_MAP_PATH, &content, &size) == 0 && content) {
-        if (size >= buf_size) size = buf_size - 1;
+        if (size >= buf_size) { free(content); buf[0] = '\0'; return -2; }
+        const char *end;
+        int valid = json_find_object_end(content, content + size, &end) == 0;
+        if (valid) {
+            while (end < content + size && (*end == ' ' || *end == '\n' || *end == '\r' || *end == '\t')) end++;
+            valid = end == content + size;
+        }
+        if (!valid) { free(content); buf[0] = '\0'; return -2; }
         memcpy(buf, content, size);
         buf[size] = '\0';
         free(content);

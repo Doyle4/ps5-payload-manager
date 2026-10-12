@@ -35,7 +35,7 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
 /* Ensure the repository cache is up-to-date. If force_refresh, always re-download. */
 int repository_ensure_fresh(int force_refresh);
 
-/* Build the /repository_payloads JSON response. Returns bytes written. */
+/* Build complete /repository_payloads JSON. Returns bytes written, or 0 on failure. */
 size_t repository_list_json(char *json_buf, size_t buf_size, int force_refresh);
 
 #endif

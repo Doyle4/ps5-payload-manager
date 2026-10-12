@@ -41,11 +41,12 @@ static int is_user_daemon(const char *name, uint32_t app_id) {
 }
 
 size_t process_list_json(char *buf, size_t max_size) {
+    if (!buf || !max_size) return 0;
     int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC, 0};
     size_t buf_size = 0;
     void *sysctl_buf = NULL;
 
-    JsonListBuilder jb = { buf, max_size, 0, 1 };
+    JsonListBuilder jb = { buf, max_size, 0, 1, 0 };
     buf[0] = '\0';
 
     json_append(&jb, "{\"processes\":[\n");
@@ -67,8 +68,8 @@ size_t process_list_json(char *buf, size_t max_size) {
 
                     int is_daemon = is_user_daemon(ki->ki_comm, appinfo.app_id);
 
-                    char name_e[512];
-                    pldmgr_json_escape(ki->ki_comm, name_e, sizeof(name_e));
+                    char name_e[6 * 512];
+                    json_escape_checked(&jb, ki->ki_comm, name_e, sizeof(name_e));
 
                     double mem_mib = MiB(ki->ki_rssize * PAGE_SIZE);
 

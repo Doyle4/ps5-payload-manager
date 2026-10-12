@@ -84,7 +84,15 @@ UTF-8-safe prefixes. The backend suite uses real repository, source save/load,
 and slot metadata read/write code inside temporary storage. It parses their
 results independently with Python. Unused network/PS5 code is discarded at
 link time, and no download or payload launch occurs. `make test-host` runs all
-four host suites with sanitizers.
+five host suites with sanitizers.
+
+The serializer suite exercises actual history/log/payload/process/repository
+output at small and large capacities, sixfold escape expansion, failed format
+calls, and metadata/source preservation on serialization failure. Repository
+fixtures use fresh temporary caches and a recording download function that
+aborts if called. Process records use a host fixture; this checks serialization,
+not the PS5 kernel ABI. The existing unused SSE `pos` parameter produces a host
+`-Wextra` warning; the native build has no new warnings.
 
 `.github/workflows/verify.yml` runs all host suites, existing frontend tests,
 and frontend build without publishing or deploying. Frontend lint still reports existing errors. The host suite tests response
@@ -98,8 +106,19 @@ up to **512 MiB**. Larger declared or accumulated bodies return HTTP 413; empty
 request bodies return HTTP 400. Upload staging files use private, unique
 `.upload-*` names and are removed by request teardown if uncommitted. This does
 not purge older orphan files or guarantee cleanup after power loss/SIGKILL.
-Autoload CSV responses currently allow 4,095 bytes; larger/unreadable lists return
-HTTP 500 with JSON rather than a truncated list.
+Autoload and favorites CSV responses allow 4,095 bytes; larger, unreadable, or
+NUL-containing lists return explicit HTTP 500 JSON. Favorites preserve long
+lines rather than splitting them into extra CSV entries. JSON builders discard
+the complete output after any formatting/escape/capacity error; HTTP converts
+serialization failures into complete HTTP 500 JSON.
+
+Response buffer budgets include the terminator: payload/repository lists **4 MiB**,
+source lists **512 KiB**, process/history/config **64 KiB**, and logs **154,032
+bytes** (enough for the full ring at maximum escape expansion). Metadata uses
+64 KiB; source saves allocate a bound derived from `MAX_SOURCES` and field sizes.
+These are per-response/serialization budgets; scanner/parser arrays and total
+connection concurrency are separate scopes. No unbounded response growth or
+automatic repeated scan is introduced.
 
 Native compilation remains a separate gate. To preserve the previous ELF,
 build a candidate under `scratch/` rather than run `make clean`:
