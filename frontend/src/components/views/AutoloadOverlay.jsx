@@ -3,7 +3,7 @@ import { CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../utils/helpers'
 import PayloadName from '../ui/PayloadName'
-import { autoloadPhase, autoloadItemProgress } from '../../utils/autoloadProgress'
+import { autoloadPhase, autoloadItemProgress, autoloadDisplay } from '../../utils/autoloadProgress'
 
 const AutoloadOverlay = ({ status, onCancel, onFinish, isPS5 }) => {
   const { t } = useTranslation()
@@ -13,35 +13,30 @@ const AutoloadOverlay = ({ status, onCancel, onFinish, isPS5 }) => {
   const isDone = phase === 'done';
   const payloadList = (typeof status.list === 'string') ? status.list.split(',').filter(p => p.trim() !== '') : [];
   const listRef = useRef(null);
-  const displayTotal = status.total > 0 ? status.total : payloadList.length;
-  const progress = displayTotal > 0 ? (status.done / displayTotal) : 0;
-
-  const [localMs, setLocalMs] = useState(status.remaining_ms ?? (status.remaining * 1000));
-
-  useEffect(() => {
-    const serverMs = status.remaining_ms ?? (status.remaining * 1000);
-    // Only sync downward (forward in time): server can pull us closer to 0 if we drift,
-    // but never push us back. This ensures a smooth, non-jumping countdown.
-    setLocalMs(prev => serverMs < prev ? serverMs : prev);
-  }, [status.remaining_ms, status.remaining]);
-
-  const isActiveRef = useRef(true);
-
+  const { total: displayTotal, done: displayDone, progress, delayMs, remainingMs: serverMs } = autoloadDisplay(status, payloadList.length);
+  const [localMs, setLocalMs] = useState(serverMs);
+  const [previousPhase, setPreviousPhase] = useState(phase);
+  // A phase change starts a fresh countdown sample. Within one phase, polling
+  // can only move the display forward; each animation tick reconciles it.
+  if (phase !== previousPhase) {
+    setPreviousPhase(phase);
+    setLocalMs(serverMs);
+  }
+  const displayedMs = Math.min(localMs, serverMs);
+  const countdownProgress = delayMs > 0 ? Math.max(0, Math.min(1, displayedMs / delayMs)) : 0;
   useEffect(() => {
     if (!isCountdown) return;
-    let lastTime = performance.now();
-    let frameId;
+    let lastTime = performance.now(), frameId, active = true;
     const animate = (time) => {
-      const delta = time - lastTime;
+      if (!active) return;
+      const delta = Math.max(0, time - lastTime);
       lastTime = time;
-      if (isActiveRef.current) {
-        setLocalMs(prev => Math.max(0, prev - delta));
-      }
+      setLocalMs(prev => Math.max(0, Math.min(prev, serverMs) - delta));
       frameId = requestAnimationFrame(animate);
     };
     frameId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frameId);
-  }, [isCountdown]);
+    return () => { active = false; cancelAnimationFrame(frameId); };
+  }, [isCountdown, serverMs, phase]);
 
   useEffect(() => {
     if (listRef.current) {
@@ -85,12 +80,12 @@ const AutoloadOverlay = ({ status, onCancel, onFinish, isPS5 }) => {
                       cx="112" cy="112" r="100"
                       fill="none" stroke="currentColor" strokeWidth="8"
                       strokeDasharray="628"
-                      strokeDashoffset={628 - (628 * (localMs / ((status.delay || 5) * 1000)))}
+                      strokeDashoffset={628 - (628 * countdownProgress)}
                       className="text-ps-blue"
                     />
                   </svg>
                   <span className="text-8xl font-bold text-white tabular-nums leading-none">
-                    {Math.ceil(localMs / 1000)}
+                    {Math.ceil(displayedMs / 1000)}
                   </span>
                 </div>
                 <p className="text-zinc-500 font-bold uppercase tracking-widest text-sm">{t("autoload_overlay.waiting", "Waiting for manual abort...")}</p>
@@ -174,7 +169,7 @@ const AutoloadOverlay = ({ status, onCancel, onFinish, isPS5 }) => {
                 <span>{t("autoload_overlay.payload_list", "Payload List")}</span>
               </h3>
               <span className="bg-white/10 px-4 py-1 rounded-full text-zinc-300 font-black text-xs">
-                {isDone ? displayTotal : status.done} / {displayTotal}
+                {isDone ? displayTotal : displayDone} / {displayTotal}
               </span>
             </div>
 

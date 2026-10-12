@@ -1,3 +1,4 @@
+import { createRequestScope } from './utils/requestScope'
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Settings,
@@ -152,76 +153,82 @@ function App() {
       return Array.isArray(parsed) ? parsed.filter(p => typeof p === 'string') : []
     } catch { return [] }
   })
+  const favoritesRef = useRef(favoritePayloads)
+  const favoritesRevisionRef = useRef(0)
+  const replaceFavorites = useCallback(next => {
+    favoritesRef.current = next
+    setFavoritePayloads(next)
+  }, [])
   const favoritesTimerRef = useRef(null)
   const pendingFavoritesRef = useRef(null)
 
+  const favoritesInFlightRef = useRef(false)
+  const favoritesExitKeyRef = useRef(null)
+  const savePendingFavorites = useCallback(async () => {
+    if (favoritesInFlightRef.current) return
+    favoritesInFlightRef.current = true
+    try {
+      while (pendingFavoritesRef.current !== null) {
+        const submitted = pendingFavoritesRef.current
+        let success = false
+        try {
+          const response = await mutationFetch('/set_config', {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ FAVORITES: submitted.join(',') }), keepalive: true,
+          })
+          success = response.ok
+        } catch (err) { console.warn('Failed to save favorites to backend:', err) }
+        if (pendingFavoritesRef.current === submitted) {
+          if (success) pendingFavoritesRef.current = null
+          break
+        }
+      }
+    } finally { favoritesInFlightRef.current = false }
+  }, [])
   const persistFavorites = useCallback((newFavs) => {
     pendingFavoritesRef.current = newFavs
-    try {
-      localStorage.setItem('favoritePayloads', JSON.stringify(newFavs))
-    } catch {
-      /* ignore storage errors */
-    }
-    if (favoritesTimerRef.current) clearTimeout(favoritesTimerRef.current)
-    favoritesTimerRef.current = setTimeout(async () => {
-      const favsToSave = pendingFavoritesRef.current
-      const timerToSave = favoritesTimerRef.current
-      if (favsToSave === null) return
-      try {
-        const response = await mutationFetch('/set_config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ FAVORITES: favsToSave.join(',') })
-        })
-        if (response.ok && pendingFavoritesRef.current === favsToSave) {
-          pendingFavoritesRef.current = null
-          if (favoritesTimerRef.current === timerToSave) favoritesTimerRef.current = null
-        }
-      } catch (err) {
-        console.warn('Failed to save favorites to backend:', err)
-      }
-    }, 250)
-  }, [])
+    favoritesExitKeyRef.current = null
+    try { localStorage.setItem('favoritePayloads', JSON.stringify(newFavs)) } catch { /* storage may be unavailable */ }
+    clearTimeout(favoritesTimerRef.current)
+    favoritesTimerRef.current = setTimeout(savePendingFavorites, 250)
+  }, [savePendingFavorites])
 
   useEffect(() => {
     const handleBeforeUnload = () => {
-      if (favoritesTimerRef.current && pendingFavoritesRef.current !== null) {
+      if (pendingFavoritesRef.current !== null) {
         clearTimeout(favoritesTimerRef.current)
         const body = JSON.stringify({ FAVORITES: pendingFavoritesRef.current.join(',') })
         favoritesTimerRef.current = null
-        saveConfigOnExit(body)
+        if (body !== favoritesExitKeyRef.current) {
+          saveConfigOnExit(body)
+          favoritesExitKeyRef.current = body
+        }
       }
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     window.addEventListener('pagehide', handleBeforeUnload)
     return () => {
+      handleBeforeUnload()
       window.removeEventListener('beforeunload', handleBeforeUnload)
       window.removeEventListener('pagehide', handleBeforeUnload)
     }
   }, [])
 
   const toggleFavorite = (path) => {
-    setFavoritePayloads(prev => {
-      if (!Array.isArray(prev)) return [path]
-      const next = prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]
-      persistFavorites(next)
-      return next
-    })
+    const prev = favoritesRef.current
+    const next = prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]
+    favoritesRevisionRef.current++
+    replaceFavorites(next)
+    persistFavorites(next)
   }
-
   const moveFavorite = (path, direction) => {
-    setFavoritePayloads(prev => {
-      if (!Array.isArray(prev)) return []
-      const idx = prev.indexOf(path)
-      if (idx === -1) return prev
-      const newIdx = idx + direction
-      if (newIdx < 0 || newIdx >= prev.length) return prev
-      const newFavorites = [...prev]
-      newFavorites[idx] = newFavorites[newIdx]
-      newFavorites[newIdx] = path
-      persistFavorites(newFavorites)
-      return newFavorites
-    })
+    const prev = favoritesRef.current, idx = prev.indexOf(path), target = idx + direction
+    if (idx < 0 || target < 0 || target >= prev.length) return
+    const next = [...prev]
+    ;[next[idx], next[target]] = [next[target], next[idx]]
+    favoritesRevisionRef.current++
+    replaceFavorites(next)
+    persistFavorites(next)
   }
 
   useEffect(() => {
@@ -314,9 +321,12 @@ function App() {
     return list
   }, [items, usbPayloads])
 
-  const refreshPayloads = async (retryCount = 0) => {
+  const payloadRetryRef = useRef(null)
+  const appAliveRef = useRef(false)
+  const refreshPayloads = useCallback(async function retryPayloads(retryCount = 0) {
     setLoadingPayloads(true)
     const data = await api('/list_payloads')
+    if (!appAliveRef.current) return
     if (data?.items || data?.payloads) {
       const rawItems = data.items || []
       setItems(rawItems)
@@ -336,55 +346,45 @@ function App() {
       // Handle legacy_paths migration for favorites
       if (data.legacy_paths && typeof data.legacy_paths === 'object') {
         const lMap = data.legacy_paths
-        setFavoritePayloads((prev) => {
-          if (!Array.isArray(prev)) return []
-          let modified = false
-          const mapped = prev.map((fav) => {
-            if (typeof fav !== 'string') return fav
-            if (lMap[fav]) {
-              modified = true
-              return lMap[fav]
-            }
-            const fn = fav.split('/').pop()
-            if (lMap[fn]) {
-              modified = true
-              return lMap[fn]
-            }
-            return fav
-          }).filter(x => typeof x === 'string')
-          if (modified) {
-            persistFavorites(mapped)
-            return mapped
-          }
-          return prev
-        })
+        const prev = favoritesRef.current
+        const mapped = prev.map(fav => typeof lMap[fav] === 'string' ? lMap[fav] :
+          typeof lMap[fav.split('/').pop()] === 'string' ? lMap[fav.split('/').pop()] : fav)
+        if (mapped.some((fav, i) => fav !== prev[i])) {
+          favoritesRevisionRef.current++
+          replaceFavorites(mapped)
+          persistFavorites(mapped)
+        }
       }
 
       setLoadingPayloads(false)
     } else if (retryCount < 5) {
-      setTimeout(() => refreshPayloads(retryCount + 1), 1000)
+      clearTimeout(payloadRetryRef.current)
+      payloadRetryRef.current = setTimeout(() => retryPayloads(retryCount + 1), 1000)
     } else {
       setItems([])
       setUsbPayloads([])
       setPayloads([])
       setLoadingPayloads(false)
     }
-  }
+  }, [api, persistFavorites, replaceFavorites])
 
-  const refreshHistory = async () => {
+  const refreshHistory = useCallback(async () => {
     const data = await api('/history_list')
-    if (data?.history) {
+    if (appAliveRef.current && data?.history) {
       setLaunchHistory(data.history)
     }
-  }
+  }, [api])
 
-  const refreshConfig = async () => {
+  const refreshConfig = useCallback(async () => {
+    const revision = favoritesRevisionRef.current
     const data = await api('/get_config')
+    if (!appAliveRef.current) return
     if (data) {
       setConfig(data)
+      if (revision !== favoritesRevisionRef.current || pendingFavoritesRef.current !== null) return
       if (data.FAVORITES_INITIALIZED === true && typeof data.FAVORITES === 'string') {
         const backendFavs = data.FAVORITES ? data.FAVORITES.split(',').filter(Boolean) : []
-        setFavoritePayloads(backendFavs)
+        replaceFavorites(backendFavs)
         try {
           localStorage.setItem('favoritePayloads', JSON.stringify(backendFavs))
         } catch {
@@ -401,7 +401,7 @@ function App() {
         }
       }
     }
-  }
+  }, [api, persistFavorites, replaceFavorites])
 
   const handleAbort = async () => {
     await mutationFetch('/abort').catch(() => { })
@@ -596,10 +596,13 @@ function App() {
   }
 
   useEffect(() => {
+    appAliveRef.current = true
+    const controller = createRequestScope()
     const init = async () => {
       let offline = false
       try {
-        const ipRes = await apiFetch('/getip').then(r => r.text())
+        const ipRes = await apiFetch('/getip', { signal: controller.signal }).then(r => r.text())
+        if (controller.aborted) return
         if (ipRes.toLowerCase().includes('<!doctype')) offline = true
         else setIp(ipRes)
       } catch {
@@ -607,12 +610,13 @@ function App() {
       }
 
       try {
-        const verRes = await apiFetch('/version').then(r => r.text())
+        const verRes = await apiFetch('/version', { signal: controller.signal }).then(r => r.text())
         if (verRes.toLowerCase().includes('<!doctype')) offline = true
       } catch {
         offline = true
       }
 
+      if (controller.aborted) return
       if (offline) {
         setIsOffline(true)
       } else {
@@ -621,8 +625,13 @@ function App() {
         refreshHistory()
       }
     }
-    init()
-  }, [])
+    void init()
+    return () => {
+      appAliveRef.current = false
+      controller.abort()
+      clearTimeout(payloadRetryRef.current)
+    }
+  }, [refreshConfig, refreshHistory, refreshPayloads])
 
 
 
@@ -635,20 +644,22 @@ function App() {
       }, 0)
       return () => clearTimeout(timer)
     }
-  }, [view])
+  }, [view, refreshConfig, refreshPayloads])
 
   useEffect(() => {
     let statusTimeout
+    const controller = createRequestScope()
     async function poll() {
       try {
-        const res = await apiFetch('/autoload_status')
+        const res = await apiFetch('/autoload_status', { signal: controller.signal, cache: 'no-store' })
         if (res.ok) {
           const data = await res.json()
+          if (controller.aborted) return
           setAutoloadStatus(data)
 
           // Poll as long as autoload is active (remaining >= 0), including DONE state
           // Only stop when remaining goes negative (after /autoload_clear is called)
-          const isActive = data && data.remaining >= 0
+          const isActive = data && Number.isFinite(data.remaining) && data.remaining >= 0
           if (isActive) {
             const delay = data.remaining > 0 ? 600 : 500
             statusTimeout = setTimeout(poll, delay)
@@ -658,10 +669,10 @@ function App() {
       } catch {
         // network or server transient error
       }
-      statusTimeout = setTimeout(poll, 5000)
+      if (!controller.aborted) statusTimeout = setTimeout(poll, 5000)
     }
     poll()
-    return () => clearTimeout(statusTimeout)
+    return () => { controller.abort(); clearTimeout(statusTimeout) }
   }, [])
 
 
@@ -681,7 +692,7 @@ function App() {
   // Keep overlay active while remaining >= 0, including DONE state.
   // The overlay is only dismissed when handleFinish() calls /autoload_clear,
   // which resets remaining to -1 on the backend.
-  const isAutoloadActive = autoloadStatus && autoloadStatus.remaining >= 0;
+  const isAutoloadActive = autoloadStatus && Number.isFinite(autoloadStatus.remaining) && autoloadStatus.remaining >= 0;
 
   if (isAutoloadActive) {
     return <AutoloadOverlay status={autoloadStatus} onCancel={handleAbort} onFinish={handleFinish} isPS5={isPS5} />;

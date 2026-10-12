@@ -68,7 +68,7 @@ test-host:
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_http_tests.py
 
 test-frontend:
-	cd frontend && npm test
+	cd frontend && npm run lint && npm test
 
 test: test-host test-frontend
 

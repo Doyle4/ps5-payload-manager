@@ -194,6 +194,26 @@ controlled delayed responses, reloads, navigation, exit saves and list retention
 CI runs this regression too. `--baseline` reproduces the destructive behavior
 using the editor from `bfbe474` without changing workspace files.
 
+The editor's external session now owns its draft and serial save queue; rapid
+handlers read the latest draft without writing refs during render. Failed or
+thrown saves expose Retry, and a failed multi-field request invalidates the
+previous acknowledgment because earlier fields may already have been published.
+Exit saves use the latest draft without pretending that a queued beacon was
+acknowledged. Favorites keep their 250 ms debounce and serialize in-flight writes;
+stale config responses cannot overwrite newer local edits. State updater functions
+contain no favorite network writes. Countdown/progress values are finite and
+clamped, including zero delay. Process/status polling rejects stale results and
+cleans up timers, with transport cancellation when AbortController is available
+and callback guards on Safari 11 without it. Log scrolling distinguishes reading
+history from newly arriving messages. Payload-card action and reorder buttons
+are siblings, avoiding nested interactive buttons.
+
+`npm run build` now requires zero-warning lint and all Node tests through
+`prebuild`; CI uses that gate and both actual-component Chrome suites.
+`cd frontend && npm run test:browser` runs reload retention plus the broader
+StrictMode/lifecycle regression. The runner's `--lifecycle-baseline` reproduces
+the previous editor's unhandled rejected save using the committed source.
+
 Collected arrays are limited to **4,096 items** and **64 MiB** of allocated array
 capacity, whichever is smaller for the item type. Repository parsing accepts up
 to **16 MiB** of input text. These bounds apply to the parser/scanner collections;
@@ -201,7 +221,8 @@ they do not impose download-stream limits or an aggregate daemon memory budget.
 Collection failures become explicit errors rather than successful partial lists.
 
 `.github/workflows/verify.yml` runs all host suites, existing frontend tests,
-and frontend build without publishing or deploying. Frontend lint still reports existing errors. The host suite tests response
+and gated frontend build without publishing or deploying. Frontend lint has
+zero errors/warnings and is required before the build. The host suite tests response
 ownership/status handling, request cleanup, and autoload-list bounds. Storage
 transactions, autoload worker concurrency, and PS5 firmware behavior remain
 separate validation scopes. The main HTTP fixture stubs backend storage/services; the separate
@@ -232,7 +253,7 @@ build a candidate under `scratch/` rather than run `make clean`:
 ```bash
 mkdir -p scratch
 docker run --rm --network=none -v "$(pwd):/src" -w /src \
-  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-step7.elf
+  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-candidate.elf
 ```
 
 This command assumes the SDK image, frontend distribution, and embedded CA

@@ -39,17 +39,15 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
         working-directory: frontend
-      - run: npm test
-        working-directory: frontend
       - run: npm run build
         working-directory: frontend
-      # Existing lint findings remain tracked in REMEDIATION_EXECUTION_PLAN.md.
-      # Promote lint to a required check when step 8a clears that baseline.
 
       - name: Check mock server method/origin contract
         run: node tests/run_mock_security_tests.mjs
       - name: Check autoload editor reload and delayed configuration
         run: CHROME_BIN="$(command -v google-chrome)" node tests/run_autoload_editor_browser_tests.mjs
+      - name: Check actual frontend lifecycle, queued saves and malformed status
+        run: CHROME_BIN="$(command -v google-chrome)" node tests/run_autoload_editor_browser_tests.mjs --lifecycle
       - name: Build native HTTP fixture for browser security checks
         run: docker build -f tests/Dockerfile -t pldmgr-browser-tests .
       - name: Check Chrome actions, cross-origin attacks, unload beacons, and Vite proxy

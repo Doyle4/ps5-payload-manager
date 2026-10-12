@@ -1,11 +1,12 @@
 import { saveConfigOnExit } from '../../utils/mutationRequest'
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { RefreshCw, Loader2, ArrowLeft, ArrowRight, Activity, Zap, ChevronUp, ChevronDown, Trash2, Globe } from 'lucide-react'
 import { cn, isPS5, isSystemPayload, parsePayloadName } from '../../utils/helpers'
 import { useTranslation } from 'react-i18next'
 import PayloadName from '../ui/PayloadName'
 import PayloadIcon from '../ui/PayloadIcon'
 import Modal from '../ui/Modal'
+import { createAutoloadEditorSession } from '../../utils/autoloadEditorSession'
 import { useRepository } from '../../contexts/RepositoryContext'
 
 const AutoloadView = ({
@@ -14,7 +15,6 @@ const AutoloadView = ({
   config,
   onSaveConfig,
   onToast,
-  onRedirect,
   delayModal: delayModalProp,
   setDelayModal: setDelayModalProp,
 }) => {
@@ -23,106 +23,26 @@ const AutoloadView = ({
   const getRepoEntry = repoContext?.getRepoEntry
   const findRepoEntryById = repoContext?.findRepoEntryById
   const [subView, setSubView] = useState('list')
-  const [enabled, setEnabled] = useState(false)
-  const [autoloadList, setAutoloadList] = useState([])
   const [localDelayModal, setLocalDelayModal] = useState(false)
   const showDelayModal = delayModalProp !== undefined ? delayModalProp : localDelayModal
   const setShowDelayModal = setDelayModalProp || setLocalDelayModal
   const [customDelay, setCustomDelay] = useState('')
-  const [isInitialized, setIsInitialized] = useState(false)
-  const initializedRef = useRef(false)
-  const stateRef = useRef({ enabled: false, list: [] })
-  stateRef.current = { enabled, list: autoloadList }
+  const [session] = useState(createAutoloadEditorSession)
+  const { initialized: isInitialized, enabled, list: autoloadList, error: saveError } =
+    useSyncExternalStore(session.subscribe, session.getSnapshot)
 
-  const isSavingRef = useRef(false)
-  const pendingSaveRef = useRef(false)
-  const lastSyncedRef = useRef('')
-
-  // App starts with {}; wait for persisted fields before allowing edits/saves.
+  useEffect(() => { session.setSave(onSaveConfig) }, [session, onSaveConfig])
+  useEffect(() => { session.initialize(config) }, [session, config])
   useEffect(() => {
-    const hasConfig = (config?.AUTOLOAD_ENABLED === true || config?.AUTOLOAD_ENABLED === false ||
-      config?.AUTOLOAD_ENABLED === 'true' || config?.AUTOLOAD_ENABLED === 'false') &&
-      typeof config?.AUTOLOAD_LIST === 'string'
-    if (hasConfig && !initializedRef.current) {
-      const en = config.AUTOLOAD_ENABLED === true || config.AUTOLOAD_ENABLED === "true"
-      const listStr = config.AUTOLOAD_LIST || ''
-      setEnabled(en)
-      const parsedList = listStr.split(',').filter(Boolean)
-      setAutoloadList(parsedList)
-      stateRef.current = { enabled: en, list: parsedList }
-      lastSyncedRef.current = `${en}:${listStr}`
-      initializedRef.current = true
-      setIsInitialized(true)
-    }
-  }, [config])
-
-  // Immediate save coordinator with in-flight queueing
-  const saveState = useCallback(async (targetList, targetEnabled) => {
-    if (!initializedRef.current) return
-    const listToSave = targetList !== undefined ? targetList : stateRef.current.list
-    const enabledToSave = targetEnabled !== undefined ? targetEnabled : stateRef.current.enabled
-
-    const finalList = listToSave.map((p) => (p === 'DELAY' ? '!1000' : p))
-    const finalStr = finalList.join(',')
-    const syncKey = `${enabledToSave}:${finalStr}`
-
-    if (syncKey === lastSyncedRef.current) return
-
-    if (isSavingRef.current) {
-      pendingSaveRef.current = true
-      return
-    }
-
-    isSavingRef.current = true
-    pendingSaveRef.current = false
-
-    try {
-      const success = await onSaveConfig({
-        AUTOLOAD_ENABLED: enabledToSave,
-        AUTOLOAD_LIST: finalStr,
-      })
-
-      if (success) {
-        lastSyncedRef.current = syncKey
-      }
-    } finally {
-      isSavingRef.current = false
-      if (pendingSaveRef.current) {
-        saveState()
-      }
-    }
-  }, [onSaveConfig])
-
-  // Safety flush on component unmount and window unload/pagehide
-  useEffect(() => {
-    const flushSave = () => {
-      if (!initializedRef.current) return
-      const { list, enabled: en } = stateRef.current
-      const finalList = list.map((p) => (p === 'DELAY' ? '!1000' : p))
-      const finalStr = finalList.join(',')
-      const syncKey = `${en}:${finalStr}`
-      if (syncKey !== lastSyncedRef.current) {
-        lastSyncedRef.current = syncKey
-        try {
-          const body = JSON.stringify({
-            AUTOLOAD_ENABLED: en,
-            AUTOLOAD_LIST: finalStr,
-          })
-          saveConfigOnExit(body)
-        } catch {
-          /* ignore flush errors */
-        }
-      }
-    }
-
-    window.addEventListener('beforeunload', flushSave)
-    window.addEventListener('pagehide', flushSave)
+    const flush = () => session.flush(saveConfigOnExit)
+    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
     return () => {
-      flushSave()
-      window.removeEventListener('beforeunload', flushSave)
-      window.removeEventListener('pagehide', flushSave)
+      flush()
+      window.removeEventListener('beforeunload', flush)
+      window.removeEventListener('pagehide', flush)
     }
-  }, [])
+  }, [session])
 
   const availableSlots = useMemo(() => {
     if (items && items.length > 0) {
@@ -231,62 +151,39 @@ const AutoloadView = ({
     [getItemInfo, getRepoEntry, findRepoEntryById, idCounts, config, t]
   )
 
-  const handleToggle = (val) => {
-    if (!initializedRef.current) return
-    setEnabled(val)
-    stateRef.current = { enabled: val, list: autoloadList }
-    saveState(autoloadList, val)
-  }
+  const handleToggle = val => session.edit({ enabled: val })
 
   const addPayload = (slotKey) => {
-    const isKstuff = slotKey.toLowerCase().includes('kstuff')
-    if (isKstuff) {
-      const existing = autoloadList.find((x) => x.toLowerCase().includes('kstuff'))
-      if (existing) {
-        onToast(t("autoload.conflict_kstuff", "Conflict: Multiple KStuff payloads detected."), 'error')
-        return
-      }
+    const latest = session.getSnapshot().list
+    if (slotKey.toLowerCase().includes('kstuff') && latest.some(x => x.toLowerCase().includes('kstuff'))) {
+      onToast(t("autoload.conflict_kstuff", "Conflict: Multiple KStuff payloads detected."), 'error')
+      return
     }
-    const nextList = [...autoloadList, slotKey]
-    setAutoloadList(nextList)
-    stateRef.current = { enabled, list: nextList }
-    saveState(nextList, enabled)
+    session.edit(state => ({ list: [...state.list, slotKey] }))
     setSubView('list')
   }
-
   const addDelay = (ms) => {
-    const nextList = [...autoloadList, `!${ms}`]
-    setAutoloadList(nextList)
-    stateRef.current = { enabled, list: nextList }
-    saveState(nextList, enabled)
+    session.edit(state => ({ list: [...state.list, `!${ms}`] }))
     setShowDelayModal(false)
     setSubView('list')
   }
-
-  const removePayload = (index) => {
-    const nextList = autoloadList.filter((_, idx) => idx !== index)
-    setAutoloadList(nextList)
-    stateRef.current = { enabled, list: nextList }
-    saveState(nextList, enabled)
-  }
-
-  const moveUp = (index) => {
-    if (index === 0) return
-    const nextList = [...autoloadList]
-    ;[nextList[index - 1], nextList[index]] = [nextList[index], nextList[index - 1]]
-    setAutoloadList(nextList)
-    stateRef.current = { enabled, list: nextList }
-    saveState(nextList, enabled)
-  }
-
-  const moveDown = (index) => {
-    if (index === autoloadList.length - 1) return
-    const nextList = [...autoloadList]
-    ;[nextList[index + 1], nextList[index]] = [nextList[index], nextList[index + 1]]
-    setAutoloadList(nextList)
-    stateRef.current = { enabled, list: nextList }
-    saveState(nextList, enabled)
-  }
+  const removePayload = index => session.edit(state => ({ list: state.list.filter((_, i) => i !== index) }))
+  const move = (index, direction) => session.edit(state => {
+    const list = [...state.list], target = index + direction
+    if (index < 0 || index >= list.length || target < 0 || target >= list.length) return {}
+    ;[list[index], list[target]] = [list[target], list[index]]
+    return { list }
+  })
+  const moveUp = index => move(index, -1)
+  const moveDown = index => move(index, 1)
+  const saveNotice = saveError && (
+    <div role="alert" className="p-3 text-red-400 flex items-center gap-4">
+      <span>{t("app.toasts.save_failed", "Save failed")}</span>
+      <button onClick={() => session.retry()} className="px-4 py-2 rounded-xl bg-white/10">
+        {t("active_processes.retry", "Retry")}
+      </button>
+    </div>
+  )
 
   const renderAvailable = () => (
     <div className="flex flex-col h-full min-h-0">
@@ -535,6 +432,7 @@ const AutoloadView = ({
   if (!enabled) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center space-y-8 text-center p-6 md:p-12">
+        {saveNotice}
         <div className="relative h-24 w-24 md:h-32 md:w-32 mx-auto">
           <div className="absolute inset-0 bg-ps-blue/20 rounded-full" />
           <div className="relative flex items-center justify-center h-full w-full bg-black/40 border border-white/10 rounded-3xl md:rounded-[2.5rem] shadow-2xl">
@@ -561,6 +459,7 @@ const AutoloadView = ({
 
   return (
     <div className="h-full flex flex-col min-h-0">
+      {saveNotice}
       <div className="flex-1 flex flex-col min-h-0">
         <div className={cn(
           "gap-8 h-full min-h-0",

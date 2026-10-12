@@ -43,7 +43,7 @@ let remoteRepository = [];
 try {
   const testRepo = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), '..', 'test_repo.json'), 'utf8'));
   remoteRepository = testRepo.payloads || [];
-} catch (err) {
+} catch {
   console.log('[Mock] Could not load ../test_repo.json — using built-in payloads');
   remoteRepository = [
     {

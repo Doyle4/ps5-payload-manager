@@ -51,16 +51,19 @@ const PayloadButton = ({
   }
 
   return (
-    <button
-      onClick={handleClick}
-      disabled={isLoading || (isManageMode && isUsb)}
-      title={isManageMode && !isUsb ? t("app.dashboard.removePayload", "Remove Payload") : undefined}
+    <div
       className={cn(
         "group glass-card pl-4 pr-3 py-2.5 rounded-ps-xl flex flex-col justify-center border transition-all text-left relative min-h-[72px]",
         isManageMode ? "border-red-500/20 hover:border-red-500 hover:bg-red-500/10" : "border-white/5 hover:border-ps-blue hover:bg-ps-blue/5",
         isManageMode && isUsb && "opacity-50 grayscale cursor-not-allowed"
       )}
     >
+      <button
+        onClick={handleClick}
+        disabled={isLoading || (isManageMode && isUsb)}
+        title={isManageMode && !isUsb ? t("app.dashboard.removePayload", "Remove Payload") : undefined}
+        className="w-full text-left relative z-10 rounded-lg focus:outline-none focus:ring-2 focus:ring-ps-blue"
+      >
       <div className="flex items-center justify-between w-full z-10 my-auto">
         <div className="flex items-center gap-3.5 min-w-0 pr-2">
           <PayloadIcon icon={icon} name={iconName} className="w-11 h-11 text-xl shrink-0" />
@@ -118,10 +121,12 @@ const PayloadButton = ({
           {safePath}
         </div>
       )}
+      </button>
       {(isEditMode && isFavorite) && (
         <div className="absolute bottom-2 right-3 flex items-center gap-2 z-20">
           <button
             onClick={(e) => { if (canMoveLeft) handleMove(e, -1); }}
+            aria-label={t("app.dashboard.move_left", "Move Left")}
             disabled={!canMoveLeft}
             className="p-1.5 bg-ps-black border border-white/10 rounded-lg hover:bg-ps-blue/20 hover:border-ps-blue hover:text-ps-blue transition-colors disabled:opacity-30 disabled:pointer-events-none text-zinc-400"
           >
@@ -129,6 +134,7 @@ const PayloadButton = ({
           </button>
           <button
             onClick={(e) => { if (canMoveRight) handleMove(e, 1); }}
+            aria-label={t("app.dashboard.move_right", "Move Right")}
             disabled={!canMoveRight}
             className="p-1.5 bg-ps-black border border-white/10 rounded-lg hover:bg-ps-blue/20 hover:border-ps-blue hover:text-ps-blue transition-colors disabled:opacity-30 disabled:pointer-events-none text-zinc-400"
           >
@@ -137,7 +143,7 @@ const PayloadButton = ({
         </div>
       )}
       <div className="absolute inset-0 rounded-ps-xl bg-ps-blue/0 group-hover:bg-ps-blue/5 transition-colors z-0 pointer-events-none" />
-    </button>
+    </div>
   )
 }
 
