@@ -59,6 +59,7 @@ test-host:
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_storage_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_autoload_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_launcher_tests.py
+	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_process_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_config_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_http_tests.py --autoload-only
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_http_tests.py --config-only

@@ -160,6 +160,19 @@ worker, socketpair loader recorder and real HTTP worker fixtures are part of
 status/reset/start paths. The PS-button detector remains the existing headless
 per-read implementation.
 
+Startup lookup and process listing now share a bounded, validated sysctl snapshot.
+Record sizes must advance within the returned bytes, all consumed fields must
+fit, and names must terminate inside their SDK field. A malformed snapshot is
+rejected in full before exposing a PID/list. Queries retry ENOMEM up to three
+attempts and allocate at most 16 MiB. Failed listings become HTTP 500 through
+the existing response-error path. SDK assertions preserve the current PID/RSS/
+process-name offsets; offset 447 is `ki_comm`, rather than the startup code's
+previously misnamed `ki_tdname`. `python3 tests/run_process_tests.py` runs the
+actual listing/lookup with synthetic kernel bytes and sanitizers; `--baseline`
+reproduces the previous bounds reads and startup loop from `9ffd392`.
+
+PS5 firmware behavior requires verification on the target console.
+
 The autoload editor waits for both persisted autoload fields before showing
 controls or saving. The initial empty config, failed fetches, and incomplete
 responses cannot enable autoload or flush an empty list. Run

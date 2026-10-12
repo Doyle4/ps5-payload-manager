@@ -29,10 +29,10 @@ def main():
         (build / "pldmgr.h").write_text((ROOT / "include/pldmgr.h").read_text().replace("/data/pldmgr", str(storage)))
         (build / "assets_cacert_pem.h").write_text("static const unsigned char assets_cacert_pem[] = {0};\n"
                                                   "static const unsigned int assets_cacert_pem_len = 0;\n")
-        # Recording kernel fixture; verifies serialization, not the PS5 ABI.
+        # Recording kernel fixture using the SDK-sized names/field offsets.
         (build / "sys").mkdir()
         (build / "sys/proc.h").write_text("")
-        (build / "sys/user.h").write_text("#pragma once\n#if defined(__linux__)\n#include_next <sys/user.h>\n#endif\n#include <sys/types.h>\nstruct kinfo_proc { int ki_structsize; pid_t ki_pid; char ki_comm[64]; unsigned long ki_rssize; };\n")
+        (build / "sys/user.h").write_text((ROOT / "tests/process_sdk_stub.h").read_text())
         (build / "sys/sysctl.h").write_text("#include <stddef.h>\n#define CTL_KERN 1\n#define KERN_PROC 2\n#define KERN_PROC_PROC 3\n#define PAGE_SIZE 4096\nint sysctl(const int *, unsigned, void *, size_t *, const void *, size_t);\n")
         (build / "kernel.c").write_text('''#include <string.h>
 #include <stdlib.h>
@@ -43,7 +43,7 @@ int sysctl(const int *mib, unsigned n, void *out, size_t *size, const void *inpu
     if (out) for (int i = 0; i < 1000; i++) {
         struct kinfo_proc *record = (struct kinfo_proc *)out + i;
         record->ki_structsize = sizeof(*record); record->ki_pid = i + 1; record->ki_rssize = 1024;
-        memset(record->ki_comm, 1, 63); record->ki_comm[63] = 0;
+        memset(record->ki_comm, 1, 19); record->ki_comm[19] = 0;
     }
     return 0;
 }
@@ -125,7 +125,7 @@ int download_to_file_limited(const char *url, const char *path, size_t limit) { 
                         assert all(item["name"] == "\x01" * 250 and item["description"] == "\x01" * 1000 for item in document["items"])
                     elif mode == "processes":
                         assert len(document["processes"]) == 1000
-                        assert all(item["name"] == "\x01" * 63 for item in document["processes"])
+                        assert all(item["name"] == "\x01" * 19 for item in document["processes"])
                     elif mode == "repository":
                         items = document["sources"][0]["payloads"]
                         assert len(items) == 30
