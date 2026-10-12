@@ -579,11 +579,10 @@ function App() {
   }
 
   const handleSaveConfig = async (newConfig) => {
-    const merged = { ...config, ...newConfig }
     const success = await api('/set_config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(merged),
+      body: JSON.stringify(newConfig),
       keepalive: true,
     })
     if (success) {

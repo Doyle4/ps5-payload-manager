@@ -27,18 +27,20 @@ size_t test_post_size;
 
 void pldmgr_log(const char *fmt, ...) { (void)fmt; }
 void log_server_set_active(void) { test_active_calls++; }
+#ifndef PLDMGR_TEST_REAL_CONFIG
 void config_read(PldmgrConfig *cfg) { memset(cfg, 0, sizeof(*cfg)); cfg->autoload_delay = 5; }
 int config_read_bool(const char *key, int fallback) { (void)key; return fallback; }
 int config_handle_set_json(const char *data) {
     test_config_saves++; test_mutation_calls++;
     test_post_size = strlen(data);
-    return strcmp(data, "fail_test") == 0 ? -1 : 0;
+    return strcmp(data, "fail_test") == 0 ? -1 : (strcmp(data, "invalid_test") == 0 ? CONFIG_INVALID : 0);
 }
 int config_get_favorites_csv(char *out, size_t size, int *exists) {
     if (size) out[0] = '\0';
     *exists = 0;
     return test_json_failure ? -1 : 0;
 }
+#endif
 void pldmgr_autoload_get_status(int *total, int *done, char *current) {
     *total = 0; *done = 0; current[0] = '\0';
 }
@@ -92,7 +94,7 @@ int sources_list_json(char *out, size_t size) { json(out, size, "{\"sources\":[]
 int sources_save(const char *data, size_t size) {
     test_source_saves++; test_mutation_calls++;
     test_post_size = size;
-    return strcmp(data, "fail_test") == 0 ? -1 : 0;
+    return strcmp(data, "fail_test") == 0 ? -1 : (strcmp(data, "invalid_test") == 0 ? CONFIG_INVALID : 0);
 }
 int sources_add(const char *url, char *msg, size_t size) {
     test_mutation_calls++; (void)url; snprintf(msg, size, "Test source"); return 0;

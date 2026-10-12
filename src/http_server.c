@@ -517,7 +517,7 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             int rc = request->kind == REQUEST_CONFIG
                 ? config_handle_set_json(post->data) : sources_save(post->data, post->size);
             if (rc != 0)
-                return finish_request_error(conn, request, MHD_HTTP_INTERNAL_SERVER_ERROR);
+                return finish_request_error(conn, request, rc == CONFIG_INVALID ? MHD_HTTP_BAD_REQUEST : MHD_HTTP_INTERNAL_SERVER_ERROR);
             request->finished = 1;
             struct MHD_Response *resp = create_buffer_response(
                 strlen(MSG_OK), (void *)MSG_OK, MHD_RESPMEM_PERSISTENT);

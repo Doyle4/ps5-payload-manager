@@ -18,6 +18,13 @@ jobs:
       - name: Test backend JSON and HTTP with sanitizers and real sockets
         run: docker run --rm --network=none -v "$GITHUB_WORKSPACE:/src:ro" pldmgr-tests make test-host
 
+  shared-state:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check concurrent config, sources and history with ThreadSanitizer
+        run: python3 tests/run_config_tests.py --thread-sanitize
+
   frontend:
     runs-on: ubuntu-latest
     steps:

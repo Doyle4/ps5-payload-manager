@@ -44,7 +44,7 @@ const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate }) => {
   const { t, i18n } = useTranslation()
   const autoOpen = config.AUTO_BROWSER_OPEN !== false
   const autoInstall = config.AUTO_INSTALL_APP !== false
-  const autoloadDelay = config.AUTOLOAD_DELAY || 5
+  const autoloadDelay = config.AUTOLOAD_DELAY ?? 5
   const multiSources = config.MULTI_SOURCES_ENABLED === true
   const [followBrowserLanguage, setFollowBrowserLanguage] = useState(isFollowingBrowserLanguage)
 

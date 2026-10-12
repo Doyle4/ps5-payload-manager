@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <errno.h>
+#include <pthread.h>
 
 #include "sources.h"
 #include "repository.h"
@@ -28,61 +30,46 @@ typedef struct {
 
 /* ── Load / Save sources from SOURCES_CONFIG_PATH ──────────── */
 
-static int load_sources(SourceEntry *out, int *out_count) {
-    char *json = NULL;
-    size_t size = 0;
-    int count = 0;
-
+static pthread_mutex_t sources_mutex = PTHREAD_MUTEX_INITIALIZER;
+typedef struct { SourceEntry *entries; int count; int found; } SourceParse;
+static void default_source(SourceEntry *out) {
     memset(out, 0, sizeof(SourceEntry) * MAX_SOURCES);
-
-    /* Always start with the default source at index 0 */
-    strncpy(out[0].id,   "default",             sizeof(out[0].id) - 1);
-    strncpy(out[0].name, "Official Repository", sizeof(out[0].name) - 1);
-    strncpy(out[0].url,  REPOSITORY_SOURCE_URL, sizeof(out[0].url) - 1);
-    out[0].removable = 0;
-    count = 1;
-
-    if (read_file_text(SOURCES_CONFIG_PATH, &json, &size) != 0 || !json || size == 0) {
-        if (json) free(json);
-        *out_count = count;
-        return 0;
-    }
-
-    const char *arr_start = strstr(json, "\"sources\"");
-    if (!arr_start) { free(json); *out_count = count; return 0; }
-
-    arr_start = strchr(arr_start, '[');
-    if (!arr_start) { free(json); *out_count = count; return 0; }
-
-    const char *p = arr_start + 1;
-    while (count < MAX_SOURCES && p < json + size &&
-           (p = memchr(p, '{', (size_t)(json + size - p))) != NULL) {
-        const char *end;
-        if (json_find_object_end(p, json + size, &end) != 0) break;
-
-        char id[64] = "", name[256] = "", url[1024] = "";
-        char removable_str[8] = "";
-
-        json_extract_string(p, end, "id",   id,   sizeof(id));
-        json_extract_string(p, end, "name", name, sizeof(name));
-        json_extract_string(p, end, "url",  url,  sizeof(url));
-        json_extract_string(p, end, "removable", removable_str, sizeof(removable_str));
-
-        if (strcmp(id, "default") == 0) { p = end; continue; }
-
-        if (name[0] && url[0] && id[0]) {
-            strncpy(out[count].id,   id,   sizeof(out[count].id) - 1);
-            strncpy(out[count].name, name, sizeof(out[count].name) - 1);
-            strncpy(out[count].url,  url,  sizeof(out[count].url) - 1);
-            out[count].removable = (strcmp(removable_str, "false") != 0);
-            count++;
-        }
-        p = end;
-    }
-
-    free(json);
-    *out_count = count;
+    snprintf(out[0].id, sizeof(out[0].id), "default");
+    snprintf(out[0].name, sizeof(out[0].name), "Official Repository");
+    snprintf(out[0].url, sizeof(out[0].url), "%s", REPOSITORY_SOURCE_URL);
+}
+static int source_item(const char *start, const char *end, void *context) {
+    SourceParse *parse = context;
+    SourceEntry entry = {.removable = 1};
+    if (json_extract_string(start, end, "id", entry.id, sizeof(entry.id)) ||
+        json_extract_string(start, end, "name", entry.name, sizeof(entry.name)) ||
+        json_extract_string(start, end, "url", entry.url, sizeof(entry.url)) ||
+        !entry.id[0] || !entry.name[0] || !entry.url[0]) return -1;
+    if (!strcmp(entry.id, "default")) return 0;
+    if (parse->count >= MAX_SOURCES) return -1;
+    for (int i = 0; i < parse->count; i++)
+        if (!strcmp(parse->entries[i].id, entry.id)) return -1;
+    parse->entries[parse->count++] = entry;
     return 0;
+}
+static int source_member(const char *key, const char *start, const char *end, void *context) {
+    SourceParse *parse = context;
+    if (strcmp(key, "sources")) return 0;
+    if (parse->found++) return -1;
+    return json_visit_array(start, end, source_item, context);
+}
+static int parse_sources(const char *json, size_t size, SourceEntry *out, int *out_count) {
+    default_source(out);
+    SourceParse parse = {.entries=out, .count=1};
+    if (json_visit_object(json, json + size, source_member, &parse) || !parse.found) return -1;
+    *out_count = parse.count; return 0;
+}
+static int load_sources(SourceEntry *out, int *out_count) {
+    default_source(out); *out_count = 1;
+    char *json = NULL; size_t size = 0;
+    if (read_file_text(SOURCES_CONFIG_PATH, &json, &size)) return errno == ENOENT ? 0 : -1;
+    int result = parse_sources(json, size, out, out_count);
+    free(json); return result;
 }
 
 static int save_sources(SourceEntry *sources, int count) {
@@ -121,7 +108,7 @@ int sources_list_json(char *buf, size_t size) {
     SourceEntry *sources = calloc(MAX_SOURCES, sizeof(SourceEntry));
     if (!sources) return -1;
     int count = 0;
-    load_sources(sources, &count);
+    if (load_sources(sources, &count)) { free(sources); return -1; }
 
     JsonListBuilder jb = { buf, size, 0, 1, 0 };
     buf[0] = '\0';
@@ -145,138 +132,25 @@ int sources_list_json(char *buf, size_t size) {
 }
 
 int sources_save(const char *json, size_t len) {
+    if (!json || !len) return CONFIG_INVALID;
     SourceEntry *sources = calloc(MAX_SOURCES, sizeof(SourceEntry));
     if (!sources) return -1;
     int count = 0;
-
-    if (!json || len == 0) {
-        free(sources);
-        return -1;
-    }
-
-    /* Default at slot 0 */
-    strncpy(sources[0].id,   "default",             sizeof(sources[0].id) - 1);
-    strncpy(sources[0].name, "Official Repository", sizeof(sources[0].name) - 1);
-    strncpy(sources[0].url,  REPOSITORY_SOURCE_URL, sizeof(sources[0].url) - 1);
-    sources[0].removable = 0;
-    count = 1;
-
-    const char *arr_start = strstr(json, "\"sources\"");
-    if (!arr_start) { free(sources); return -1; }
-    arr_start = strchr(arr_start, '[');
-    if (!arr_start) { free(sources); return -1; }
-
-    const char *p = arr_start + 1;
-    while (count < MAX_SOURCES && p < json + len &&
-           (p = memchr(p, '{', (size_t)(json + len - p))) != NULL) {
-        const char *end;
-        if (json_find_object_end(p, json + len, &end) != 0) break;
-
-        char id[64] = "", name[256] = "", url[1024] = "";
-        json_extract_string(p, end, "id",   id,   sizeof(id));
-        json_extract_string(p, end, "name", name, sizeof(name));
-        json_extract_string(p, end, "url",  url,  sizeof(url));
-
-        if (strcmp(id, "default") == 0) { p = end; continue; }
-        if (!name[0] || !url[0] || !id[0]) { p = end; continue; }
-
-        strncpy(sources[count].id,   id,   sizeof(sources[count].id) - 1);
-        strncpy(sources[count].name, name, sizeof(sources[count].name) - 1);
-        strncpy(sources[count].url,  url,  sizeof(sources[count].url) - 1);
-        sources[count].removable = 1;
-        count++;
-        p = end;
-    }
-
-    int ret = save_sources(sources, count);
-    free(sources);
-    return ret;
+    if (parse_sources(json, len, sources, &count)) { free(sources); return CONFIG_INVALID; }
+    pthread_mutex_lock(&sources_mutex);
+    int result = save_sources(sources, count);
+    pthread_mutex_unlock(&sources_mutex);
+    free(sources); return result;
 }
 
-int sources_add(const char *url, char *msg_buf, size_t msg_size) {
-    char tmp_path[512];
-    char *json = NULL;
-    size_t json_size = 0;
-    RepoPayload *items = NULL;
-    size_t count = 0;
-    char source_name[256] = "";
-
-    if (!url || !url[0]) {
-        snprintf(msg_buf, msg_size, "URL is empty");
-        return -1;
-    }
-
-    ensure_dir_recursive(BASE_DATA_DIR);
-    snprintf(tmp_path, sizeof(tmp_path), "%s/source_validate.tmp", BASE_DATA_DIR);
-
-    if (download_to_file_limited(url, tmp_path, PLDMGR_MANIFEST_DOWNLOAD_LIMIT) != 0) {
-        snprintf(msg_buf, msg_size, "URL unreachable or download failed");
-        remove(tmp_path);
-        return -1;
-    }
-
-    if (read_file_text(tmp_path, &json, &json_size) != 0 || !json || json_size == 0) {
-        snprintf(msg_buf, msg_size, "Failed to read downloaded JSON");
-        remove(tmp_path);
-        if (json) free(json);
-        return -1;
-    }
-    remove(tmp_path);
-
-    /* Read top-level name before payloads key */
-    {
-        const char *payloads_key = strstr(json, "\"payloads\"");
-        if (payloads_key) {
-            size_t search_len = (size_t)(payloads_key - json);
-            const char *name_key = NULL;
-            for (size_t i = 0; i + 6 <= search_len; i++) {
-                if (memcmp(json + i, "\"name\"", 6) == 0) {
-                    name_key = json + i;
-                    break;
-                }
-            }
-            if (name_key) {
-                const char *colon = strchr(name_key + 6, ':');
-                if (colon && (size_t)(colon - json) < search_len) {
-                    const char *q = colon + 1;
-                    while (*q == ' ' || *q == '\t') q++;
-                    if (*q == '"') {
-                        q++;
-                        size_t pos = 0;
-                        while (*q && *q != '"' && pos < sizeof(source_name) - 1)
-                            source_name[pos++] = *q++;
-                        source_name[pos] = '\0';
-                    }
-                }
-            }
-        }
-        if (!source_name[0]) {
-            const char *host = strstr(url, "://");
-            host = host ? host + 3 : url;
-            size_t pos = 0;
-            while (*host && *host != '/' && *host != ':' &&
-                   pos < sizeof(source_name) - 1)
-                source_name[pos++] = *host++;
-            source_name[pos] = '\0';
-        }
-    }
-
-    if (parse_repository_payloads(json, &items, &count) != 0 || count == 0) {
-        free(json);
-        if (items) free(items);
-        snprintf(msg_buf, msg_size, "No valid payloads found in source JSON");
-        return -1;
-    }
-    free(items);
-    free(json);
-
+static int merge_source(const char *url, const char *source_name, char *msg_buf, size_t msg_size) {
     SourceEntry *sources = calloc(MAX_SOURCES, sizeof(SourceEntry));
     if (!sources) {
         snprintf(msg_buf, msg_size, "Memory allocation failed");
         return -1;
     }
     int src_count = 0;
-    load_sources(sources, &src_count);
+    if (load_sources(sources, &src_count)) { free(sources); snprintf(msg_buf, msg_size, "Failed to read sources"); return -1; }
 
     if (src_count >= MAX_SOURCES) {
         free(sources);
@@ -293,7 +167,14 @@ int sources_add(const char *url, char *msg_buf, size_t msg_size) {
     }
 
     char new_id[64];
-    snprintf(new_id, sizeof(new_id), "source_%d", (int)time(NULL));
+    char hash[16]; slot_source_hash(url, hash, sizeof(hash));
+    snprintf(new_id, sizeof(new_id), "source_%s", hash);
+    for (int suffix = 1;; suffix++) {
+        int found = 0;
+        for (int i = 0; i < src_count; i++) if (!strcmp(sources[i].id, new_id)) found = 1;
+        if (!found) break;
+        snprintf(new_id, sizeof(new_id), "source_%s_%d", hash, suffix);
+    }
 
     strncpy(sources[src_count].id,   new_id,      sizeof(sources[src_count].id) - 1);
     strncpy(sources[src_count].name, source_name, sizeof(sources[src_count].name) - 1);
@@ -312,7 +193,69 @@ int sources_add(const char *url, char *msg_buf, size_t msg_size) {
     return 0;
 }
 
-int sources_remove(int index, char *msg_buf, size_t msg_size) {
+int sources_add(const char *url, char *msg_buf, size_t msg_size) {
+    char tmp_path[512];
+    char *json = NULL;
+    size_t json_size = 0;
+    RepoPayload *items = NULL;
+    size_t count = 0;
+    char source_name[256] = "";
+
+    if (!url || !url[0]) {
+        snprintf(msg_buf, msg_size, "URL is empty");
+        return -1;
+    }
+
+    ensure_dir_recursive(BASE_DATA_DIR);
+    snprintf(tmp_path, sizeof(tmp_path), "%s/.source-XXXXXX", BASE_DATA_DIR);
+    int fd = mkstemp(tmp_path);
+    if (fd < 0) { snprintf(msg_buf, msg_size, "Failed to create validation file"); return -1; }
+    if (close(fd)) { remove(tmp_path); snprintf(msg_buf, msg_size, "Failed to close validation file"); return -1; }
+    if (strlen(url) >= sizeof(((SourceEntry *)0)->url)) {
+        remove(tmp_path); snprintf(msg_buf, msg_size, "URL is too long"); return -1;
+    }
+
+    if (download_to_file_limited(url, tmp_path, PLDMGR_MANIFEST_DOWNLOAD_LIMIT) != 0) {
+        snprintf(msg_buf, msg_size, "URL unreachable or download failed");
+        remove(tmp_path);
+        return -1;
+    }
+
+    if (read_file_text(tmp_path, &json, &json_size) != 0 || !json || json_size == 0) {
+        snprintf(msg_buf, msg_size, "Failed to read downloaded JSON");
+        remove(tmp_path);
+        if (json) free(json);
+        return -1;
+    }
+    remove(tmp_path);
+
+    /* Decode the actual top-level name, including escaped Unicode/quotes. */
+    json_extract_string_prefix(json, json + json_size, "name", source_name, sizeof(source_name));
+    if (!source_name[0]) {
+        const char *host = strstr(url, "://");
+        host = host ? host + 3 : url;
+        size_t pos = 0;
+        while (*host && *host != '/' && *host != ':' && pos < sizeof(source_name) - 1)
+            source_name[pos++] = *host++;
+        source_name[pos] = '\0';
+    }
+
+    if (parse_repository_payloads(json, &items, &count) != 0 || count == 0) {
+        free(json);
+        if (items) free(items);
+        snprintf(msg_buf, msg_size, "No valid payloads found in source JSON");
+        return -1;
+    }
+    free(items);
+    free(json);
+
+    pthread_mutex_lock(&sources_mutex);
+    int result = merge_source(url, source_name, msg_buf, msg_size);
+    pthread_mutex_unlock(&sources_mutex);
+    return result;
+}
+
+static int remove_source(int index, char *msg_buf, size_t msg_size) {
     if (index <= 0) {
         snprintf(msg_buf, msg_size, "Cannot remove the default source");
         return -1;
@@ -324,7 +267,7 @@ int sources_remove(int index, char *msg_buf, size_t msg_size) {
         return -1;
     }
     int count = 0;
-    load_sources(sources, &count);
+    if (load_sources(sources, &count)) { free(sources); snprintf(msg_buf, msg_size, "Failed to read sources"); return -1; }
 
     if (index >= count) {
         free(sources);
@@ -346,6 +289,13 @@ int sources_remove(int index, char *msg_buf, size_t msg_size) {
     free(sources);
     snprintf(msg_buf, msg_size, "OK");
     return 0;
+}
+
+int sources_remove(int index, char *msg_buf, size_t msg_size) {
+    pthread_mutex_lock(&sources_mutex);
+    int result = remove_source(index, msg_buf, msg_size);
+    pthread_mutex_unlock(&sources_mutex);
+    return result;
 }
 
 /* ── Hash-based cache paths ────────────────────────────────── */
@@ -383,9 +333,12 @@ int sources_ensure_fresh(const char *url, int force_refresh) {
     }
 
     char tmp_path[512];
-    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", cache_path);
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp-XXXXXX", cache_path);
+    int fd = mkstemp(tmp_path);
+    if (fd < 0) return -1;
+    if (close(fd)) { remove(tmp_path); return -1; }
     if (download_to_file_limited(url, tmp_path, PLDMGR_MANIFEST_DOWNLOAD_LIMIT) != 0) {
-        return -1;
+        remove(tmp_path); return -1;
     }
 
     char *json = NULL;
@@ -412,15 +365,11 @@ int sources_ensure_fresh(const char *url, int force_refresh) {
         return -1;
     }
 
-    tf = fopen(ts_path, "w");
-    if (tf) {
-        fprintf(tf, "%ld", (long)now);
-        fclose(tf);
-    }
-
-    if (strcmp(url, REPOSITORY_SOURCE_URL) == 0) {
-        config_write_last_update((long)now);
-    }
+    char timestamp[64];
+    int timestamp_size = snprintf(timestamp, sizeof(timestamp), "%ld", (long)now);
+    if (timestamp_size < 0 || (size_t)timestamp_size >= sizeof(timestamp) ||
+        write_file_text(ts_path, timestamp, (size_t)timestamp_size)) return -1;
+    if (!strcmp(url, REPOSITORY_SOURCE_URL) && config_write_last_update((long)now)) return -1;
 
     return 0;
 }
@@ -433,7 +382,7 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
         return 0;
     }
     int src_count = 0;
-    load_sources(sources, &src_count);
+    if (load_sources(sources, &src_count)) { free(sources); buf[0] = 0; return 0; }
 
     /* Single-source mode: if multi_sources is off, only use source 0 */
     PldmgrConfig cfg;
@@ -583,7 +532,7 @@ int sources_repo_install(const char *source_url, const char *id,
         return -1;
     }
     int src_count = 0;
-    load_sources(sources, &src_count);
+    if (load_sources(sources, &src_count)) { free(sources); json_append(&jb, "{\"ok\":false,\"message\":\"Failed to read sources\"}"); return -1; }
 
     /* Match source */
     SourceEntry src;
@@ -839,9 +788,9 @@ int sources_repo_install(const char *source_url, const char *id,
     int old_cleanup_failed = 0;
     /* Retire a conflicting source only after the new slot is usable. */
     if (is_mode_replace && replace_slot && replace_slot[0] && strcmp(replace_slot, target_slot)) {
-        pldmgr_autoload_update_config_entry(replace_slot, target_slot);
-        pldmgr_favorites_update_entry(replace_slot, target_slot);
-        if (slot_delete(replace_slot)) {
+        int autoload_result = pldmgr_autoload_update_config_entry(replace_slot, target_slot);
+        int favorites_result = pldmgr_favorites_update_entry(replace_slot, target_slot);
+        if (autoload_result || favorites_result || slot_delete(replace_slot)) {
             old_cleanup_failed = 1;
             pldmgr_log("[PLDMGR] New repository slot committed; old slot cleanup incomplete: %s\n", replace_slot);
         }

@@ -72,7 +72,7 @@ int storage_test_rename(const char *a,const char *b) {
     return rc;
 }
 void pldmgr_log(const char *fmt,...) { (void)fmt; }
-void pldmgr_autoload_update_config_entry(const char *a,const char *b) { (void)a;(void)b;autoload_updates++; }
+int pldmgr_autoload_update_config_entry(const char *a,const char *b) { (void)a;(void)b;autoload_updates++; return 0; }
 /* Recorded local bytes only; any network-looking request aborts. */
 int download_to_file(const char *url,const char *path) {
     if (!strcmp(url, REPOSITORY_SOURCE_URL)) return -1;

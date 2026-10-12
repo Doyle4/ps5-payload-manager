@@ -46,11 +46,24 @@ int json_extract_string_prefix(const char *obj_start, const char *obj_end,
  * outside [start, limit); allows following array members after the object. */
 int json_find_object_end(const char *start, const char *limit, const char **end);
 
+/* Visit direct members/elements of a complete, validated object/array.
+ * Spans exclude surrounding whitespace. Callback returns 0 or -1.
+ * Object keys are decoded into a bounded C string (maximum 255 bytes). */
+typedef int (*JsonMemberVisitor)(const char *key, const char *start,
+                                 const char *end, void *context);
+typedef int (*JsonValueVisitor)(const char *start, const char *end, void *context);
+int json_visit_object(const char *start, const char *end, JsonMemberVisitor visit, void *context);
+int json_visit_array(const char *start, const char *end, JsonValueVisitor visit, void *context);
+int json_decode_string(const char *start, const char *end, char *out, size_t capacity);
+
 /* Read an entire file into a malloc'd buffer. Caller must free *out_buf.
  * Returns 0 on success, -1 on failure. */
 int read_file_text(const char *path, char **out_buf, size_t *out_size);
 
-/* Write data to a file atomically. Returns 0 on success, -1 on failure. */
+/* Atomically replace one file via a unique sibling temporary, checked write,
+ * flush/file sync/close and rename. Before publication failure retains the old
+ * file. Returns 0 once published, -1 on failure. Directory sync is best-effort;
+ * this does not promise a transaction across files or power-loss recovery. */
 int write_file_text(const char *path, const char *data, size_t size);
 
 /* Create a directory if it doesn't exist. Returns 0 on success. */

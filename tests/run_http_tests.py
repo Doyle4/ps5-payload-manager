@@ -359,6 +359,43 @@ def network_tests(binary, storage, security_only=False, legacy_security=False):
             server.communicate()
 
 
+def config_network_tests(binary, storage):
+    server = subprocess.Popen([str(binary), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        line = server.stdout.readline().strip()
+        assert line.startswith("PORT "), line
+        port = int(line.split()[1])
+        def request(method, route, body=None):
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            try:
+                connection.request(method, route, body.encode("utf-8") if isinstance(body, str) else body, {"X-PLDMGR-Request":"1"})
+                response = connection.getresponse()
+                return response.status, response.read()
+            finally: connection.close()
+        assert request("POST", "/set_config", '{"AUTO_BROWSER_OPEN":false}')[0] == 200
+        status, body = request("GET", "/get_config")
+        assert status == 200 and json.loads(body)["AUTO_BROWSER_OPEN"] is False
+        for bad in ['{', '{"AUTOLOAD_ENABLED":false,"AUTOLOAD_DELAY":-1}', '{"FAVORITES":[1]}']:
+            assert request("POST", "/set_config", bad)[0] == 400
+        # A genuine filesystem failure must produce 500 and retain old config.
+        old = (storage / "pldmgr_config.txt").read_bytes()
+        (storage / "favorites.txt").mkdir()
+        assert request("POST", "/set_config", '{"AUTO_BROWSER_OPEN":true,"FAVORITES":"local/x"}')[0] == 500
+        assert (storage / "pldmgr_config.txt").read_bytes() == old
+        (storage / "favorites.txt").rmdir()
+        assert request("POST", "/set_config", '{"FAVORITES":"local/żółw","AUTOLOAD_DELAY":0}')[0] == 200
+        status, body = request("GET", "/get_config")
+        config = json.loads(body)
+        assert status == 200 and config["FAVORITES"] == "local/żółw" and config["AUTOLOAD_DELAY"] == 0
+        server.stdin.write("\n"); server.stdin.flush()
+        output, _ = server.communicate(timeout=10)
+        assert server.returncode == 0, output
+        print(output.strip())
+        print("HTTP real config: independent save/read, invalid input 400, I/O failure 500, retained settings and Unicode/zero passed")
+    finally:
+        if server.poll() is None: server.kill(); server.communicate()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ownership-only", action="store_true",
@@ -370,6 +407,7 @@ def main():
     parser.add_argument("--security-only", action="store_true")
     parser.add_argument("--legacy-security", action="store_true")
     parser.add_argument("--serve-only", action="store_true")
+    parser.add_argument("--config-only", action="store_true")
     parser.add_argument("--source", default="src/http_server.c",
                         help="Alternate HTTP source snapshot for regression reproduction")
     args = parser.parse_args()
@@ -397,6 +435,8 @@ def main():
                 f"static const unsigned int assets_{name}_len = sizeof(assets_{name});\n")
         common = compiler + ["-std=c11", "-D_DEFAULT_SOURCE", "-g", "-O1", "-Wall", "-Wextra",
                              "-I" + str(build), "-Iinclude", "-pthread"]
+        if args.config_only:
+            common += ["-DPLDMGR_TEST_REAL_CONFIG"]
         if not args.no_sanitize:
             common += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
         cflags = [flag for flag in flags if flag.startswith("-I") or flag.startswith("-D")]
@@ -404,9 +444,12 @@ def main():
         run(common + cflags + ["-include", "tests/http_test_hooks.h", "-c",
                                args.source, "-o", str(object_file)])
         binary = build / "http_tests"
-        run(common + cflags + [str(object_file), "src/utils.c", "src/json_helpers.c", "tests/http_backend_stubs.c",
+        extra_sources = ["src/config.c"] if args.config_only else []
+        run(common + cflags + extra_sources + [str(object_file), "src/utils.c", "src/json_helpers.c", "tests/http_backend_stubs.c",
                                "tests/http_responses_test.c", "-o", str(binary)] + flags)
         selected = ["--ownership-only"] if args.ownership_only else (["--oom-only"] if args.oom_only else [])
+        if args.config_only:
+            config_network_tests(binary, storage); return
         if args.serve_only:
             run([str(binary), "--serve"]); return
         if not args.network_only and not args.security_only:

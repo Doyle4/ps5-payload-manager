@@ -11,7 +11,7 @@
 static const char *manifest;
 static int first_calls,retry_calls,fail_first;
 void pldmgr_log(const char *fmt,...){(void)fmt;}
-void pldmgr_autoload_update_config_entry(const char *a,const char *b){(void)a;(void)b;}
+int pldmgr_autoload_update_config_entry(const char *a,const char *b){(void)a;(void)b;return 0;}
 static int write_bytes(const char *path,const char *text){FILE*f=fopen(path,"wb");if(!f)return -1;int rc=fwrite(text,1,strlen(text),f)==strlen(text)?0:-1;if(fclose(f))rc=-1;return rc;}
 int download_to_file(const char *url,const char *path){
     if(!strcmp(url,REPOSITORY_SOURCE_URL)){char *text=NULL;size_t size=0;if(read_file_text(manifest,&text,&size))return -1;int rc=write_bytes(path,text);free(text);return rc;}

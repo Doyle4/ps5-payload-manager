@@ -98,7 +98,6 @@ const AutoloadView = ({
         lastSyncedRef.current = syncKey
         try {
           const body = JSON.stringify({
-            ...config,
             AUTOLOAD_ENABLED: en,
             AUTOLOAD_LIST: finalStr,
           })

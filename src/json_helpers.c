@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include "json_helpers.h"
 #include "utils.h"
 
@@ -288,61 +290,103 @@ int json_extract_string_prefix(const char *start, const char *end, const char *k
     return json_extract(start, end, key, out, capacity, 1);
 }
 
+int json_decode_string(const char *start, const char *end, char *out, size_t capacity) {
+    if (!out || !capacity || !start || !end || start > end) return -1;
+    out[0] = '\0';
+    JsonReader r = {start, end};
+    JsonStringSink sink = {.out = out, .capacity = capacity};
+    if (json_string(&r, &sink) || r.p != end || sink.truncated) {
+        out[0] = '\0'; return -1;
+    }
+    return 0;
+}
+
+static int json_visit(const char *start, const char *end, JsonMemberVisitor member,
+                      JsonValueVisitor value, void *context, int object) {
+    if (!start || !end || start >= end) return -1;
+    JsonReader check = {start, end};
+    json_space(&check);
+    if (check.p == end || *check.p != (object ? '{' : '[') || json_value(&check, 0)) return -1;
+    json_space(&check);
+    if (check.p != end) return -1;
+    JsonReader r = {start, end};
+    json_space(&r); r.p++; json_space(&r);
+    char close = object ? '}' : ']';
+    if (*r.p == close) return 0;
+    for (;;) {
+        char key[256];
+        if (object) {
+            JsonStringSink sink = {.out = key, .capacity = sizeof(key)};
+            if (json_string(&r, &sink) || sink.truncated) return -1;
+            json_space(&r); r.p++; json_space(&r);
+        }
+        const char *first = r.p;
+        if (json_value(&r, 1)) return -1;
+        if (object ? member(key, first, r.p, context) : value(first, r.p, context)) return -1;
+        json_space(&r);
+        if (*r.p == close) return 0;
+        r.p++; json_space(&r);
+    }
+}
+int json_visit_object(const char *start, const char *end, JsonMemberVisitor visit, void *context) {
+    return visit ? json_visit(start, end, visit, NULL, context, 1) : -1;
+}
+int json_visit_array(const char *start, const char *end, JsonValueVisitor visit, void *context) {
+    return visit ? json_visit(start, end, NULL, visit, context, 0) : -1;
+}
+
 int read_file_text(const char *path, char **out_buf, size_t *out_size) {
-    FILE *f;
-    long fsize;
-    char *buf;
-    size_t nread;
-
-    *out_buf = NULL;
-    *out_size = 0;
-
-    f = fopen(path, "rb");
-    if (!f) {
-        return -1;
+    if (!out_buf || !out_size) { errno = EINVAL; return -1; }
+    *out_buf = NULL; *out_size = 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    if (fseek(f, 0, SEEK_END)) { fclose(f); return -1; }
+    long length = ftell(f);
+    if (length < 0 || (uintmax_t)length >= SIZE_MAX || fseek(f, 0, SEEK_SET)) {
+        fclose(f); return -1;
     }
-
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        return -1;
-    }
-    fsize = ftell(f);
-    if (fsize < 0) {
-        fclose(f);
-        return -1;
-    }
-    if (fseek(f, 0, SEEK_SET) != 0) {
-        fclose(f);
-        return -1;
-    }
-
-    buf = (char *)malloc((size_t)fsize + 1);
-    if (!buf) {
-        fclose(f);
-        errno = ENOMEM;
-        return -1;
-    }
-
-    nread = fread(buf, 1, (size_t)fsize, f);
-    fclose(f);
-    buf[nread] = '\0';
-
-    *out_buf = buf;
-    *out_size = nread;
+    char *buf = malloc((size_t)length + 1);
+    if (!buf) { fclose(f); errno = ENOMEM; return -1; }
+    size_t count = fread(buf, 1, (size_t)length, f);
+    int failed = count != (size_t)length || ferror(f);
+    if (fclose(f)) failed = 1;
+    if (failed) { free(buf); errno = EIO; return -1; }
+    buf[count] = '\0'; *out_buf = buf; *out_size = count;
     return 0;
 }
 
 int write_file_text(const char *path, const char *data, size_t size) {
-    FILE *f = fopen(path, "wb");
-    if (!f) {
-        return -1;
+    if (!path || (!data && size)) { errno = EINVAL; return -1; }
+    /* Sibling temporary file: concurrent writers never share a staging path,
+     * readers see the complete old or new inode, never a truncated file. */
+    size_t length = strlen(path);
+    if (length > SIZE_MAX - 16) { errno = ENAMETOOLONG; return -1; }
+    char *temp = malloc(length + 16);
+    if (!temp) return -1;
+    snprintf(temp, length + 16, "%s.tmp-XXXXXX", path);
+    int fd = mkstemp(temp);
+    if (fd < 0) { free(temp); return -1; }
+    FILE *f = fdopen(fd, "wb");
+    int failed = !f;
+    if (!f) close(fd);
+    else {
+        if ((size && fwrite(data, 1, size, f) != size) || fflush(f) || fsync(fileno(f))) failed = 1;
+        if (fclose(f)) failed = 1;
     }
-    if (fwrite(data, 1, size, f) != size) {
-        fclose(f);
-        return -1;
+    if (!failed && rename(temp, path)) failed = 1;
+    int saved = errno;
+    if (failed) unlink(temp);
+    else {
+        /* Publication succeeded. Directory fsync is best-effort on filesystems
+         * that do not support it; a late sync failure cannot undo publication. */
+        char *slash = strrchr(temp, '/');
+        const char *parent = ".";
+        if (slash) { if (slash == temp) slash[1] = '\0'; else *slash = '\0'; parent = temp; }
+        int dir = open(parent, O_RDONLY | O_DIRECTORY);
+        if (dir >= 0) { fsync(dir); close(dir); }
     }
-    fclose(f);
-    return 0;
+    free(temp); errno = saved;
+    return failed ? -1 : 0;
 }
 
 int mkdir_if_missing(const char *path) {

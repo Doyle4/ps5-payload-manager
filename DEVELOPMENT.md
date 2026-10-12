@@ -131,6 +131,19 @@ cross-origin GET compatibility. The verification workflow also runs actual Chrom
 against a native stub server and Vite, checking hostile requests, real pagehide
 beacons, and zero rejected-request effects. Run `node tests/run_browser_mutation_tests.mjs` for these checks.
 
+Settings now accept validated partial updates. Saves atomically replace individual
+files, preserve unspecified fields/timestamps, and return errors on failed writes.
+The UI sends only the fields it edits. Settings/favorites/autoload remaps and
+source edits serialize read-modify-write; history reads serialize a snapshot of
+the 20 most recent entries. The new `run_config_tests.py` covers actual persistence,
+injected I/O failures and concurrent history/settings/source operations.
+
+Run `python3 tests/run_config_tests.py --thread-sanitize` on a host supporting
+Clang ThreadSanitizer; local macOS verification passed and CI has a macOS job.
+A multi-file settings request validates fully first, publishes lists before scalar
+settings, and reports 500 if any publication fails. Earlier completed files stay
+published; per-file atomicity does not provide an all-or-nothing transaction.
+
 Collected arrays are limited to **4,096 items** and **64 MiB** of allocated array
 capacity, whichever is smaller for the item type. Repository parsing accepts up
 to **16 MiB** of input text. These bounds apply to the parser/scanner collections;
@@ -141,8 +154,8 @@ Collection failures become explicit errors rather than successful partial lists.
 and frontend build without publishing or deploying. Frontend lint still reports existing errors. The host suite tests response
 ownership/status handling, request cleanup, and autoload-list bounds. Storage
 transactions, autoload worker concurrency, and PS5 firmware behavior remain
-separate validation scopes. Backend storage/service calls in the HTTP tests are
-stubbed; successful mock imports move actual files inside temporary fixtures.
+separate validation scopes. The main HTTP fixture stubs backend storage/services; the separate
+`--config-only` HTTP fixture uses actual config persistence. Successful mock imports move actual files inside temporary fixtures.
 
 The HTTP server accepts config/source bodies up to **1 MiB** and streamed uploads
 up to **512 MiB**. Larger declared or accumulated bodies return HTTP 413; empty
@@ -169,7 +182,7 @@ build a candidate under `scratch/` rather than run `make clean`:
 ```bash
 mkdir -p scratch
 docker run --rm --network=none -v "$(pwd):/src" -w /src \
-  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-candidate.elf
+  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-step5.elf
 ```
 
 This command assumes the SDK image, frontend distribution, and embedded CA

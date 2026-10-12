@@ -813,10 +813,9 @@ static int slot_delete_unlocked(const char *slot_key) {
     if (closedir(d) || rmdir(slot_dir)) return -1;
 
     /* Remove from autoload.txt and favorites.txt */
-    pldmgr_autoload_update_config_entry(slot_key, NULL);
-    pldmgr_favorites_update_entry(slot_key, NULL);
-
-    return 0;
+    int autoload_result = pldmgr_autoload_update_config_entry(slot_key, NULL);
+    int favorites_result = pldmgr_favorites_update_entry(slot_key, NULL);
+    return autoload_result || favorites_result ? -1 : 0;
 }
 
 int slot_version_compare(const char *v1, const char *v2) {

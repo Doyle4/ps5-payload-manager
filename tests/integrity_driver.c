@@ -37,7 +37,7 @@ int integrity_openat(int parent,const char *part,int flags,...) {
 }
 static int sockets, history;
 void pldmgr_log(const char *fmt,...) {(void)fmt;}
-void pldmgr_autoload_update_config_entry(const char *a,const char *b){(void)a;(void)b;}
+int pldmgr_autoload_update_config_entry(const char *a,const char *b){(void)a;(void)b;return 0;}
 void history_mgr_add(const char *path){(void)path;history++;}
 int integrity_socket(int domain,int type,int protocol){(void)domain;(void)type;(void)protocol;sockets++;return open("/dev/null",O_WRONLY);}
 int integrity_connect(int fd,const struct sockaddr *addr,socklen_t length){(void)fd;(void)addr;(void)length;return 0;}
