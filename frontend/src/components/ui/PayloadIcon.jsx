@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { cn } from '../../utils/helpers';
 import { Package } from 'lucide-react';
 
@@ -22,10 +22,18 @@ const stringToHash = (str) => {
 };
 
 const PayloadIcon = ({ icon, name, className }) => {
-  if (icon) {
+  const [loadError, setLoadError] = useState(false);
+  const isDataUri = typeof icon === 'string' && icon.startsWith('data:image/');
+
+  if (isDataUri && !loadError) {
     return (
       <div className={cn("rounded-2xl overflow-hidden border border-white/10 shrink-0 bg-white/5", className)}>
-        <img src={icon} alt={name || 'Payload'} className="w-full h-full object-cover" />
+        <img
+          src={icon}
+          alt={name || 'Payload'}
+          className="w-full h-full object-cover"
+          onError={() => setLoadError(true)}
+        />
       </div>
     );
   }

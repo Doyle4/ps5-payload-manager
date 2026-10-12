@@ -217,7 +217,8 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
         }
 
         json_extract_string(p, end, "icon", item->icon, sizeof(item->icon));
-        if (strlen(item->icon) > 12288) {
+        /* Only allow inline data URIs (e.g. data:image/svg+xml;base64,... or data:image/png;base64,...); reject external URLs */
+        if (strncmp(item->icon, "data:image/", 11) != 0 || strlen(item->icon) > 12288) {
             item->icon[0] = '\0';
         }
 

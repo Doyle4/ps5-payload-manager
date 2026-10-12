@@ -29,7 +29,9 @@ To create a repository, you must host a JSON file that conforms to the following
       "version": "v0.19",
       "last_update": "2026-10-11",
       "category": "Networking",
-      "checksum": "e6c1babbfd5e1b766d12b659853b514b9faedf6333cbe8cb514b1a3e79b7ce39"
+      "checksum": "e6c1babbfd5e1b766d12b659853b514b9faedf6333cbe8cb514b1a3e79b7ce39",
+      "author": "hippie68",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxMjgnIGhlaWdodD0nMTI4Jz48cmVjdCB3aWR0aD0nMTI4JyBoZWlnaHQ9JzEyOCcgcng9JzI0JyBmaWxsPScjM2I4MmY2Jy8+PHRleHQgeD0nNjQnIHk9JzgyJyBmb250LWZhbWlseT0nQXJpYWwsc2Fucy1zZXJpZicgZm9udC1zaXplPSc0NCcgZm9udC13ZWlnaHQ9J2JvbGQnIGZpbGw9JyNmZmYnIHRleHQtYW5jaG9yPSdtaWRkbGUnPkZUUDwvdGV4dD48L3N2Zz4="
     },
     {
       "id": "debug-tool",
@@ -59,9 +61,20 @@ To create a repository, you must host a JSON file that conforms to the following
 | **`category`** (item-level) | String | No | The category name used to group payloads in the frontend (e.g. `"Networking"`). Defaults to `"Uncategorized"`. |
 | **`checksum`** (item-level) | String | No | **SHA-256** hash (64 hex characters) of the file. If provided, the manager automatically validates the downloaded file against it before installation. If versions are identical but checksum differs, it is flagged as an update. |
 | **`author`** (item-level) | String | No | Author or creator of the payload. |
-| **`details_url`** (item-level) | String | No | URL to documentation or README for the payload. |
+| **`icon`** (item-level) | String | No | Inline base64 data URI icon (e.g. `data:image/svg+xml;base64,...` or `data:image/png;base64,...`). See [Payload Icons](#payload-icons) below. |
+| **`details_url`** (item-level) | String | No | URL to documentation or README markdown for the payload. |
+| **`release_notes`** (item-level) | String | No | Markdown release notes for this version (truncated at 2000 characters by backend). |
+| **`source`** (item-level) | String | No | Link to the upstream source repository or releases page. |
 
 ---
+
+### Payload Icons
+
+- **Data URIs Only**: The `icon` field must be an inline data URI starting with `data:image/` (e.g., SVG `data:image/svg+xml;base64,...` or PNG `data:image/png;base64,...`).
+- **No External Image URLs**: Direct HTTP/HTTPS image URLs (such as `https://example.com/icon.png`) are **not supported**. Inline data URIs are embedded directly inside the repository catalog, ensuring icons load instantly without extra network roundtrips, work 100% offline, and are unaffected by DNS blockers commonly configured on PS5 consoles.
+- **Maximum Length**: The data URI must not exceed **12 KB** (~12,288 characters). Icons exceeding this limit are ignored.
+- **Recommended Dimensions**: Square icons (e.g. 128x128 or 256x256) with rounded or transparent borders look best across the Dashboard, Autoload, and Repository views.
+- **Automatic Fallback**: If `icon` is omitted, malformed, or exceeds the size limit, Payload Manager automatically renders a colorful gradient icon based on a hash of the payload's name.
 
 ## Version Comparison Rules
 
