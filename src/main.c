@@ -106,6 +106,11 @@ int main(int argc, char *argv[]) {
     pldmgr_log("[PLDMGR] Starting Payload Manager v%s on port %d...\n",
                pldmgr_version_sig + 11, port);
 
+    if (slot_storage_recover() != 0) {
+        pldmgr_log("[PLDMGR] Storage recovery failed; startup stopped to preserve payloads.\n");
+        return 1;
+    }
+
     /* Run one-time migration to layout v2 if needed */
     slot_migrate_legacy();
 

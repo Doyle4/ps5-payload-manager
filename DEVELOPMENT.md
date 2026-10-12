@@ -84,7 +84,7 @@ UTF-8-safe prefixes. The backend suite uses real repository, source save/load,
 and slot metadata read/write code inside temporary storage. It parses their
 results independently with Python. Unused network/PS5 code is discarded at
 link time, and no download or payload launch occurs. `make test-host` runs all
-six host suites with sanitizers.
+seven host suites with sanitizers.
 
 The serializer suite exercises actual history/log/payload/process/repository
 output at small and large capacities, sixfold escape expansion, failed format
@@ -100,6 +100,14 @@ observed growth/read/path-copy allocation in its current fixtures and verifies
 that failure clears results and releases partial collections. USB paths are
 redirected to temporary fixtures using `PLDMGR_USB_ROOT_FORMAT`; production
 defaults remain `/mnt/usb%d`. No fixture payload is launched.
+
+The storage suite executes real uploads, USB imports, and repository installations
+with local recorded download bytes. It checks conflicts, concurrent keys, complete
+payload/metadata publication, I/O faults, media changes, and process-interruption
+recovery. Storage uses unique staging directories and a journal/backup; startup
+recovers interrupted commits before migration or serving requests. Public slot
+layout is preserved. File syncing is checked; unsupported directory syncing limits
+power-loss durability. Configuration remaps and migration are tested separately.
 
 Collected arrays are limited to **4,096 items** and **64 MiB** of allocated array
 capacity, whichever is smaller for the item type. Repository parsing accepts up

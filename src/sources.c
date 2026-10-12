@@ -562,6 +562,9 @@ int sources_repo_install(const char *source_url, const char *id,
                          const char *mode, const char *replace_slot,
                          char *out_json, size_t out_size) {
     JsonListBuilder jb = { out_json, out_size, 0, 1, 0 };
+    if (!slot_mode_valid(mode)) {
+        json_append(&jb, "{\"ok\":false,\"message\":\"Invalid storage mode\"}"); return -1;
+    }
     char safe_id[128];
     slot_slug(id, safe_id, sizeof(safe_id));
     if (safe_id[0] == '\0') {
@@ -635,6 +638,9 @@ int sources_repo_install(const char *source_url, const char *id,
                 if (strcmp(existing_slots[i].kind, SLOT_KIND_REPO) == 0 &&
                     strcmp(existing_slots[i].id, safe_id) == 0 &&
                     strcmp(existing_slots[i].slot_key, target_slot) != 0) {
+                    char existing_hash[16];
+                    slot_source_hash(existing_slots[i].source_url, existing_hash, sizeof(existing_hash));
+                    if (!strcmp(existing_hash, h8)) continue;
                     /* Conflict found with another source! */
                     char c_slot[6 * 128], c_name[6 * 256], c_ver[6 * 64];
                     json_escape_checked(&jb, existing_slots[i].slot_key, c_slot, sizeof(c_slot));
@@ -741,17 +747,21 @@ int sources_repo_install(const char *source_url, const char *id,
         return -1;
     }
 
-    /* Prepare slot directory */
-    char slot_dir[640];
-    snprintf(slot_dir, sizeof(slot_dir), "%s/%s", PAYLOADS_STORAGE_DIR, target_slot);
-    if (ensure_dir_recursive(slot_dir) != 0) {
+    /* Download into a unique private file, never an installed slot. */
+    if (ensure_dir_recursive(PAYLOADS_STORAGE_DIR)) {
         free(entry);
-        json_append(&jb, "{\"ok\":false,\"message\":\"Failed to create slot directory\"}");
-        return -1;
+        json_append(&jb, "{\"ok\":false,\"message\":\"Failed to create storage directory\"}"); return -1;
     }
-
     char part_path[768];
-    snprintf(part_path, sizeof(part_path), "%s/.part", slot_dir);
+    snprintf(part_path, sizeof(part_path), "%s/.download-XXXXXX", PAYLOADS_STORAGE_DIR);
+    int part_fd = mkstemp(part_path);
+    if (part_fd < 0) {
+        free(entry); json_append(&jb, "{\"ok\":false,\"message\":\"Failed to stage download\"}"); return -1;
+    }
+    if (close(part_fd)) {
+        remove(part_path); free(entry);
+        json_append(&jb, "{\"ok\":false,\"message\":\"Failed to close staging file\"}"); return -1;
+    }
 
     /* Download attempt */
     int dl_ok = (download_to_file(entry->url, part_path) == 0);
@@ -831,51 +841,18 @@ int sources_repo_install(const char *source_url, const char *id,
         }
     }
 
-checksum_passed:
-
-    /* Handle mode=replace for conflicting slot */
-    if (is_mode_replace && replace_slot && replace_slot[0] && strcmp(replace_slot, target_slot) != 0) {
-        pldmgr_autoload_update_config_entry(replace_slot, target_slot);
-        pldmgr_favorites_update_entry(replace_slot, target_slot);
-        slot_delete(replace_slot);
-    }
-
-    /* Remove any old payload in target slot */
-    DIR *sd = opendir(slot_dir);
-    if (sd) {
-        struct dirent *se;
-        while ((se = readdir(sd)) != NULL) {
-            if (se->d_name[0] == '.') continue;
-            if (strcmp(se->d_name, "meta.json") == 0) continue;
-            char old_file[768];
-            snprintf(old_file, sizeof(old_file), "%s/%s", slot_dir, se->d_name);
-            remove(old_file);
-        }
-        closedir(sd);
-    }
-
-    /* Commit .part -> entry->filename */
-    char final_file[768];
-    snprintf(final_file, sizeof(final_file), "%s/%s", slot_dir, entry->filename);
-    if (rename(part_path, final_file) != 0) {
-        free(entry);
-        remove(part_path);
-        json_append(&jb, "{\"ok\":false,\"message\":\"Failed to commit payload file\"}");
-        return -1;
-    }
+checksum_passed:;
 
     /* Write meta.json */
     SlotMeta *meta = (SlotMeta *)calloc(1, sizeof(SlotMeta));
     if (!meta) {
-        free(entry);
+        free(entry); remove(part_path);
         json_append(&jb, "{\"ok\":false,\"message\":\"Out of memory\"}");
         return -1;
     }
     meta->schema = PAYLOAD_SLOT_SCHEMA;
     strcpy(meta->kind, SLOT_KIND_REPO);
     strncpy(meta->slot_key, target_slot, sizeof(meta->slot_key) - 1);
-    strncpy(meta->slot_dir, slot_dir, sizeof(meta->slot_dir) - 1);
-    strncpy(meta->payload_path, final_file, sizeof(meta->payload_path) - 1);
     strncpy(meta->filename, entry->filename, sizeof(meta->filename) - 1);
 
     time_t now = time(NULL);
@@ -898,8 +875,28 @@ checksum_passed:
     strncpy(meta->author, entry->author, sizeof(meta->author) - 1);
     strncpy(meta->details_url, entry->details_url, sizeof(meta->details_url) - 1);
 
-    slot_write_meta(slot_dir, meta);
-    free(meta);
+    char committed_slot[128];
+    /* An omitted mode preserves the established reinstall/update behavior;
+     * explicit new is exclusive, and keep_both also works within one source. */
+    const char *commit_mode = mode && mode[0] ? mode : "replace";
+    int committed = slot_commit_file(target_slot, part_path, commit_mode, meta, !is_mode_replace && !is_mode_keep_both,
+                                     committed_slot, sizeof(committed_slot));
+    free(meta); remove(part_path);
+    if (committed) {
+        free(entry);
+        json_append(&jb, "{\"ok\":false,\"message\":\"Storage commit failed (conflict or I/O error)\"}"); return -1;
+    }
+    snprintf(target_slot, sizeof(target_slot), "%s", committed_slot);
+    int old_cleanup_failed = 0;
+    /* Retire a conflicting source only after the new slot is usable. */
+    if (is_mode_replace && replace_slot && replace_slot[0] && strcmp(replace_slot, target_slot)) {
+        pldmgr_autoload_update_config_entry(replace_slot, target_slot);
+        pldmgr_favorites_update_entry(replace_slot, target_slot);
+        if (slot_delete(replace_slot)) {
+            old_cleanup_failed = 1;
+            pldmgr_log("[PLDMGR] New repository slot committed; old slot cleanup incomplete: %s\n", replace_slot);
+        }
+    }
 
     char sk_e[6 * 128], id_e[6 * 128], ver_e[6 * 64], fn_e[6 * 256];
     json_escape_checked(&jb, target_slot, sk_e, sizeof(sk_e));
@@ -908,8 +905,9 @@ checksum_passed:
     json_escape_checked(&jb, entry->filename, fn_e, sizeof(fn_e));
 
     json_append(&jb,
-             "{\"ok\":true,\"slot\":\"%s\",\"id\":\"%s\",\"version\":\"%s\",\"filename\":\"%s\",\"refreshed\":%s}",
-             sk_e, id_e, ver_e, fn_e, refreshed ? "true" : "false");
+             "{\"ok\":true,\"slot\":\"%s\",\"id\":\"%s\",\"version\":\"%s\",\"filename\":\"%s\",\"refreshed\":%s%s}",
+             sk_e, id_e, ver_e, fn_e, refreshed ? "true" : "false",
+             old_cleanup_failed ? ",\"warning\":\"New payload installed; previous slot cleanup incomplete\"" : "");
 
     pldmgr_log("[PLDMGR] Repo install success: slot=%s id=%s ver=%s\n", target_slot, id, entry->version);
     free(entry);

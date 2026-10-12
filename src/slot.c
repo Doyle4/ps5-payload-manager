@@ -8,6 +8,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <pthread.h>
+#include <fcntl.h>
 
 #include "slot.h"
 #include "collection_helpers.h"
@@ -22,6 +24,277 @@ static int is_supported_ext(const char *name) {
     const char *ext = strrchr(name, '.');
     if (!ext) return 0;
     return (strcasecmp(ext, ".elf") == 0 || strcasecmp(ext, ".bin") == 0);
+}
+
+/* Storage operations share one recursive lock. Downloads happen outside it;
+ * selecting a key, preparing a slot, and publishing it are serialized. */
+static pthread_once_t storage_once = PTHREAD_ONCE_INIT;
+static pthread_mutex_t storage_mutex;
+static int storage_recovery_required;
+static int storage_mutex_error;
+static void storage_mutex_init(void) {
+    pthread_mutexattr_t attr;
+    storage_mutex_error = pthread_mutexattr_init(&attr);
+    if (storage_mutex_error) return;
+    storage_mutex_error = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    if (!storage_mutex_error) storage_mutex_error = pthread_mutex_init(&storage_mutex, &attr);
+    pthread_mutexattr_destroy(&attr);
+}
+static int storage_lock(void) {
+    int rc = pthread_once(&storage_once, storage_mutex_init);
+    if (rc || storage_mutex_error) return -1;
+    return pthread_mutex_lock(&storage_mutex) ? -1 : 0;
+}
+static void storage_unlock(void) { pthread_mutex_unlock(&storage_mutex); }
+
+int slot_mode_valid(const char *mode) {
+    return !mode || !mode[0] || !strcmp(mode, "new") ||
+           !strcmp(mode, "replace") || !strcmp(mode, "keep_both");
+}
+static int storage_leaf_valid(const char *leaf) {
+    return leaf && leaf[0] && leaf[0] != '.' && !strchr(leaf, '/') &&
+           !strstr(leaf, "..") && strlen(leaf) < 122;
+}
+static int storage_key_valid(const char *key) {
+    const char *leaf = NULL;
+    if (key && !strncmp(key, "local/", 6)) leaf = key + 6;
+    if (key && !strncmp(key, "repo/", 5)) leaf = key + 5;
+    return storage_leaf_valid(leaf);
+}
+/* Only private transaction directories are recursively removed. Never follow
+ * links (including links left by an interrupted or externally modified job). */
+static struct dirent *storage_next(DIR *d, int *rc) {
+    errno = 0;
+    struct dirent *ent = readdir(d);
+    if (!ent && errno) *rc = -1;
+    return ent;
+}
+static int storage_remove_tree(const char *path) {
+    struct stat st;
+    if (lstat(path, &st)) return errno == ENOENT ? 0 : -1;
+    if (!S_ISDIR(st.st_mode)) return unlink(path);
+    DIR *d = opendir(path);
+    if (!d) return -1;
+    int rc = 0;
+    struct dirent *ent;
+    while ((ent = storage_next(d, &rc))) {
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+        char child[1024];
+        if (snprintf(child, sizeof(child), "%s/%s", path, ent->d_name) >= (int)sizeof(child) ||
+            storage_remove_tree(child)) { rc = -1; break; }
+    }
+    if (closedir(d)) rc = -1;
+    return rc ? rc : rmdir(path);
+}
+/* Some PS5 filesystems do not support syncing directory descriptors. File
+ * flush/close/sync failures are always fatal; unsupported directory fsync is
+ * documented as a durability limitation, not treated as a rollback. */
+static int storage_sync_dir(const char *path) {
+    int fd = open(path, O_RDONLY | O_DIRECTORY);
+    if (fd < 0) return -1;
+    int rc = fsync(fd), saved = errno;
+    if (close(fd)) return -1;
+    if (rc && saved != EINVAL && saved != ENOTSUP) { errno = saved; return -1; }
+    return 0;
+}
+static int storage_write(const char *path, const char *text, size_t length) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return -1;
+    int rc = fwrite(text, 1, length, f) == length ? 0 : -1;
+    if (fflush(f)) rc = -1;
+    if (!rc && fsync(fileno(f))) rc = -1;
+    if (fclose(f)) rc = -1;
+    return rc;
+}
+/* Verify the staged bytes independently after checked copy/flush/sync/close.
+ * A short read or media removal cannot turn a truncated copy into success. */
+static int storage_copy(const char *source, const char *destination) {
+    FILE *in = fopen(source, "rb");
+    if (!in) return -1;
+    struct stat st;
+    if (fstat(fileno(in), &st) || !S_ISREG(st.st_mode) || st.st_size <= 0) {
+        fclose(in); return -1;
+    }
+    FILE *out = fopen(destination, "wb");
+    if (!out) { fclose(in); return -1; }
+    unsigned char buf[8192], expected[32], actual[32];
+    SHA256_CTX hash;
+    sha256_init(&hash);
+    size_t n, total = 0;
+    int rc = 0;
+    while ((n = fread(buf, 1, sizeof(buf), in))) {
+        sha256_update(&hash, buf, n); total += n;
+        if (fwrite(buf, 1, n, out) != n) { rc = -1; break; }
+    }
+    if (ferror(in) || total != (size_t)st.st_size) rc = -1;
+    if (fclose(in)) rc = -1;
+    if (fflush(out)) rc = -1;
+    if (!rc && fsync(fileno(out))) rc = -1;
+    if (fclose(out)) rc = -1;
+    sha256_final(&hash, expected);
+    if (rc) return -1;
+    in = fopen(destination, "rb");
+    if (!in) return -1;
+    sha256_init(&hash); size_t verified = 0;
+    while ((n = fread(buf, 1, sizeof(buf), in))) {
+        sha256_update(&hash, buf, n); verified += n;
+    }
+    if (ferror(in) || verified != total) rc = -1;
+    if (fclose(in)) rc = -1;
+    sha256_final(&hash, actual);
+    return rc || memcmp(expected, actual, sizeof(actual)) ? -1 : 0;
+}
+
+/* The journal names a validated sibling. If old exists but the public slot
+ * does not, publication never happened: restore old. Otherwise the public
+ * directory is the committed version. Staging and backups are then garbage.
+ * Called at startup before migration, requests, or autoload begin. */
+static int slot_storage_recover_impl(int clean_requests) {
+    if (storage_lock()) return -1;
+    int rc = 0;
+    const char *kinds[] = { "local", "repo" };
+    for (size_t i = 0; i < 2 && !rc; i++) {
+        char parent[640];
+        snprintf(parent, sizeof(parent), "%s/%s", PAYLOADS_STORAGE_DIR, kinds[i]);
+        DIR *d = opendir(parent);
+        if (!d) { if (errno != ENOENT) rc = -1; continue; }
+        struct dirent *ent;
+        while ((ent = storage_next(d, &rc))) {
+            if (strncmp(ent->d_name, ".txn-", 5)) continue;
+            char txn[768], journal[800], old[800], target[800], leaf[128];
+            snprintf(txn, sizeof(txn), "%s/%s", parent, ent->d_name);
+            snprintf(journal, sizeof(journal), "%s/target", txn);
+            snprintf(old, sizeof(old), "%s/old", txn);
+            struct stat st;
+            if (lstat(txn, &st) || !S_ISDIR(st.st_mode)) { rc = -1; break; }
+            if (!lstat(journal, &st) && !S_ISREG(st.st_mode)) { rc = -1; break; }
+            FILE *f = fopen(journal, "rb");
+            if (!f) {
+                /* No journal means no rename of the old slot was attempted. */
+                if (errno != ENOENT) { rc = -1; break; }
+                if (!lstat(old, &st) || errno != ENOENT || storage_remove_tree(txn)) { rc = -1; break; }
+                continue;
+            }
+            size_t n = fread(leaf, 1, sizeof(leaf)-1, f);
+            int bad = ferror(f) || !feof(f);
+            if (fclose(f)) bad = 1;
+            leaf[n] = 0;
+            if (bad || strlen(leaf) != n || !storage_leaf_valid(leaf)) { rc = -1; break; }
+            snprintf(target, sizeof(target), "%s/%s", parent, leaf);
+            if (lstat(target, &st)) {
+                if (errno != ENOENT) { rc = -1; break; }
+                if (!lstat(old, &st)) {
+                    if (!S_ISDIR(st.st_mode) || rename(old, target) || storage_sync_dir(parent)) { rc = -1; break; }
+                } else if (errno != ENOENT) { rc = -1; break; }
+            }
+            else if (!S_ISDIR(st.st_mode)) { rc = -1; break; }
+            if (storage_remove_tree(txn)) { rc = -1; break; }
+        }
+        if (closedir(d)) rc = -1;
+    }
+    /* Startup owns no active uploads/downloads. Remove abandoned request
+     * files only after recovering all slot directories. */
+    if (!rc && clean_requests) {
+        DIR *d = opendir(PAYLOADS_STORAGE_DIR);
+        if (!d) { if (errno != ENOENT) rc = -1; }
+        else {
+            struct dirent *ent;
+            while ((ent = storage_next(d, &rc))) {
+                size_t prefix = !strncmp(ent->d_name, ".download-", 10) ? 10 :
+                                !strncmp(ent->d_name, ".upload-", 8) ? 8 : 0;
+                if (!prefix || strlen(ent->d_name) != prefix + 6) continue;
+                char path[768]; struct stat st;
+                snprintf(path, sizeof(path), "%s/%s", PAYLOADS_STORAGE_DIR, ent->d_name);
+                if (lstat(path, &st) || !S_ISREG(st.st_mode) || unlink(path)) { rc = -1; break; }
+            }
+            if (closedir(d)) rc = -1;
+        }
+    }
+    storage_recovery_required = rc != 0;
+    storage_unlock();
+    return rc;
+}
+
+int slot_storage_recover(void) { return slot_storage_recover_impl(1); }
+
+int slot_commit_file(const char *base_key, const char *source, const char *mode,
+                     SlotMeta *meta, int check_repo_conflict, char *out_key, size_t out_size) {
+    if (!storage_key_valid(base_key) || !source || !meta || !out_key || out_size < 128 ||
+        !slot_mode_valid(mode) || !meta->filename[0] || meta->filename[0] == '.' ||
+        strchr(meta->filename, '/') || strstr(meta->filename, "..") || !is_supported_ext(meta->filename)) return -1;
+    if (storage_lock()) return -1;
+    if (storage_recovery_required && slot_storage_recover_impl(0)) { storage_unlock(); return -1; }
+    int rc = -1, moved_old = 0;
+    char key[128], target[640], parent[640], txn[768] = "", prepared[800], old[800], journal[800], payload[1024];
+    if (check_repo_conflict && !strcmp(meta->kind, SLOT_KIND_REPO)) {
+        SlotMeta *slots = NULL; size_t count = 0;
+        if (slot_list_all(&slots, &count)) goto done;
+        int conflict = 0;
+        char source_hash[16];
+        slot_source_hash(meta->source_url, source_hash, sizeof(source_hash));
+        for (size_t i = 0; i < count; i++) {
+            char other_hash[16];
+            slot_source_hash(slots[i].source_url, other_hash, sizeof(other_hash));
+            if (!strcmp(slots[i].kind, SLOT_KIND_REPO) && !strcmp(slots[i].id, meta->id) &&
+                strcmp(slots[i].slot_key, base_key) && strcmp(source_hash, other_hash)) { conflict = 1; break; }
+        }
+        slot_free_all(slots);
+        if (conflict) { errno = EEXIST; goto done; }
+    }
+    snprintf(key, sizeof(key), "%s", base_key);
+    struct stat st;
+    for (int suffix = 1; suffix <= 10000; suffix++) {
+        snprintf(target, sizeof(target), "%s/%s", PAYLOADS_STORAGE_DIR, key);
+        if (lstat(target, &st)) { if (errno != ENOENT) goto done; break; }
+        if (mode && !strcmp(mode, "replace")) {
+            if (!S_ISDIR(st.st_mode)) goto done;
+            break;
+        }
+        if (!mode || strcmp(mode, "keep_both") || suffix == 10000) { errno = EEXIST; goto done; }
+        if (snprintf(key, sizeof(key), "%s-%d", base_key, suffix+1) >= (int)sizeof(key)) goto done;
+    }
+    snprintf(parent, sizeof(parent), "%s/%.*s", PAYLOADS_STORAGE_DIR,
+             (int)(strchr(key, '/')-key), key);
+    if (ensure_dir_recursive(parent)) goto done;
+    snprintf(txn, sizeof(txn), "%s/.txn-XXXXXX", parent);
+    if (!mkdtemp(txn)) { txn[0] = 0; goto done; }
+    snprintf(prepared, sizeof(prepared), "%s/new", txn);
+    snprintf(old, sizeof(old), "%s/old", txn);
+    snprintf(journal, sizeof(journal), "%s/target", txn);
+    if (mkdir(prepared, 0700)) goto done;
+    snprintf(payload, sizeof(payload), "%s/%s", prepared, meta->filename);
+    if (storage_copy(source, payload)) goto done;
+    snprintf(meta->slot_key, sizeof(meta->slot_key), "%s", key);
+    snprintf(meta->slot_dir, sizeof(meta->slot_dir), "%s", target);
+    snprintf(meta->payload_path, sizeof(meta->payload_path), "%s/%s", target, meta->filename);
+    if (slot_write_meta(prepared, meta) || storage_sync_dir(prepared)) goto done;
+    const char *leaf = strchr(key, '/')+1;
+    if (storage_write(journal, leaf, strlen(leaf)) || storage_sync_dir(txn) || storage_sync_dir(parent)) goto done;
+    if (!lstat(target, &st)) {
+        if (rename(target, old)) goto done;
+        moved_old = 1;
+        if (storage_sync_dir(txn) || storage_sync_dir(parent)) goto rollback;
+    } else if (errno != ENOENT) goto done;
+    if (rename(prepared, target)) goto rollback;
+    /* Publication succeeded: never remove the published directory on a late
+     * cleanup failure. The retained journal can be safely cleaned at startup. */
+    snprintf(out_key, out_size, "%s", key);
+    rc = 0;
+    if (storage_sync_dir(parent)) {
+        pldmgr_log("[PLDMGR] Slot published; directory sync failed for %s\n", key);
+        txn[0] = 0; goto done;
+    }
+    goto done;
+rollback:
+    if (moved_old && rename(old, target)) {
+        pldmgr_log("[PLDMGR] Slot rollback needs startup recovery: %s\n", key);
+        txn[0] = 0; storage_recovery_required = 1;
+    } else if (moved_old) storage_sync_dir(parent);
+done:
+    if (txn[0] && storage_remove_tree(txn))
+        pldmgr_log("[PLDMGR] Retaining storage transaction for recovery: %s\n", txn);
+    storage_unlock();
+    return rc;
 }
 
 int slot_source_hash(const char *source_url, char *out_hash8, size_t out_size) {
@@ -185,7 +458,7 @@ int slot_find_next_local_key(const char *base_key, char *out_slot, size_t out_si
     return 0;
 }
 
-int slot_read_meta(const char *slot_dir, SlotMeta *out_meta) {
+static int slot_read_meta_unlocked(const char *slot_dir, SlotMeta *out_meta) {
     if (!slot_dir || !out_meta) return -1;
     memset(out_meta, 0, sizeof(SlotMeta));
 
@@ -294,7 +567,7 @@ int slot_read_meta(const char *slot_dir, SlotMeta *out_meta) {
     return 0;
 }
 
-int slot_write_meta(const char *slot_dir, const SlotMeta *meta) {
+static int slot_write_meta_unlocked(const char *slot_dir, const SlotMeta *meta) {
     if (!slot_dir || !meta) return -1;
 
     char buf[65536];
@@ -370,15 +643,16 @@ int slot_write_meta(const char *slot_dir, const SlotMeta *meta) {
     if (jb.error) return -1;
 
     char tmp_path[640], final_path[640];
-    snprintf(tmp_path, sizeof(tmp_path), "%s/meta.json.tmp", slot_dir);
+    snprintf(tmp_path, sizeof(tmp_path), "%s/.meta-XXXXXX", slot_dir);
     snprintf(final_path, sizeof(final_path), "%s/meta.json", slot_dir);
 
-    if (write_file_text(tmp_path, buf, jb.pos) != 0) {
-        remove(tmp_path);
-        return -1;
+    int fd = mkstemp(tmp_path);
+    if (fd < 0) return -1;
+    if (close(fd) || storage_write(tmp_path, buf, jb.pos)) {
+        remove(tmp_path); return -1;
     }
-
-    return rename(tmp_path, final_path);
+    if (rename(tmp_path, final_path)) { remove(tmp_path); return -1; }
+    return 0;
 }
 
 static int scan_slot_subdir(const char *parent_dir, SlotMeta **out_slots, size_t *out_count, size_t *capacity) {
@@ -409,7 +683,7 @@ static int scan_slot_subdir(const char *parent_dir, SlotMeta **out_slots, size_t
     return 0;
 }
 
-int slot_list_all(SlotMeta **out_slots, size_t *out_count) {
+static int slot_list_all_unlocked(SlotMeta **out_slots, size_t *out_count) {
     if (!out_slots || !out_count) return -1;
     *out_slots = NULL;
     *out_count = 0;
@@ -512,7 +786,7 @@ int slot_resolve(const char *slot_or_path, char *out_path, size_t out_size) {
     return -1;
 }
 
-int slot_delete(const char *slot_key) {
+static int slot_delete_unlocked(const char *slot_key) {
     if (!slot_key || slot_key[0] == '\0') return -1;
     if (strstr(slot_key, "..") || slot_key[0] == '/') return -1;
 
@@ -527,11 +801,9 @@ int slot_delete(const char *slot_key) {
         if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
         char file_path[768];
         snprintf(file_path, sizeof(file_path), "%s/%s", slot_dir, ent->d_name);
-        remove(file_path);
+        if (remove(file_path)) { closedir(d); return -1; }
     }
-    closedir(d);
-
-    rmdir(slot_dir);
+    if (closedir(d) || rmdir(slot_dir)) return -1;
 
     /* Remove from autoload.txt and favorites.txt */
     pldmgr_autoload_update_config_entry(slot_key, NULL);
@@ -927,4 +1199,33 @@ int slot_pop_legacy_paths_json(char *buf, size_t buf_size) {
         return 0;
     }
     return -1;
+}
+
+int slot_read_meta(const char *slot_dir, SlotMeta *out_meta) {
+    if (storage_lock()) return -1;
+    int rc = slot_read_meta_unlocked(slot_dir, out_meta);
+    storage_unlock();
+    return rc;
+}
+
+int slot_write_meta(const char *slot_dir, const SlotMeta *meta) {
+    if (storage_lock()) return -1;
+    int rc = slot_write_meta_unlocked(slot_dir, meta);
+    storage_unlock();
+    return rc;
+}
+
+int slot_list_all(SlotMeta **out_slots, size_t *out_count) {
+    if (storage_lock()) return -1;
+    int rc = slot_list_all_unlocked(out_slots, out_count);
+    storage_unlock();
+    return rc;
+}
+
+int slot_delete(const char *slot_key) {
+    if (storage_lock()) return -1;
+    if (storage_recovery_required && slot_storage_recover_impl(0)) { storage_unlock(); return -1; }
+    int rc = slot_delete_unlocked(slot_key);
+    storage_unlock();
+    return rc;
 }

@@ -37,6 +37,15 @@ typedef struct SlotMeta {
     char origin_detail[1024];
 } SlotMeta;
 
+/* Serialized payload + metadata publication; source remains caller-owned.
+ * new rejects existing keys, replace preserves old on failure, keep_both
+ * selects a unique suffix. out_key must have at least 128 bytes. */
+int slot_mode_valid(const char *mode);
+int slot_commit_file(const char *base_key, const char *source, const char *mode,
+                     SlotMeta *meta, int check_repo_conflict, char *out_key, size_t out_size);
+/* Recover interrupted commits before migration or serving requests. */
+int slot_storage_recover(void);
+
 /* Compute 8-hex-character hash of normalized source URL */
 int slot_source_hash(const char *source_url, char *out_hash8, size_t out_size);
 

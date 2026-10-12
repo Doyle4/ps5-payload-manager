@@ -55,6 +55,7 @@ test-host:
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_json_backend_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_json_size_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_allocation_tests.py
+	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_storage_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_http_tests.py
 
 test-frontend:

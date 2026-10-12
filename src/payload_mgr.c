@@ -36,32 +36,12 @@ static int is_allowed_usb_path(const char *path) {
     if (!path || path[0] == '\0') return 0;
     if (strstr(path, "..")) return 0;
     if (!is_supported_extension(path)) return 0;
-    if (strncmp(path, "/mnt/usb", 8) == 0 && path[8] >= '0' && path[8] <= '7' &&
-        path[9] == '/') {
-        return 1;
+    for (int i = 0; i < 8; i++) {
+        char root[512];
+        snprintf(root, sizeof(root), PLDMGR_USB_ROOT_FORMAT, i);
+        size_t len = strlen(root);
+        if (!strncmp(path, root, len) && path[len] == '/') return 1;
     }
-    return 0;
-}
-
-static int copy_file(const char *src, const char *dst) {
-    FILE *in = fopen(src, "rb");
-    if (!in) return -1;
-    FILE *out = fopen(dst, "wb");
-    if (!out) {
-        fclose(in);
-        return -1;
-    }
-    char buf[8192];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
-        if (fwrite(buf, 1, n, out) != n) {
-            fclose(in);
-            fclose(out);
-            return -1;
-        }
-    }
-    fclose(in);
-    fclose(out);
     return 0;
 }
 
@@ -368,49 +348,12 @@ int payload_mgr_import_to_storage_mode(const char *filename, const char *temp_pa
     char lkey[128];
     slot_local_key(filename, lkey, sizeof(lkey));
 
-    char target_slot[128];
-    if (mode && strcmp(mode, "keep_both") == 0) {
-        slot_find_next_local_key(lkey, target_slot, sizeof(target_slot));
-    } else {
-        snprintf(target_slot, sizeof(target_slot), "local/%s", lkey);
-    }
-
-    char slot_dir[640];
-    snprintf(slot_dir, sizeof(slot_dir), "%s/%s", PAYLOADS_STORAGE_DIR, target_slot);
-    if (ensure_dir_recursive(slot_dir) != 0) {
-        snprintf(msg_buf, msg_buf_size, "Failed to create slot directory");
-        return -1;
-    }
-
-    /* Remove any previous payload in this slot */
-    DIR *d = opendir(slot_dir);
-    if (d) {
-        struct dirent *ent;
-        while ((ent = readdir(d)) != NULL) {
-            if (ent->d_name[0] == '.') continue;
-            if (strcmp(ent->d_name, "meta.json") == 0) continue;
-            char old_f[768];
-            snprintf(old_f, sizeof(old_f), "%s/%s", slot_dir, ent->d_name);
-            remove(old_f);
-        }
-        closedir(d);
-    }
-
-    char final_path[768];
-    snprintf(final_path, sizeof(final_path), "%s/%s", slot_dir, filename);
-
-    if (rename(temp_path, final_path) != 0) {
-        snprintf(msg_buf, msg_buf_size, "Failed to move file into slot");
-        return -1;
-    }
-
+    char target_slot[128], base_slot[128];
+    snprintf(base_slot, sizeof(base_slot), "local/%s", lkey);
     SlotMeta meta;
     memset(&meta, 0, sizeof(meta));
     meta.schema = PAYLOAD_SLOT_SCHEMA;
     strcpy(meta.kind, SLOT_KIND_LOCAL);
-    strncpy(meta.slot_key, target_slot, sizeof(meta.slot_key) - 1);
-    strncpy(meta.slot_dir, slot_dir, sizeof(meta.slot_dir) - 1);
-    strncpy(meta.payload_path, final_path, sizeof(meta.payload_path) - 1);
     strncpy(meta.filename, filename, sizeof(meta.filename) - 1);
 
     time_t now = time(NULL);
@@ -423,7 +366,13 @@ int payload_mgr_import_to_storage_mode(const char *filename, const char *temp_pa
         strncpy(meta.origin_detail, install_source_detail, sizeof(meta.origin_detail) - 1);
     }
 
-    slot_write_meta(slot_dir, &meta);
+    if (slot_commit_file(base_slot, temp_path, mode, &meta, 0, target_slot, sizeof(target_slot))) {
+        snprintf(msg_buf, msg_buf_size, "Storage commit failed (conflict, invalid mode, or I/O error)");
+        return -1;
+    }
+    /* On failure the request completion callback still owns the upload. */
+    if (remove(temp_path))
+        pldmgr_log("[PLDMGR] Upload committed; retaining request file for startup cleanup: %s\n", temp_path);
 
     if (out_slot && out_slot_size > 0) {
         strncpy(out_slot, target_slot, out_slot_size - 1);
@@ -463,6 +412,11 @@ int payload_mgr_usb_check(const char *usb_path, char *out_json, size_t out_size)
         return -1;
     }
     int exists = meta.payload_path[0] != '\0';
+    char usb_hash[65], installed_hash[65];
+    if (!S_ISREG(st.st_mode) || st.st_size <= 0 || compute_sha256_file(usb_path, usb_hash) ||
+        (exists && compute_sha256_file(meta.payload_path, installed_hash))) {
+        json_append(&jb, "{\"error\":\"Failed to verify payload contents\"}"); return -1;
+    }
 
     char name_e[6 * 256], path_e[6 * 512], key_e[6 * 128];
     json_escape_checked(&jb, filename, name_e, sizeof(name_e));
@@ -474,20 +428,20 @@ int payload_mgr_usb_check(const char *usb_path, char *out_json, size_t out_size)
         json_escape_checked(&jb, meta.slot_key, slot_e, sizeof(slot_e));
         json_escape_checked(&jb, meta.filename, exfn_e, sizeof(exfn_e));
 
-        int is_same = (strcmp(meta.filename, filename) == 0);
+        int is_same = !strcmp(meta.filename, filename) && !strcmp(usb_hash, installed_hash);
         json_append(&jb,
-                 "{\"filename\":\"%s\",\"path\":\"%s\",\"size\":%lld,\"key\":\"%s\","
+                 "{\"filename\":\"%s\",\"path\":\"%s\",\"size\":%lld,\"sha256\":\"%s\",\"key\":\"%s\","
                  "\"status\":\"%s\",\"folder_exists\":true,\"folder_name\":\"%s\","
                  "\"existing\":{\"slot\":\"%s\",\"filename\":\"%s\"}}",
-                 name_e, path_e, (long long)st.st_size, key_e,
+                 name_e, path_e, (long long)st.st_size, usb_hash, key_e,
                  is_same ? "exists_same" : "exists_different", key_e,
                  slot_e, exfn_e);
     } else {
         json_append(&jb,
-                 "{\"filename\":\"%s\",\"path\":\"%s\",\"size\":%lld,\"key\":\"%s\","
+                 "{\"filename\":\"%s\",\"path\":\"%s\",\"size\":%lld,\"sha256\":\"%s\",\"key\":\"%s\","
                  "\"status\":\"ready\",\"folder_exists\":false,\"folder_name\":\"%s\","
                  "\"existing\":null}",
-                 name_e, path_e, (long long)st.st_size, key_e, key_e);
+                 name_e, path_e, (long long)st.st_size, usb_hash, key_e, key_e);
     }
     return jb.error ? -1 : 0;
 }
@@ -512,55 +466,12 @@ int payload_mgr_usb_move(const char *usb_path, const char *mode, int keep_origin
     char lkey[128];
     slot_local_key(filename, lkey, sizeof(lkey));
 
-    char target_slot[128];
-    if (mode && strcmp(mode, "keep_both") == 0) {
-        slot_find_next_local_key(lkey, target_slot, sizeof(target_slot));
-    } else {
-        snprintf(target_slot, sizeof(target_slot), "local/%s", lkey);
-    }
-
-    char slot_dir[640];
-    snprintf(slot_dir, sizeof(slot_dir), "%s/%s", PAYLOADS_STORAGE_DIR, target_slot);
-    ensure_dir_recursive(slot_dir);
-
-    char part_path[768];
-    snprintf(part_path, sizeof(part_path), "%s/.part", slot_dir);
-
-    if (copy_file(usb_path, part_path) != 0) {
-        remove(part_path);
-        json_append(&jb, "{\"ok\":false,\"message\":\"Copy failed\"}");
-        return -1;
-    }
-
-    /* Remove any other payload file in slot */
-    DIR *d = opendir(slot_dir);
-    if (d) {
-        struct dirent *ent;
-        while ((ent = readdir(d)) != NULL) {
-            if (ent->d_name[0] == '.') continue;
-            if (strcmp(ent->d_name, "meta.json") == 0) continue;
-            char old_f[768];
-            snprintf(old_f, sizeof(old_f), "%s/%s", slot_dir, ent->d_name);
-            remove(old_f);
-        }
-        closedir(d);
-    }
-
-    char final_path[768];
-    snprintf(final_path, sizeof(final_path), "%s/%s", slot_dir, filename);
-    if (rename(part_path, final_path) != 0) {
-        remove(part_path);
-        json_append(&jb, "{\"ok\":false,\"message\":\"Move commit failed\"}");
-        return -1;
-    }
-
+    char target_slot[128], base_slot[128];
+    snprintf(base_slot, sizeof(base_slot), "local/%s", lkey);
     SlotMeta meta;
     memset(&meta, 0, sizeof(meta));
     meta.schema = PAYLOAD_SLOT_SCHEMA;
     strcpy(meta.kind, SLOT_KIND_LOCAL);
-    strncpy(meta.slot_key, target_slot, sizeof(meta.slot_key) - 1);
-    strncpy(meta.slot_dir, slot_dir, sizeof(meta.slot_dir) - 1);
-    strncpy(meta.payload_path, final_path, sizeof(meta.payload_path) - 1);
     strncpy(meta.filename, filename, sizeof(meta.filename) - 1);
 
     time_t now = time(NULL);
@@ -571,22 +482,31 @@ int payload_mgr_usb_move(const char *usb_path, const char *mode, int keep_origin
     strcpy(meta.origin, "usb");
     strncpy(meta.origin_detail, usb_path, sizeof(meta.origin_detail) - 1);
 
-    slot_write_meta(slot_dir, &meta);
+    if (slot_commit_file(base_slot, usb_path, mode, &meta, 0, target_slot, sizeof(target_slot))) {
+        json_append(&jb, "{\"ok\":false,\"message\":\"Storage commit failed (conflict, invalid mode, or I/O error)\"}");
+        return -1;
+    }
 
     if (!keep_original) {
-        if (remove(usb_path) != 0) {
+        char original_hash[65], copied_hash[65];
+        struct stat current;
+        int unchanged = !stat(usb_path, &current) && current.st_dev == st.st_dev &&
+            current.st_ino == st.st_ino && current.st_size == st.st_size &&
+            !compute_sha256_file(usb_path, original_hash) &&
+            !compute_sha256_file(meta.payload_path, copied_hash) && !strcmp(original_hash, copied_hash);
+        if (!unchanged || remove(usb_path) != 0) {
             pldmgr_log("[PLDMGR] Warning: Failed to remove original file from USB: %s\n", usb_path);
             json_append(&jb,
                      "{\"ok\":true,\"slot\":\"%s\",\"message\":\"Moved successfully\","
                      "\"warning\":\"Payload copied, but failed to delete original from USB.\"}",
                      target_slot);
         } else {
-            pldmgr_log("[PLDMGR] USB payload moved: %s -> %s\n", usb_path, final_path);
+            pldmgr_log("[PLDMGR] USB payload moved: %s -> %s\n", usb_path, meta.payload_path);
             json_append(&jb, "{\"ok\":true,\"slot\":\"%s\",\"message\":\"Moved successfully\"}",
                      target_slot);
         }
     } else {
-        pldmgr_log("[PLDMGR] USB payload copied: %s -> %s\n", usb_path, final_path);
+        pldmgr_log("[PLDMGR] USB payload copied: %s -> %s\n", usb_path, meta.payload_path);
         json_append(&jb, "{\"ok\":true,\"slot\":\"%s\",\"message\":\"Copied successfully\"}",
                  target_slot);
     }
