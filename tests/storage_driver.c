@@ -247,3 +247,7 @@ int main(int argc, char **argv) {
     return 0;
 #endif
 }
+
+int download_to_file_limited(const char *url, const char *path, size_t limit) {
+    (void)limit; return download_to_file(url, path);
+}

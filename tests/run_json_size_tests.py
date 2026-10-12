@@ -49,6 +49,7 @@ int sysctl(const int *mib, unsigned n, void *out, size_t *size, const void *inpu
 }
 int sceKernelGetAppInfo(pid_t pid, void *info) { (void)pid; unsigned id = 0; memcpy(info, &id, sizeof(id)); return 0; }
 int download_to_file(const char *url, const char *path) { (void)url; (void)path; abort(); }
+int download_to_file_limited(const char *url, const char *path, size_t limit) { (void)limit; return download_to_file(url,path); }
 ''')
         for i in range(400):
             slot = storage / "payloads/local" / f"test-{i}"
@@ -75,7 +76,7 @@ int download_to_file(const char *url, const char *path) { (void)url; (void)path;
                                  "-o", str(helper)], cwd=ROOT, check=True)
         repository = build / "repository.o"
         subprocess.run([arg for arg in common if not arg.startswith("-Wl,")] +
-                       ["-Ddownload_to_file=json_unused_download", "-c", "src/repository.c", "-o", str(repository)],
+                       ["-Ddownload_to_file=json_unused_download", "-Ddownload_to_file_limited=json_unused_download_limited", "-c", "src/repository.c", "-o", str(repository)],
                        cwd=ROOT, check=True)
         binary = build / "json_size_tests"
         sources = [source(name) for name in ["history_mgr", "log_server", "payload_mgr", "slot", "sources", "process_mgr", "config"]]

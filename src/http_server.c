@@ -113,41 +113,10 @@ static int alloc_response_buffer_small(char **out) {
     return alloc_response_buffer_sized(out, SMALL_RESPONSE_BUFFER_SIZE);
 }
 
-static int has_supported_extension(const char *path) {
-    const char *ext = strrchr(path, '.');
-    if (!ext) return 0;
-    return strcasecmp(ext, ".elf") == 0 || strcasecmp(ext, ".bin") == 0;
-}
-
 static int is_safe_filename(const char *name) {
     if (!name || name[0] == '\0') return 0;
     if (strstr(name, "/") || strstr(name, "..")) return 0;
     return 1;
-}
-
-static int is_allowed_payload_path(const char *path) {
-    if (!path || path[0] == '\0') return 0;
-    if (strstr(path, "..")) return 0;
-    if (!has_supported_extension(path)) return 0;
-
-    for (int i = 0; i < SCAN_DIRS_COUNT; i++) {
-        size_t len = strlen(SCAN_DIRS[i]);
-        if (strncmp(path, SCAN_DIRS[i], len) == 0 &&
-            (path[len] == '/' || path[len] == '\0')) {
-            return 1;
-        }
-    }
-
-    /* Allow USB root payloads if SCAN_USB_PAYLOADS is enabled in config */
-    if (strncmp(path, "/mnt/usb", 8) == 0 &&
-        path[8] >= '0' && path[8] <= '7' &&
-        path[9] == '/') {
-        if (config_read_bool("SCAN_USB_PAYLOADS", 0)) {
-            return 1;
-        }
-    }
-
-    return 0;
 }
 
 static void url_decode_in_place(char *str) {
@@ -820,14 +789,16 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         url_decode_in_place(clean_arg);
 
         char resolved_path[512];
-        if (is_pldmgr_name(clean_arg)) {
+        if (strlen(arg) >= sizeof(clean_arg) || strstr(arg, "%00")) {
+            const char *err = "Invalid payload path\n";
+            resp = create_buffer_response(strlen(err), (void *)err, MHD_RESPMEM_PERSISTENT);
+            http_status = MHD_HTTP_BAD_REQUEST;
+        } else if (is_pldmgr_name(clean_arg)) {
             pldmgr_log("[PLDMGR] Refusing to launch payload manager itself: %s\n", clean_arg);
             const char *err = "Payload Manager cannot be launched as a payload\n";
             resp = create_buffer_response(strlen(err), (void *)err, MHD_RESPMEM_PERSISTENT);
             http_status = MHD_HTTP_BAD_REQUEST;
-        } else if (slot_resolve(clean_arg, resolved_path, sizeof(resolved_path)) == 0 &&
-            (is_allowed_payload_path(resolved_path) ||
-             strncmp(resolved_path, PAYLOADS_STORAGE_DIR, strlen(PAYLOADS_STORAGE_DIR)) == 0)) {
+        } else if (slot_resolve(clean_arg, resolved_path, sizeof(resolved_path)) == 0) {
             if (is_pldmgr_name(resolved_path)) {
                 pldmgr_log("[PLDMGR] Refusing to launch payload manager itself: %s\n", resolved_path);
                 const char *err = "Payload Manager cannot be launched as a payload\n";

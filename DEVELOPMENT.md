@@ -84,7 +84,7 @@ UTF-8-safe prefixes. The backend suite uses real repository, source save/load,
 and slot metadata read/write code inside temporary storage. It parses their
 results independently with Python. Unused network/PS5 code is discarded at
 link time, and no download or payload launch occurs. `make test-host` runs all
-seven host suites with sanitizers.
+eight host suites with sanitizers.
 
 The serializer suite exercises actual history/log/payload/process/repository
 output at small and large capacities, sixfold escape expansion, failed format
@@ -108,6 +108,14 @@ recovery. Storage uses unique staging directories and a journal/backup; startup
 recovers interrupted commits before migration or serving requests. Public slot
 layout is preserved. File syncing is checked; unsupported directory syncing limits
 power-loss durability. Configuration remaps and migration are tested separately.
+
+The integrity suite uses local HTTP/HTTPS servers and generated trusted,
+untrusted, expired, and wrong-host certificates. It tests protocol restrictions,
+body/size/I/O failures, strict optional checksum policy, refreshed manifest entry
+validation, and preservation of installed data on failed retries. The actual
+launcher runs against a recorded socket, covering canonical roots, regular files,
+self guards, and symlink substitutions during descriptor-based opening. No real
+loader is contacted.
 
 Collected arrays are limited to **4,096 items** and **64 MiB** of allocated array
 capacity, whichever is smaller for the item type. Repository parsing accepts up

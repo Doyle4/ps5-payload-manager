@@ -131,3 +131,7 @@ int main(int argc, char **argv) {
     printf("Allocation tests (%s): %d checks, %d failures\n", argv[1], checks, failures);
     return failures ? 1 : 0;
 }
+
+int download_to_file_limited(const char *url, const char *path, size_t limit) {
+    (void)limit; return download_to_file(url, path);
+}

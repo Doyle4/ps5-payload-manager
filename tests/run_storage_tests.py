@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="pldmgr-storage-") as temp:
     for name in ["slot", "payload_mgr", "sources", "repository", "json_helpers", "sha256", "utils", "config"]:
         obj = build / (name + ".o")
         extra = ["-include", "tests/storage_hooks.h"] if name in ["slot", "payload_mgr", "sources", "sha256", "utils", "json_helpers"] else []
-        if name == "repository": extra += ["-Ddownload_to_file=storage_unused_download"]
+        if name == "repository": extra += ["-Ddownload_to_file=storage_unused_download", "-Ddownload_to_file_limited=storage_unused_download_limited"]
         source = f"src/{name}.c"
         if args.legacy and name in ["slot", "payload_mgr", "sources"]:
             source = f"scratch/{name}_before_step3b.c"

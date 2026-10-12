@@ -23,6 +23,12 @@ typedef struct RepoPayload {
     char details_url[1024];
 } RepoPayload;
 
+#define PLDMGR_PAYLOAD_DOWNLOAD_LIMIT ((size_t)512 * 1024 * 1024)
+#define PLDMGR_MANIFEST_DOWNLOAD_LIMIT ((size_t)16 * 1024 * 1024)
+int repository_checksum_valid(const char *checksum);
+int repository_entry_valid(const RepoPayload *entry);
+int download_to_file_limited(const char *url, const char *out_path, size_t limit);
+
 /* Download a URL to a local file. Returns 0 on success, -1 on failure. */
 int download_to_file(const char *url, const char *out_path);
 

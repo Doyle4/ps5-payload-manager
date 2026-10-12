@@ -73,6 +73,10 @@ int slot_list_all(SlotMeta **out_slots, size_t *out_count);
 /* Free slots array returned by slot_list_all */
 void slot_free_all(SlotMeta *slots);
 
+/* Shared HTTP/autoload loader gate. Open rejects substituted symlink components. */
+int slot_validate_payload_path(const char *path, char *out_path, size_t out_size);
+int slot_open_payload(const char *path, char *out_path, size_t out_size);
+
 /* Resolve a slot key or path to absolute payload file path */
 int slot_resolve(const char *slot_or_path, char *out_path, size_t out_size);
 

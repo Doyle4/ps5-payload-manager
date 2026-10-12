@@ -209,7 +209,7 @@ int sources_add(const char *url, char *msg_buf, size_t msg_size) {
     ensure_dir_recursive(BASE_DATA_DIR);
     snprintf(tmp_path, sizeof(tmp_path), "%s/source_validate.tmp", BASE_DATA_DIR);
 
-    if (download_to_file(url, tmp_path) != 0) {
+    if (download_to_file_limited(url, tmp_path, PLDMGR_MANIFEST_DOWNLOAD_LIMIT) != 0) {
         snprintf(msg_buf, msg_size, "URL unreachable or download failed");
         remove(tmp_path);
         return -1;
@@ -384,7 +384,7 @@ int sources_ensure_fresh(const char *url, int force_refresh) {
 
     char tmp_path[512];
     snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", cache_path);
-    if (download_to_file(url, tmp_path) != 0) {
+    if (download_to_file_limited(url, tmp_path, PLDMGR_MANIFEST_DOWNLOAD_LIMIT) != 0) {
         return -1;
     }
 
@@ -763,85 +763,34 @@ int sources_repo_install(const char *source_url, const char *id,
         json_append(&jb, "{\"ok\":false,\"message\":\"Failed to close staging file\"}"); return -1;
     }
 
-    /* Download attempt */
-    int dl_ok = (download_to_file(entry->url, part_path) == 0);
-    if (!dl_ok && !refreshed) {
-        /* Retry after refresh */
-        sources_ensure_fresh(src.url, 1);
+    /* At most two attempts. Every entry, including a refreshed replacement,
+     * is validated before downloading and verifies its own supplied checksum. */
+    int installed_bytes_verified = 0;
+    for (int attempt = 0; attempt < 2; attempt++) {
+        if (repository_entry_valid(entry) && download_to_file(entry->url, part_path) == 0) {
+            char calc[65];
+            if (!entry->checksum[0] ||
+                (!compute_sha256_file(part_path, calc) && !strcasecmp(calc, entry->checksum))) {
+                installed_bytes_verified = 1; break;
+            }
+        }
+        if (refreshed || attempt == 1 || sources_ensure_fresh(src.url, 1)) break;
         refreshed = 1;
+        cached = NULL; items = NULL; count = 0;
         int ref_found = 0;
-        if (read_file_text(cache_path, &cached, &csize) == 0 && cached) {
-            if (parse_repository_payloads(cached, &items, &count) == 0) {
-                for (size_t i = 0; i < count; i++) {
-                    if (strcmp(items[i].id, safe_id) == 0) {
-                        *entry = items[i];
-                        ref_found = 1;
-                        break;
-                    }
-                }
-                free(items);
-                items = NULL;
+        if (!read_file_text(cache_path, &cached, &csize) && cached &&
+            !parse_repository_payloads(cached, &items, &count)) {
+            for (size_t i = 0; i < count; i++) {
+                if (!strcmp(items[i].id, safe_id)) { *entry = items[i]; ref_found = 1; break; }
             }
-            free(cached);
-            cached = NULL;
         }
-        if (!ref_found) {
-            free(entry);
-            remove(part_path);
-            json_append(&jb, "{\"ok\":false,\"message\":\"Payload no longer in repository\"}");
-            return -1;
-        }
-        dl_ok = (download_to_file(entry->url, part_path) == 0);
+        free(cached); free(items); cached = NULL; items = NULL;
+        if (!ref_found) break;
     }
-
-    if (!dl_ok) {
-        free(entry);
-        remove(part_path);
-        json_append(&jb, "{\"ok\":false,\"message\":\"Download failed\"}");
-        return -1;
+    if (!installed_bytes_verified) {
+        free(entry); remove(part_path);
+        json_append(&jb, "{\"ok\":false,\"message\":\"Download or integrity verification failed\"}"); return -1;
     }
-
-    /* Checksum verification */
-    if (strlen(entry->checksum) == 64) {
-        char calc[65];
-        if (compute_sha256_file(part_path, calc) != 0 || strcasecmp(calc, entry->checksum) != 0) {
-            pldmgr_log("[PLDMGR] Checksum mismatch for %s. Expected: %s, Got: %s\n",
-                       entry->filename, entry->checksum, calc);
-            if (!refreshed) {
-                /* Retry after refresh */
-                sources_ensure_fresh(src.url, 1);
-                refreshed = 1;
-                int ref_found = 0;
-                if (read_file_text(cache_path, &cached, &csize) == 0 && cached) {
-                    if (parse_repository_payloads(cached, &items, &count) == 0) {
-                        for (size_t i = 0; i < count; i++) {
-                            if (strcmp(items[i].id, safe_id) == 0) {
-                                *entry = items[i];
-                                ref_found = 1;
-                                break;
-                            }
-                        }
-                        free(items);
-                        items = NULL;
-                    }
-                    free(cached);
-                    cached = NULL;
-                }
-                if (ref_found && download_to_file(entry->url, part_path) == 0) {
-                    if (compute_sha256_file(part_path, calc) == 0 &&
-                        strcasecmp(calc, entry->checksum) == 0) {
-                        goto checksum_passed;
-                    }
-                }
-            }
-            free(entry);
-            remove(part_path);
-            json_append(&jb, "{\"ok\":false,\"message\":\"Checksum verification failed\"}");
-            return -1;
-        }
-    }
-
-checksum_passed:;
 
     /* Write meta.json */
     SlotMeta *meta = (SlotMeta *)calloc(1, sizeof(SlotMeta));

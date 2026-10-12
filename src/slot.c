@@ -10,6 +10,7 @@
 #include <time.h>
 #include <pthread.h>
 #include <fcntl.h>
+#include <limits.h>
 
 #include "slot.h"
 #include "collection_helpers.h"
@@ -708,82 +709,88 @@ void slot_free_all(SlotMeta *slots) {
     if (slots) free(slots);
 }
 
+#ifndef PLDMGR_USB_ROOT_FORMAT
+#define PLDMGR_USB_ROOT_FORMAT "/mnt/usb%d"
+#endif
+static int canonical_under(const char *path, const char *root) {
+    char resolved[PATH_MAX];
+    if (!realpath(root, resolved)) return 0;
+    size_t n = strlen(resolved);
+    return !strncmp(path, resolved, n) && path[n] == '/';
+}
+static int canonical_usb_path(const char *path, const char *root, const char *library, int include_root) {
+    char mount[PATH_MAX], lib[PATH_MAX];
+    /* USB mount names are fixed. A substituted mount or library symlink must
+     * not turn an unrelated external directory into an authorized root. */
+    if (!realpath(root, mount) || strcmp(mount, root)) return 0;
+    if (include_root && canonical_under(path, mount)) return 1;
+    if (!realpath(library, lib) || !canonical_under(lib, mount)) return 0;
+    return canonical_under(path, lib);
+}
+int slot_validate_payload_path(const char *path, char *out_path, size_t out_size) {
+    if (!out_path || !out_size) return -1;
+    out_path[0] = 0;
+    if (!path || path[0] != '/' || strstr(path, "..") || strstr(path, "/.") ||
+        !is_supported_ext(path) || is_pldmgr_name(path)) return -1;
+    char resolved[PATH_MAX]; struct stat st;
+    if (!realpath(path, resolved) || !is_supported_ext(resolved) || is_pldmgr_name(resolved) ||
+        strstr(resolved, "/.") || stat(resolved, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0) return -1;
+    int allowed = canonical_under(resolved, BASE_DATA_DIR);
+    for (int i = 0; i < 8 && !allowed; i++) {
+        char root[512], library[528];
+        snprintf(root, sizeof(root), PLDMGR_USB_ROOT_FORMAT, i);
+        snprintf(library, sizeof(library), "%s/pldmgr", root);
+        allowed = canonical_usb_path(resolved, root, library, config_read_bool("SCAN_USB_PAYLOADS", 0));
+    }
+    if (!allowed || strlen(resolved) >= out_size) return -1;
+    strcpy(out_path, resolved);
+    return 0;
+}
+/* Open the canonical path by walking directory descriptors. O_NOFOLLOW on
+ * every component rejects a symlink substituted after canonical validation. */
+int slot_open_payload(const char *path, char *out_path, size_t out_size) {
+    if (slot_validate_payload_path(path, out_path, out_size)) return -1;
+    char walk[PATH_MAX]; strcpy(walk, out_path);
+    int fd = open("/", O_RDONLY | O_DIRECTORY);
+    if (fd < 0) return -1;
+    char *state = NULL, *part = strtok_r(walk + 1, "/", &state);
+    while (part) {
+        char *next = strtok_r(NULL, "/", &state);
+        int child = openat(fd, part, O_RDONLY | O_NOFOLLOW | (next ? O_DIRECTORY : O_NONBLOCK));
+        int close_failed = close(fd);
+        if (child < 0 || close_failed) { if (child >= 0) close(child); return -1; }
+        fd = child; part = next;
+    }
+    struct stat st;
+    if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0) { close(fd); return -1; }
+    return fd;
+}
+
 int slot_resolve(const char *slot_or_path, char *out_path, size_t out_size) {
-    if (!slot_or_path || !out_path || out_size == 0) return -1;
-
-    /* If it is an absolute path that exists */
-    if (slot_or_path[0] == '/') {
-        struct stat st;
-        if (stat(slot_or_path, &st) == 0 && S_ISREG(st.st_mode)) {
-            strncpy(out_path, slot_or_path, out_size - 1);
-            out_path[out_size - 1] = '\0';
-            return 0;
+    if (!slot_or_path || !out_path || !out_size) return -1;
+    out_path[0] = 0;
+    if (slot_or_path[0] == '/') return slot_validate_payload_path(slot_or_path, out_path, out_size);
+    if (is_pldmgr_name(slot_or_path)) return -1;
+    if (!strncmp(slot_or_path, "repo/", 5) || !strncmp(slot_or_path, "local/", 6)) {
+        if (!storage_key_valid(slot_or_path)) return -1;
+        char dir[640]; SlotMeta meta;
+        snprintf(dir, sizeof(dir), "%s/%s", PAYLOADS_STORAGE_DIR, slot_or_path);
+        if (slot_read_meta(dir, &meta)) return -1;
+        return slot_validate_payload_path(meta.payload_path, out_path, out_size);
+    }
+    /* Retain bare-filename compatibility, without interpreting arbitrary paths
+     * as a request to launch some unrelated managed file with that basename. */
+    if (strchr(slot_or_path, '/') || !is_supported_ext(slot_or_path)) return -1;
+    SlotMeta *slots = NULL; size_t count = 0;
+    if (slot_list_all(&slots, &count)) return -1;
+    int rc = -1;
+    for (size_t i = 0; i < count; i++) {
+        if (!strcmp(slots[i].filename, slot_or_path)) {
+            rc = slot_validate_payload_path(slots[i].payload_path, out_path, out_size); break;
         }
     }
-
-    /* If it matches a slot key (starts with repo/ or local/) */
-    if (strncmp(slot_or_path, "repo/", 5) == 0 || strncmp(slot_or_path, "local/", 6) == 0) {
-        char slot_dir[640];
-        snprintf(slot_dir, sizeof(slot_dir), "%s/%s", PAYLOADS_STORAGE_DIR, slot_or_path);
-
-        SlotMeta meta;
-        if (slot_read_meta(slot_dir, &meta) == 0 && meta.payload_path[0] != '\0') {
-            struct stat st;
-            if (stat(meta.payload_path, &st) == 0 && S_ISREG(st.st_mode)) {
-                strncpy(out_path, meta.payload_path, out_size - 1);
-                out_path[out_size - 1] = '\0';
-                return 0;
-            }
-        }
-    }
-
-    /* If slot_or_path is under PAYLOADS_STORAGE_DIR */
-    size_t base_len = strlen(PAYLOADS_STORAGE_DIR);
-    if (strncmp(slot_or_path, PAYLOADS_STORAGE_DIR, base_len) == 0 && slot_or_path[base_len] == '/') {
-        const char *rel = slot_or_path + base_len + 1;
-        if (strncmp(rel, "repo/", 5) == 0 || strncmp(rel, "local/", 6) == 0) {
-            char extracted_key[256];
-            strncpy(extracted_key, rel, sizeof(extracted_key) - 1);
-            extracted_key[sizeof(extracted_key) - 1] = '\0';
-            char *s1 = strchr(extracted_key, '/');
-            if (s1) {
-                char *s2 = strchr(s1 + 1, '/');
-                if (s2) *s2 = '\0';
-            }
-            char slot_dir[640];
-            snprintf(slot_dir, sizeof(slot_dir), "%s/%s", PAYLOADS_STORAGE_DIR, extracted_key);
-            SlotMeta meta;
-            if (slot_read_meta(slot_dir, &meta) == 0 && meta.payload_path[0] != '\0') {
-                struct stat st;
-                if (stat(meta.payload_path, &st) == 0 && S_ISREG(st.st_mode)) {
-                    strncpy(out_path, meta.payload_path, out_size - 1);
-                    out_path[out_size - 1] = '\0';
-                    return 0;
-                }
-            }
-        }
-    }
-
-    /* Fallback: scan all slots to find matching payload filename or payload_path */
-    const char *target_fn = strrchr(slot_or_path, '/');
-    target_fn = target_fn ? target_fn + 1 : slot_or_path;
-
-    SlotMeta *slots = NULL;
-    size_t count = 0;
-    if (slot_list_all(&slots, &count) == 0 && slots) {
-        for (size_t i = 0; i < count; i++) {
-            if (strcmp(slots[i].filename, target_fn) == 0 ||
-                strcmp(slots[i].payload_path, slot_or_path) == 0) {
-                strncpy(out_path, slots[i].payload_path, out_size - 1);
-                out_path[out_size - 1] = '\0';
-                slot_free_all(slots);
-                return 0;
-            }
-        }
-        slot_free_all(slots);
-    }
-
-    return -1;
+    slot_free_all(slots);
+    return rc;
 }
 
 static int slot_delete_unlocked(const char *slot_key) {

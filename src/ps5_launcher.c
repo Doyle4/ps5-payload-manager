@@ -1,5 +1,7 @@
 #include "ps5_launcher.h"
 #include "pldmgr.h"
+#include "slot.h"
+#include <limits.h>
 #include "history_mgr.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -14,17 +16,13 @@
 #include <stdint.h>
 
 int ps5_launch_elf(const char *path) {
-  pldmgr_log("[PLDMGR] Sending ELF to local loader: %s\n", path);
-
-  /* Open the payload file */
-  int fd = open(path, O_RDONLY);
+  char canonical[PATH_MAX];
+  int fd = slot_open_payload(path, canonical, sizeof(canonical));
   if (fd < 0) {
-    pldmgr_log("[PLDMGR] !!! Failed to open payload: %s\n", path);
+    pldmgr_log("[PLDMGR] Payload path rejected: %s\n", path ? path : "(null)");
     return -1;
   }
-
-  struct stat st;
-  fstat(fd, &st);
+  pldmgr_log("[PLDMGR] Sending ELF to local loader: %s\n", canonical);
   size_t total_sent = 0;
 
   /* Create socket to local elfldr */
@@ -79,7 +77,7 @@ int ps5_launch_elf(const char *path) {
   close(sock);
   close(fd);
   if (!error) {
-    history_mgr_add(path);
+    history_mgr_add(canonical);
   }
   return error ? -1 : 0;
 }

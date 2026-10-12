@@ -40,7 +40,7 @@ def main():
                 patched.write_text((ROOT / source).read_text().replace("/mnt/usb", str(storage / "usb")))
                 source = str(patched)
             obj = build / (name + ".o")
-            flags = ["-Ddownload_to_file=allocation_unused_download"] if name == "repository" else []
+            flags = ["-Ddownload_to_file=allocation_unused_download", "-Ddownload_to_file_limited=allocation_unused_download_limited"] if name == "repository" else []
             subprocess.run(common + flags + ["-include", "tests/allocation_hooks.h", "-c", source, "-o", str(obj)], cwd=ROOT, check=True)
             objects.append(str(obj))
         binary = build / "allocation_tests"

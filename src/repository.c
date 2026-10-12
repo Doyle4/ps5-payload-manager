@@ -6,6 +6,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <curl/curl.h>
+#include <stdint.h>
+#include "utils.h"
 
 #include "repository.h"
 #include "collection_helpers.h"
@@ -17,94 +19,86 @@
 
 /* ── cURL download helper ──────────────────────────────────── */
 
-static size_t write_data(void *ptr, size_t size, size_t nmemb, FILE *stream) {
-    return fwrite(ptr, size, nmemb, stream);
+typedef struct { FILE *file; size_t bytes, limit; } DownloadOutput;
+static size_t write_data(void *ptr, size_t size, size_t nmemb, void *context) {
+    DownloadOutput *out = context;
+    if (size && nmemb > SIZE_MAX / size) return 0;
+    size_t bytes = size * nmemb;
+    if (bytes > out->limit - out->bytes) return 0;
+    size_t written = fwrite(ptr, 1, bytes, out->file);
+    out->bytes += written;
+    return written;
+}
+
+int download_to_file_limited(const char *url, const char *out_path, size_t limit) {
+    if (!url || !out_path || !limit ||
+        (strncasecmp(url, "https://", 8) && strncasecmp(url, "http://", 7))) return -1;
+    FILE *fp = fopen(out_path, "wb");
+    if (!fp) return -1;
+    CURL *curl = curl_easy_init();
+    CURLcode res = CURLE_FAILED_INIT;
+    DownloadOutput output = { fp, 0, limit };
+    if (curl) {
+#define SET_OPTION(option, value) do { res = curl_easy_setopt(curl, option, value); if (res != CURLE_OK) goto finished; } while (0)
+        SET_OPTION(CURLOPT_URL, url);
+        SET_OPTION(CURLOPT_NOSIGNAL, 1L);
+        SET_OPTION(CURLOPT_CONNECTTIMEOUT, strcmp(url, REPOSITORY_SOURCE_URL) ? 10L : 3L);
+        SET_OPTION(CURLOPT_TIMEOUT, strcmp(url, REPOSITORY_SOURCE_URL) ? 60L : 5L);
+        SET_OPTION(CURLOPT_WRITEFUNCTION, write_data);
+        SET_OPTION(CURLOPT_WRITEDATA, &output);
+        SET_OPTION(CURLOPT_USERAGENT, "pldmgr/1.0");
+        struct curl_blob blob = { (void *)assets_cacert_pem, assets_cacert_pem_len, CURL_BLOB_COPY };
+        SET_OPTION(CURLOPT_CAINFO_BLOB, &blob);
+        SET_OPTION(CURLOPT_SSL_VERIFYPEER, 1L);
+        SET_OPTION(CURLOPT_SSL_VERIFYHOST, 2L);
+        SET_OPTION(CURLOPT_FOLLOWLOCATION, 1L);
+        SET_OPTION(CURLOPT_MAXREDIRS, 5L);
+        SET_OPTION(CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)limit);
+#if LIBCURL_VERSION_NUM >= 0x075500
+        SET_OPTION(CURLOPT_PROTOCOLS_STR, "http,https");
+        SET_OPTION(CURLOPT_REDIR_PROTOCOLS_STR, strncasecmp(url, "https://", 8) ? "http,https" : "https");
+#else
+        SET_OPTION(CURLOPT_PROTOCOLS, (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+        SET_OPTION(CURLOPT_REDIR_PROTOCOLS, strncasecmp(url, "https://", 8) ? (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS) : (long)CURLPROTO_HTTPS);
+#endif
+        res = curl_easy_perform(curl);
+        long status = 0;
+        if (res == CURLE_OK && (curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status) != CURLE_OK || status != 200))
+            res = CURLE_HTTP_RETURNED_ERROR;
+finished:
+        if (res != CURLE_OK) pldmgr_log("[PLDMGR] Verified download failed: %s (%s)\n", url, curl_easy_strerror(res));
+        curl_easy_cleanup(curl);
+#undef SET_OPTION
+    }
+    int failed = res != CURLE_OK || ferror(fp);
+    if (fflush(fp)) failed = 1;
+    if (!failed && fsync(fileno(fp))) failed = 1;
+    if (fclose(fp)) failed = 1;
+    if (failed) { remove(out_path); return -1; }
+    return 0;
 }
 
 int download_to_file(const char *url, const char *out_path) {
-    CURL *curl;
-    FILE *fp;
-    CURLcode res = CURLE_FAILED_INIT;
+    return download_to_file_limited(url, out_path, PLDMGR_PAYLOAD_DOWNLOAD_LIMIT);
+}
 
-    if (!url || !out_path) {
-        pldmgr_log("[PLDMGR] download_to_file: missing url or path\n");
-        return -1;
-    }
-
-    fp = fopen(out_path, "wb");
-    if (!fp) {
-        pldmgr_log("[PLDMGR] download_to_file: failed to open %s\n", out_path);
-        return -1;
-    }
-
-    curl = curl_easy_init();
-    if (curl) {
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-
-        /* Prevent DNS/connection timeouts from sending signals in multi-threaded environment */
-        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-
-        /* Prevent repository connection timeouts from delaying startup and autoload. */
-        if (strcmp(url, REPOSITORY_SOURCE_URL) == 0) {
-            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
-        } else {
-            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
-        }
-
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "pldmgr/1.0");
-
-        char *ca_bundle = malloc(assets_cacert_pem_len + 1);
-        if (ca_bundle) {
-            memcpy(ca_bundle, assets_cacert_pem, assets_cacert_pem_len);
-            ca_bundle[assets_cacert_pem_len] = '\0';
-        }
-
-        struct curl_blob blob;
-        blob.data = ca_bundle ? ca_bundle : (void *)assets_cacert_pem;
-        blob.len = ca_bundle ? (assets_cacert_pem_len + 1) : assets_cacert_pem_len;
-        blob.flags = CURL_BLOB_COPY;
-
-        curl_easy_setopt(curl, CURLOPT_CAINFO_BLOB, &blob);
-        if (ca_bundle) free(ca_bundle);
-
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
-        res = curl_easy_perform(curl);
-
-        if (res == CURLE_PEER_FAILED_VERIFICATION) {
-            pldmgr_log("[PLDMGR] SSL verification failed. Retrying insecurely: %s\n", url);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-            res = curl_easy_perform(curl);
-        }
-
-        long http_code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        curl_easy_cleanup(curl);
-
-        if (res != CURLE_OK) {
-            pldmgr_log("[PLDMGR] curl_easy_perform failed: %s url=%s\n",
-                       curl_easy_strerror(res), url);
-        } else if (http_code != 200) {
-            pldmgr_log("[PLDMGR] HTTP status %ld for %s\n", http_code, url);
-            res = CURLE_HTTP_RETURNED_ERROR;
-        }
-    }
-
-    fclose(fp);
-
-    if (res != CURLE_OK) {
-        remove(out_path);
-        return -1;
-    }
-
-    return 0;
+int repository_checksum_valid(const char *checksum) {
+    if (!checksum) return 0;
+    if (!checksum[0]) return 1; /* Missing/empty remains optional. */
+    if (strlen(checksum) != 64) return 0;
+    for (size_t i = 0; i < 64; i++)
+        if (!((checksum[i] >= '0' && checksum[i] <= '9') ||
+              (checksum[i] >= 'a' && checksum[i] <= 'f') ||
+              (checksum[i] >= 'A' && checksum[i] <= 'F'))) return 0;
+    return 1;
+}
+int repository_entry_valid(const RepoPayload *entry) {
+    if (!entry || !entry->filename[0] || entry->filename[0] == '.' ||
+        strchr(entry->filename, '/') || strstr(entry->filename, "..") ||
+        is_pldmgr_name(entry->id) || is_pldmgr_name(entry->name) || is_pldmgr_name(entry->filename) ||
+        !repository_checksum_valid(entry->checksum)) return 0;
+    const char *ext = strrchr(entry->filename, '.');
+    return ext && (!strcasecmp(ext, ".elf") || !strcasecmp(ext, ".bin"));
 }
 
 /* ── JSON parsing ──────────────────────────────────────────── */
@@ -215,7 +209,8 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
         int checksum_result = json_extract_string(p, end + 1, "checksum", item->checksum, sizeof(item->checksum));
         /* A supplied oversized/non-string hash must not turn into an absent,
          * optional checksum after extraction fails. Hex validation is separate. */
-        if (checksum_result != JSON_STRING_OK && checksum_result != JSON_STRING_MISSING) {
+        if ((checksum_result != JSON_STRING_OK && checksum_result != JSON_STRING_MISSING) ||
+            !repository_checksum_valid(item->checksum)) {
             p = end + 1;
             continue;
         }
