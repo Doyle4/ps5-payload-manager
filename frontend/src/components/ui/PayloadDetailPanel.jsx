@@ -80,13 +80,18 @@ const PayloadDetailPanel = ({
   isInstalling = false,
   srcUrl,
   srcId,
+  externalLinkUrl: propExternalLinkUrl,
+  setExternalLinkUrl: propSetExternalLinkUrl,
 }) => {
   const { t } = useTranslation();
   const [detailsHtml, setDetailsHtml] = useState(null);
   const [detailsError, setDetailsError] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [linkModalUrl, setLinkModalUrl] = useState(null);
+  const [localLinkUrl, setLocalLinkUrl] = useState(null);
   const detailsRef = useRef(null);
+
+  const linkModalUrl = propExternalLinkUrl !== undefined ? propExternalLinkUrl : localLinkUrl;
+  const setLinkModalUrl = propSetExternalLinkUrl || setLocalLinkUrl;
 
   const repoUrl = getRepoUrl(payload);
 
@@ -431,7 +436,11 @@ const PayloadDetailPanel = ({
               href={linkModalUrl || '#'}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={() => setLinkModalUrl(null)}
+              onClick={() => {
+                setTimeout(() => {
+                  setLinkModalUrl(null);
+                }, 100);
+              }}
               className="flex-1 inline-flex items-center justify-center py-3 px-4 rounded-xl bg-ps-blue hover:bg-ps-blue/80 text-white font-black uppercase text-sm transition-all shadow-lg"
             >
               {t("payload_detail.open_link", "Open Link")}

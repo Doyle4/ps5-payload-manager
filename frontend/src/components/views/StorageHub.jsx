@@ -26,6 +26,8 @@ const StorageHub = ({
   onClosePayload,
   conflictPrompt: externalConflictPrompt,
   setConflictPrompt: externalSetConflictPrompt,
+  externalLinkUrl,
+  setExternalLinkUrl,
   installingPayloadId = null,
 }) => {
   const { t, i18n } = useTranslation()
@@ -267,6 +269,8 @@ const StorageHub = ({
           isInstalled={resolvedPayloadData.isInstalled}
           isUpdate={resolvedPayloadData.isUpdate}
           isInstalling={isDetailInstalling}
+          externalLinkUrl={externalLinkUrl}
+          setExternalLinkUrl={setExternalLinkUrl}
           onClose={handleCloseDetail}
           onInstall={(p, sid, surl, sInfo) => {
             handleInstallClick(p, sid, surl, sInfo || resolvedPayloadData.statusInfo)

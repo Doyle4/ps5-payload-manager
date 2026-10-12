@@ -205,6 +205,8 @@ export function useHistoryNavigation({
   setUploadConflictModal,
   conflictPrompt,
   setConflictPrompt,
+  externalLinkUrl,
+  setExternalLinkUrl,
 }) {
   const currentViewRef = useRef(view)
   const currentRouteRef = useRef(
@@ -218,7 +220,7 @@ export function useHistoryNavigation({
   const historyModeRef = useRef(null)
   const historyModalRef = useRef(null)
   const isProgrammaticModalCloseRef = useRef(false)
-  const initialMountTimeRef = useRef(Date.now())
+  const initialMountTimeRef = useRef(0)
   const hasUserNavigatedRef = useRef(false)
 
   const modalStateRef = useRef({
@@ -242,6 +244,8 @@ export function useHistoryNavigation({
     setUploadConflictModal,
     conflictPrompt,
     setConflictPrompt,
+    externalLinkUrl,
+    setExternalLinkUrl,
   })
 
   useEffect(() => {
@@ -250,6 +254,13 @@ export function useHistoryNavigation({
 
   useEffect(() => {
     selectedPayloadRef.current = selectedPayload
+    if (selectedPayload) {
+      const filename = selectedPayload.payload?.id || selectedPayload.id || selectedPayload.payload?.filename || selectedPayload.filename
+      const srcId = selectedPayload.srcId || null
+      if (filename) {
+        currentRouteRef.current = { type: 'payload', filename, srcId }
+      }
+    }
   }, [selectedPayload])
 
   useEffect(() => {
@@ -278,6 +289,8 @@ export function useHistoryNavigation({
       setUploadConflictModal,
       conflictPrompt,
       setConflictPrompt,
+      externalLinkUrl,
+      setExternalLinkUrl,
     }
   }, [
     confirmModal,
@@ -300,6 +313,8 @@ export function useHistoryNavigation({
     setUploadConflictModal,
     conflictPrompt,
     setConflictPrompt,
+    externalLinkUrl,
+    setExternalLinkUrl,
   ])
 
   const currentMode = (view === 'dashboard')
@@ -318,6 +333,8 @@ export function useHistoryNavigation({
     ? 'upload_conflict'
     : conflictPrompt
     ? 'conflict'
+    : externalLinkUrl
+    ? 'external_link'
     : null
 
   // Synchronize active mode and modal with browser history so Back button on PS5 pops them cleanly
@@ -386,6 +403,7 @@ export function useHistoryNavigation({
   useEffect(() => {
     if (historySeededRef.current) return
     historySeededRef.current = true
+    initialMountTimeRef.current = Date.now()
 
     const hashRoute = getRouteFromHash(window.location.hash)
     const cleanRoute = { ...hashRoute }
@@ -482,6 +500,9 @@ export function useHistoryNavigation({
         if (m.conflictPrompt && m.setConflictPrompt) {
           m.setConflictPrompt(null)
         }
+        if (m.externalLinkUrl && m.setExternalLinkUrl) {
+          m.setExternalLinkUrl(null)
+        }
         return
       }
 
@@ -492,7 +513,8 @@ export function useHistoryNavigation({
         m.showLogs ||
         m.delayModal ||
         (m.uploadConflictModal && m.uploadConflictModal.show) ||
-        m.conflictPrompt
+        m.conflictPrompt ||
+        m.externalLinkUrl
       )
       if (anyActiveModal) {
         if (m.confirmModal && m.confirmModal.show && m.setConfirmModal) {
@@ -507,6 +529,7 @@ export function useHistoryNavigation({
           m.setUploadConflictModal({ show: false, file: null, folderName: '' })
         }
         if (m.conflictPrompt && m.setConflictPrompt) m.setConflictPrompt(null)
+        if (m.externalLinkUrl && m.setExternalLinkUrl) m.setExternalLinkUrl(null)
         historyModalRef.current = target.modal || null
         return
       }
@@ -609,7 +632,8 @@ export function useHistoryNavigation({
           m.showLogs ||
           m.delayModal ||
           (m.uploadConflictModal && m.uploadConflictModal.show) ||
-          m.conflictPrompt
+          m.conflictPrompt ||
+          m.externalLinkUrl
         )
         const anyMode = currentViewRef.current === 'dashboard' && (m.isManageMode || m.isFavoriteEditMode)
         if (anyModal || anyMode) {

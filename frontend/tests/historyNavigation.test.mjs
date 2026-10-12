@@ -381,6 +381,9 @@ test('getRouteFromHash and formatHash correctly roundtrip modes and modals', () 
 
   assert.deepEqual(getRouteFromHash('#/autoload?modal=delay'), { type: 'autoload', modal: 'delay' })
   assert.equal(formatHash({ type: 'autoload', modal: 'delay' }), '#/autoload?modal=delay')
+
+  assert.deepEqual(getRouteFromHash('#/payload/ps5-kstuff.elf?modal=external_link'), { type: 'payload', filename: 'ps5-kstuff.elf', srcId: null, modal: 'external_link' })
+  assert.equal(formatHash({ type: 'payload', filename: 'ps5-kstuff.elf', modal: 'external_link' }), '#/payload/ps5-kstuff.elf?modal=external_link')
 })
 
 test('getHistoryChain builds proper hierarchy when modes and modals are present', () => {
@@ -405,6 +408,13 @@ test('getHistoryChain builds proper hierarchy when modes and modals are present'
     { type: 'dashboard' },
     { type: 'settings' },
     { type: 'settings', modal: 'logs' },
+  ])
+
+  assert.deepEqual(getHistoryChain({ type: 'payload', filename: 'ps5-kstuff.elf', modal: 'external_link' }), [
+    { type: 'dashboard' },
+    { type: 'storage' },
+    { type: 'payload', filename: 'ps5-kstuff.elf' },
+    { type: 'payload', filename: 'ps5-kstuff.elf', modal: 'external_link' },
   ])
 })
 
@@ -469,6 +479,55 @@ test('back navigation dismisses modal then exits mode without prematurely closin
   const step3 = handlePop('#/')
   assert.equal(step3, 'closed_browser')
   assert.equal(browserClosed, true)
+})
+
+test('back navigation dismisses external link modal on payload page without exiting to storage', () => {
+  let externalLinkClosed = false
+  let storageNavigated = false
+
+  const mockPayloadState = {
+    externalLinkUrl: 'https://example.com',
+    historyModal: 'external_link',
+    selectedPayload: { filename: 'kstuff.elf' },
+  }
+
+  const handlePayloadPop = (destinationHash) => {
+    const target = getRouteFromHash(destinationHash)
+
+    // 1. Dismiss modal first
+    if (mockPayloadState.historyModal) {
+      mockPayloadState.historyModal = target.modal || null
+      if (mockPayloadState.externalLinkUrl) {
+        mockPayloadState.externalLinkUrl = null
+        externalLinkClosed = true
+      }
+      return 'dismissed_modal'
+    }
+
+    // 2. View transition
+    if (target.type === 'storage') {
+      mockPayloadState.selectedPayload = null
+      storageNavigated = true
+      return 'navigated_storage'
+    }
+
+    return 'other'
+  }
+
+  // Step 1: User is viewing payload with external link modal open at #/payload/kstuff.elf?modal=external_link.
+  // Back button pops hash to #/payload/kstuff.elf.
+  const step1 = handlePayloadPop('#/payload/kstuff.elf')
+  assert.equal(step1, 'dismissed_modal')
+  assert.equal(externalLinkClosed, true)
+  assert.equal(storageNavigated, false)
+  assert.notEqual(mockPayloadState.selectedPayload, null)
+
+  // Step 2: User is now at #/payload/kstuff.elf with modal dismissed.
+  // Back button pops hash to #/storage.
+  const step2 = handlePayloadPop('#/storage')
+  assert.equal(step2, 'navigated_storage')
+  assert.equal(storageNavigated, true)
+  assert.equal(mockPayloadState.selectedPayload, null)
 })
 
 

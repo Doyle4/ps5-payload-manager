@@ -54,6 +54,7 @@ function App() {
   const [usbPayloads, setUsbPayloads] = useState([])
   const [uploadConflictModal, setUploadConflictModal] = useState({ show: false, file: null, folderName: '' })
   const [conflictPrompt, setConflictPrompt] = useState(null)
+  const [externalLinkUrl, setExternalLinkUrl] = useState(null)
   const [installingPayloadId, setInstallingPayloadId] = useState(null)
   const [view, setView] = useState(() => {
     if (typeof window !== 'undefined' && window.location?.hash) {
@@ -141,6 +142,8 @@ function App() {
     setUploadConflictModal,
     conflictPrompt,
     setConflictPrompt,
+    externalLinkUrl,
+    setExternalLinkUrl,
   })
   const [favoritePayloads, setFavoritePayloads] = useState(() => {
     try {
@@ -1038,6 +1041,8 @@ function App() {
               onClosePayload={handleClosePayload}
               conflictPrompt={conflictPrompt}
               setConflictPrompt={setConflictPrompt}
+              externalLinkUrl={externalLinkUrl}
+              setExternalLinkUrl={setExternalLinkUrl}
               installingPayloadId={installingPayloadId}
             />
           )}
