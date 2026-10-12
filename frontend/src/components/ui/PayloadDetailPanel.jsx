@@ -10,10 +10,13 @@ import {
   FileText,
   Sparkles,
   RefreshCw,
+  Globe,
 } from 'lucide-react';
 import { parseMarkdown } from '../../utils/markdown';
+import { isGitHubUrl } from '../../utils/payloadStatus';
 import { useTranslation } from 'react-i18next';
 import PayloadIcon from './PayloadIcon';
+import Modal from './Modal';
 
 const GithubIcon = ({ className = "w-4 h-4" }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -82,9 +85,22 @@ const PayloadDetailPanel = ({
   const [detailsHtml, setDetailsHtml] = useState(null);
   const [detailsError, setDetailsError] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [linkModalUrl, setLinkModalUrl] = useState(null);
   const detailsRef = useRef(null);
 
   const repoUrl = getRepoUrl(payload);
+
+  const handleMarkdownClick = (e) => {
+    const link = e.target.closest('a');
+    if (!link) return;
+    const href = link.getAttribute('href');
+    if (!href) return;
+    if (href.startsWith('#')) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    setLinkModalUrl(href);
+  };
 
   useEffect(() => {
     const urls = getReadmeUrls(payload, srcUrl);
@@ -134,7 +150,7 @@ const PayloadDetailPanel = ({
   if (!payload) return null;
 
   return (
-    <div className="flex flex-col w-full min-h-full animate-in fade-in duration-300 pb-16">
+    <div className="flex flex-col w-full min-h-full min-w-0 max-w-full animate-in fade-in duration-300 pb-16">
       {/* Back button */}
       <div className="flex items-center justify-between mb-6">
         <button
@@ -150,7 +166,7 @@ const PayloadDetailPanel = ({
       </div>
 
       {/* Hero Header Card */}
-      <div className="glass-card p-6 md:p-8 rounded-3xl border border-white/10 flex flex-col md:flex-row items-start gap-6 relative">
+      <div className="glass-card p-6 md:p-8 rounded-3xl border border-white/10 flex flex-col md:flex-row items-start gap-6 relative min-w-0 max-w-full overflow-hidden">
         {/* Left: Big Icon */}
         <div className="shrink-0 self-start">
           <PayloadIcon
@@ -201,21 +217,35 @@ const PayloadDetailPanel = ({
                 </span>
               </div>
             )}
-            {repoUrl && (
-              <a
-                href={repoUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-ps-blue hover:text-white transition-colors underline-offset-2 hover:underline shrink-0"
-                title={repoUrl}
-              >
-                <GithubIcon className="w-4 h-4 shrink-0" />
-                <span className="truncate max-w-[240px] sm:max-w-[320px]">
-                  {repoUrl.replace(/^https?:\/\/(?:www\.)?github\.com\//i, '')}
-                </span>
-                <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70" />
-              </a>
-            )}
+            {repoUrl && (() => {
+              const isGithub = isGitHubUrl(repoUrl);
+              const displayRepo = isGithub
+                ? repoUrl.replace(/^https?:\/\/(?:www\.)?github\.com\//i, '').replace(/\/$/, '')
+                : repoUrl.replace(/^https?:\/\/(?:www\.)?/i, '').replace(/\/$/, '');
+              return (
+                <a
+                  href={repoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setLinkModalUrl(repoUrl);
+                  }}
+                  className="flex items-center gap-1.5 text-ps-blue hover:text-white transition-colors underline-offset-2 hover:underline shrink-0 max-w-full"
+                  title={repoUrl}
+                >
+                  {isGithub ? (
+                    <GithubIcon className="w-4 h-4 shrink-0" />
+                  ) : (
+                    <Globe className="w-4 h-4 shrink-0" />
+                  )}
+                  <span className="truncate max-w-[240px] sm:max-w-[320px]">
+                    {displayRepo}
+                  </span>
+                  <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                </a>
+              );
+            })()}
             {payload.filename && (
               <span className="font-mono text-zinc-500 text-xs truncate max-w-[220px]" title={payload.filename}>
                 {payload.filename}
@@ -309,14 +339,15 @@ const PayloadDetailPanel = ({
 
       {/* Release Notes / What's New */}
       {payload.release_notes && (
-        <div className="mt-8 space-y-3">
+        <div className="mt-8 space-y-3 min-w-0 max-w-full">
           <h3 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-ps-blue" />
             <span>{t("payload_detail.whats_new", "What's New")}</span>
           </h3>
-          <div className="glass-panel p-5 sm:p-6 rounded-2xl border border-white/5 bg-black/20">
+          <div className="glass-panel p-5 sm:p-6 rounded-2xl border border-white/5 bg-black/20 min-w-0 max-w-full overflow-hidden">
             <div
-              className="markdown-body text-sm"
+              className="markdown-body text-sm min-w-0 max-w-full"
+              onClick={handleMarkdownClick}
               dangerouslySetInnerHTML={{ __html: parseMarkdown(payload.release_notes) }}
             />
           </div>
@@ -324,7 +355,7 @@ const PayloadDetailPanel = ({
       )}
 
       {/* Full Description / README Section */}
-      <div className="mt-8 space-y-4">
+      <div className="mt-8 space-y-4 min-w-0 max-w-full">
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
           <h3 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
             <FileText className="w-5 h-5 text-ps-blue" />
@@ -335,9 +366,17 @@ const PayloadDetailPanel = ({
               href={repoUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                setLinkModalUrl(repoUrl);
+              }}
               className="text-xs text-zinc-400 hover:text-ps-blue flex items-center gap-1.5 transition-colors"
             >
-              <span>{t("payload_detail.view_on_github", "View on GitHub")}</span>
+              <span>
+                {isGitHubUrl(repoUrl)
+                  ? t("payload_detail.view_on_github", "View on GitHub")
+                  : t("payload_detail.view_source", "View Source")}
+              </span>
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
           )}
@@ -351,10 +390,11 @@ const PayloadDetailPanel = ({
             </p>
           </div>
         ) : detailsHtml ? (
-          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-white/5 bg-black/20">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-white/5 bg-black/20 min-w-0 max-w-full overflow-hidden">
             <div
               ref={detailsRef}
-              className="markdown-body"
+              className="markdown-body min-w-0 max-w-full"
+              onClick={handleMarkdownClick}
               dangerouslySetInnerHTML={{ __html: detailsHtml }}
             />
           </div>
@@ -372,6 +412,42 @@ const PayloadDetailPanel = ({
           </div>
         )}
       </div>
+
+      {/* External Link Confirmation Modal */}
+      <Modal
+        show={Boolean(linkModalUrl)}
+        title={t("payload_detail.external_link_title", "Open External Link")}
+        onClose={() => setLinkModalUrl(null)}
+        footer={
+          <div className="flex flex-col sm:flex-row w-full gap-3">
+            <button
+              type="button"
+              onClick={() => setLinkModalUrl(null)}
+              className="flex-1 py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold uppercase text-sm transition-all"
+            >
+              {t("app.buttons.cancel", "Cancel")}
+            </button>
+            <a
+              href={linkModalUrl || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setLinkModalUrl(null)}
+              className="flex-1 inline-flex items-center justify-center py-3 px-4 rounded-xl bg-ps-blue hover:bg-ps-blue/80 text-white font-black uppercase text-sm transition-all shadow-lg"
+            >
+              {t("payload_detail.open_link", "Open Link")}
+            </a>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p>
+            {t("payload_detail.external_link_confirm", "Are you sure you want to open this external link?")}
+          </p>
+          <div className="p-3 bg-black/40 rounded-xl border border-white/5 font-mono text-xs text-zinc-400 break-all select-all">
+            {linkModalUrl}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

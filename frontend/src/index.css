@@ -263,7 +263,10 @@ button:focus .animate-marquee,
   color: #d4d4d8; /* zinc-300 */
   font-size: 0.95rem;
   line-height: 1.7;
-  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+  max-width: 100%;
 }
 
 @media (min-width: 768px) {
@@ -271,6 +274,19 @@ button:focus .animate-marquee,
     font-size: 1rem;
     line-height: 1.75;
   }
+}
+
+.markdown-body p,
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6,
+.markdown-body li,
+.markdown-body blockquote {
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .markdown-body > *:first-child {
@@ -393,6 +409,8 @@ button:focus .animate-marquee,
   text-underline-offset: 3px;
   text-decoration-color: rgba(0, 149, 255, 0.4);
   transition: color 0.15s ease, text-decoration-color 0.15s ease;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .markdown-body a:hover {
@@ -409,6 +427,8 @@ button:focus .animate-marquee,
   padding: 0.2em 0.4em;
   border-radius: 0.375rem;
   border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* Code Blocks */
@@ -420,6 +440,9 @@ button:focus .animate-marquee,
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 1rem;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  box-sizing: border-box;
   line-height: 1.5;
 }
 
@@ -462,7 +485,11 @@ button:focus .animate-marquee,
 
 /* Tables */
 .markdown-body table {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   margin-top: 1rem;
   margin-bottom: 1rem;
   border-collapse: collapse;
@@ -496,6 +523,13 @@ button:focus .animate-marquee,
 .markdown-body em {
   font-style: italic;
   color: #e4e4e7;
+}
+
+/* Images */
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+  box-sizing: border-box;
 }
 
 /* Twemoji inline emojis */

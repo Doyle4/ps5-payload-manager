@@ -5,6 +5,11 @@ export function normalizeUrl(url) {
   return url.trim().replace(/\/+$/, '');
 }
 
+export function isGitHubUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  return /^https?:\/\/(?:www\.)?github\.com(\/|$)/i.test(url);
+}
+
 export function formatRepoNameFromUrl(url) {
   if (!url || typeof url !== 'string') return '';
   const trimmed = url.trim();

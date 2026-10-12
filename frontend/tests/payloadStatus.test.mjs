@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getPayloadStatus, formatRepoNameFromUrl, resolveSourceDisplayName } from '../src/utils/payloadStatus.js';
+import { getPayloadStatus, formatRepoNameFromUrl, resolveSourceDisplayName, isGitHubUrl } from '../src/utils/payloadStatus.js';
 
 const OFFICIAL_URL = 'https://official.repo/payloads.json';
 const OTHER_URL = 'https://other.repo/payloads.json';
@@ -261,4 +261,16 @@ test('getPayloadStatus resolves alsoInstalledFrom using repo name instead of URL
   assert.equal(status.hasConflict, true);
   assert.equal(status.alsoInstalledFrom, 'LightningMods Hub');
   assert.notEqual(status.alsoInstalledFrom, 'https://raw.githubusercontent.com/Lightning-Mods/PS5-Payloads/main/payloads.json');
+});
+
+test('isGitHubUrl accurately identifies GitHub repo URLs vs third party URLs', () => {
+  assert.equal(isGitHubUrl('https://github.com/itsPLK/ps5-payload-manager'), true);
+  assert.equal(isGitHubUrl('http://github.com/Lightning-Mods/PS5-Payloads'), true);
+  assert.equal(isGitHubUrl('https://www.github.com/user/repo'), true);
+  assert.equal(isGitHubUrl('https://gitlab.com/user/repo'), false);
+  assert.equal(isGitHubUrl('https://codeberg.org/user/repo'), false);
+  assert.equal(isGitHubUrl('https://my-custom-site.com/payloads'), false);
+  assert.equal(isGitHubUrl(''), false);
+  assert.equal(isGitHubUrl(null), false);
+  assert.equal(isGitHubUrl(undefined), false);
 });

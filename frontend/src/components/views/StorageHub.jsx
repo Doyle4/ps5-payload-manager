@@ -258,7 +258,7 @@ const StorageHub = ({
 
   if (resolvedPayloadData) {
     return (
-      <>
+      <div className="w-full min-w-0 max-w-full">
         <PayloadDetailPanel
           payload={resolvedPayloadData.payload}
           srcId={resolvedPayloadData.srcId}
@@ -331,7 +331,7 @@ const StorageHub = ({
               )}
           </p>
         </Modal>
-      </>
+      </div>
     )
   }
 
