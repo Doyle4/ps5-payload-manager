@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from urllib.parse import urljoin
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -90,7 +91,15 @@ int download_to_file_limited(const char *url, const char *path, size_t limit) { 
         import re
         url = re.search(r'#define REPOSITORY_SOURCE_URL\s*\\?\s*"([^"]+)"', header)[1]
         cache = storage / ("repo_cache_" + hashlib.sha256(url.rstrip('/').encode()).hexdigest()[:8] + ".json")
-        icon = 'data:image/svg+xml,' + '"' * 12000
+        # Icon-bearing catalogs also resolve icons.json by default. Keep its
+        # cache fresh so serializer checks remain independent of downloads.
+        icon_cache = storage / ("repo_icons_" + hashlib.sha256(url.encode()).hexdigest())
+        icon_cache.with_suffix(".json").write_text(json.dumps({"icons": {
+            "shared-icon": "data:image/png;base64,aGVsbG8="
+        }}))
+        icon_cache.with_suffix(".meta").write_text(json.dumps({
+            "url": urljoin(url, "icons.json"), "updated": str(int(time.time()))
+        }))
         for mode in ["builder", "history", "logs", "payloads", "processes", "writers", "favorites", "repository", "repository_limit", "payload_limit", "legacy_map"]:
             if mode == "payload_limit":
                 for i in range(400, 800):
@@ -110,7 +119,7 @@ int download_to_file_limited(const char *url, const char *path, size_t limit) { 
             summaries = [line for line in result.stdout.splitlines() if line.startswith("JSON size checks:")]
             print(mode + ": " + " ".join(summaries))
             if result.returncode:
-                failures.append((mode, result.stderr[-2000:]))
+                failures.append((mode, f"process exited with code {result.returncode}: " + result.stderr[-2000:]))
             for line in result.stdout.splitlines():
                 if not line.startswith("RESULT "):
                     continue
