@@ -709,7 +709,7 @@ function App() {
       isPS5 ? "flex-row overflow-hidden" : "flex-col md:flex-row md:overflow-hidden"
     )}>
       {/* Toast Container */}
-      <div className="fixed top-0 right-0 p-8 z-[2000] space-y-4 pointer-events-none">
+      <div data-toast-container className="fixed top-4 right-4 left-4 md:top-8 md:right-8 md:left-auto md:w-[420px] z-[2000] flex flex-col space-y-3 pointer-events-none max-h-[calc(100vh-2rem)] md:max-h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar">
         {toasts.map(t => (
           <Toast key={t.id} message={t.message} type={t.type} onClose={() => removeToast(t.id)} />
         ))}
