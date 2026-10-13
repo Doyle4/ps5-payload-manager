@@ -87,9 +87,12 @@ with tempfile.TemporaryDirectory(prefix='pldmgr-icons-') as temporary:
     assert revision() and len(icon_requests())==before+2  # failed URL changes are retried after backoff
     for bad in ['file:///tmp/icons.json','https://user:password@cdn.invalid/icons.json','http://cdn.invalid/icons.json']:
         before=len(icon_requests());manifest(bad);assert revision(force=True)=='' and len(icon_requests())==before
-    catalog.write_text(json.dumps(items));assert revision(force=True)==''  # bare catalogs without icons supported
-    catalog_cache=storage/('repo_cache_'+hashlib.sha256(source.encode()).hexdigest()[:8]+'.json')
+    bare_no_icons = [{'id':'one','name':'One','filename':'one.elf','url':'https://mirror.invalid/one.elf'}]
+    catalog.write_text(json.dumps(bare_no_icons));assert revision(force=True)==''  # catalogs without icon keys do not fetch icons
+    catalog.write_text(json.dumps(items));rev=revision(force=True);assert len(rev)==64  # bare catalogs resolve default icons.json
+    catalog.write_text(json.dumps({'name':'Fixture','payloads':items}));assert revision(force=True)==rev  # manifests without icons_url resolve default icons.json
     manifest();images.write_text(json.dumps({'icons':{'shared':image,'absent':image}}));revision(force=True)
+    catalog_cache=storage/('repo_cache_'+hashlib.sha256(source.encode()).hexdigest()[:8]+'.json')
     catalog_timestamp = Path(str(catalog_cache)+'.ts')
     before = requests().count(source)
     icons_before = len(icon_requests())

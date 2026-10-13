@@ -19,7 +19,6 @@ To create a repository, you must host a JSON file that conforms to the following
 ```json
 {
   "name": "My Custom Payloads",
-  "icons_url": "icons.json",
   "payloads": [
     {
       "id": "ftpsrv",
@@ -62,7 +61,7 @@ To create a repository, you must host a JSON file that conforms to the following
 | **`category`** (item-level) | String | No | The category name used to group payloads in the frontend (e.g. `"Networking"`). Defaults to `"Uncategorized"`. |
 | **`checksum`** (item-level) | String | No | **SHA-256** hash: exactly 64 hexadecimal characters when nonempty. Missing/empty remains optional; malformed supplied values reject the entry. Every download attempt, including retries, is checked when a hash is supplied. If versions are identical but checksum differs, it is flagged as an update. |
 | **`author`** (item-level) | String | No | Author or creator of the payload. |
-| **`icons_url`** (top-level) | String | No | Relative or absolute HTTP/HTTPS URL of a separate icon catalog. Requires the object wrapper. |
+| **`icons_url`** (top-level) | String | No | Optional override. When omitted, defaults to `icons.json` placed alongside `payloads.json`. |
 | **`icon_key`** (item-level) | String | No | Key in the separate catalog’s `icons` map, up to 127 UTF-8 bytes. Multiple payloads can share one key. |
 | **`details_url`** (item-level) | String | No | URL to documentation or README markdown for the payload. |
 | **`release_notes`** (item-level) | String | No | Markdown release notes for this version. The backend field holds up to 2047 UTF-8 bytes, with UTF-8-safe truncation and an ellipsis when exceeded. This is a byte budget, not 2000 Unicode characters. |
@@ -72,11 +71,12 @@ To create a repository, you must host a JSON file that conforms to the following
 
 ### Payload Icons
 
-Declare `icons_url` on the object wrapper, such as `"icons_url": "icons.json"`.
-Relative URLs resolve against the payload catalog URL; absolute HTTP/HTTPS URLs
-are also supported. HTTPS catalogs cannot downgrade to HTTP for icons. Sources
-without `icons_url`, including bare arrays, use the normal generated fallback.
-Inline item-level `icon` data is not supported.
+By default, repositories use an `icons.json` catalog placed in the same directory/URL
+alongside `payloads.json`. An optional `icons_url` field on the object wrapper can
+explicitly specify an alternative relative or absolute HTTP/HTTPS URL. Relative URLs
+resolve against the payload catalog URL. HTTPS catalogs cannot downgrade to HTTP for icons.
+Sources where no payloads reference an `icon_key`, or where `icons.json` is missing,
+use the normal generated fallback. Inline item-level `icon` data is not supported.
 
 The separate file has this shape:
 
