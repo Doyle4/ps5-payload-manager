@@ -47,7 +47,7 @@
 #define PAYLOADS_STORAGE_DIR "/data/pldmgr/payloads"
 #define REPOSITORY_SOURCE_URL                                                  \
   "https://itsplk.github.io/ps5-payloads-mirror/payloads.json"
-#define REPOSITORY_REFRESH_INTERVAL_SEC 86400
+#define REPOSITORY_REFRESH_INTERVAL_SEC 10800
 
 /* Logging (implementation in log_server.c) */
 void pldmgr_log(const char *fmt, ...);

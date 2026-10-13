@@ -90,6 +90,14 @@ with tempfile.TemporaryDirectory(prefix='pldmgr-icons-') as temporary:
     catalog.write_text(json.dumps(items));assert revision(force=True)==''  # bare catalogs without icons supported
     catalog_cache=storage/('repo_cache_'+hashlib.sha256(source.encode()).hexdigest()[:8]+'.json')
     manifest();images.write_text(json.dumps({'icons':{'shared':image,'absent':image}}));revision(force=True)
+    catalog_timestamp = Path(str(catalog_cache)+'.ts')
+    before = requests().count(source)
+    icons_before = len(icon_requests())
+    catalog_timestamp.write_text(str(int(time.time())-2*3600))
+    revision();assert requests().count(source)==before  # still fresh before three hours
+    catalog_timestamp.write_text(str(int(time.time())-3*3600-5))
+    revision();assert requests().count(source)==before+1  # expired catalogs refresh on access
+    assert len(icon_requests())==icons_before  # catalog expiry does not expire the weekly icon cache
     Path(str(catalog_cache)+'.ts').write_text('0')
     outage=dict(env,ICON_TEST_FAIL_CATALOG='1',ICON_TEST_FAIL='1')
     cached_listing=json.loads(subprocess.check_output([str(binary),'list'],cwd=ROOT,env=outage,text=True))

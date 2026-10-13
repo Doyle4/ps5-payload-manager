@@ -5,6 +5,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { cn, isPS5, isIOS } from '../../utils/helpers'
 import { getPayloadStatus, resolveSourceDisplayName, isRepositoryPayloadVisible } from '../../utils/payloadStatus'
 import { slug } from '../../utils/versions'
+import { formatSyncTime } from '../../utils/syncTime'
 import PayloadName from '../ui/PayloadName'
 import Modal from '../ui/Modal'
 import { useRepository } from '../../contexts/RepositoryContext'
@@ -576,7 +577,7 @@ const StorageHub = ({
                   {!multiSources && src.last_update > 0 && (
                     <p className="px-3 sm:px-4 text-xs uppercase tracking-widest text-zinc-500">
                       {t("storage_hub.last_sync", "Last Sync: {{date}}", {
-                        date: new Date(src.last_update * 1000).toLocaleString(i18n.resolvedLanguage),
+                        date: formatSyncTime(src.last_update, i18n.resolvedLanguage, isPS5),
                       })}
                     </p>
                   )}
@@ -601,7 +602,7 @@ const StorageHub = ({
                           {src.last_update > 0 && (
                             <p className="text-xs text-zinc-500 uppercase tracking-widest mt-1">
                               {t("storage_hub.updated_at", "Updated {{date}}", {
-                                date: new Date(src.last_update * 1000).toLocaleString(i18n.resolvedLanguage),
+                                date: formatSyncTime(src.last_update, i18n.resolvedLanguage, isPS5),
                               })}
                             </p>
                           )}
