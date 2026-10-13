@@ -53,7 +53,7 @@ const PayloadButton = ({
   return (
     <div
       className={cn(
-        "group glass-card pl-4 pr-3 py-2.5 rounded-ps-xl flex flex-col justify-center border transition-all text-left relative min-h-[72px]",
+        "group glass-card rounded-ps-xl flex flex-col justify-center border transition-all text-left relative min-h-[72px]",
         isManageMode ? "border-red-500/20 hover:border-red-500 hover:bg-red-500/10" : "border-white/5 hover:border-ps-blue hover:bg-ps-blue/5",
         isManageMode && isUsb && "opacity-50 grayscale cursor-not-allowed"
       )}
@@ -62,7 +62,7 @@ const PayloadButton = ({
         onClick={handleClick}
         disabled={isLoading || (isManageMode && isUsb)}
         title={isManageMode && !isUsb ? t("app.dashboard.removePayload", "Remove Payload") : undefined}
-        className="w-full text-left relative z-10 rounded-lg focus:outline-none focus:ring-2 focus:ring-ps-blue"
+        className="w-full flex-1 pl-4 pr-3 py-2.5 text-left relative z-10 rounded-ps-xl focus:outline-none focus:ring-2 focus:ring-ps-blue"
       >
       <div className="flex items-center justify-between w-full z-10 my-auto">
         <div className="flex items-center gap-3.5 min-w-0 pr-2">

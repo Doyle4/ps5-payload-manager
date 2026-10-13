@@ -343,6 +343,21 @@ try {
       catch (error) { throw new Error(error.message + ': ' + JSON.stringify({ requests, page: await evaluate(`({text:document.body.textContent,errors:window.__unhandledErrors})`) })) }
       await click('Edit Favorites')
       const clickCard = name => evaluate(`Array.from(document.querySelectorAll('.glass-card > button')).find(b => b.textContent.toLowerCase().includes(${JSON.stringify(name.toLowerCase())})).click()`)
+      // The launch/toggle button must cover the visual card padding on every side.
+      const nextCard = `Array.from(document.querySelectorAll('.glass-card')).find(card => card.querySelector('button')?.textContent.toLowerCase().includes('next'))`
+      let box = await evaluate(`(() => {const r=${nextCard}.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()`)
+      await rpc('Input.dispatchMouseEvent', { type: 'mouseMoved', x: box.x + box.width / 2, y: box.y + box.height / 2 }, sessionId)
+      await wait(300)
+      for (const side of ['left', 'right', 'top', 'bottom']) {
+        box = await evaluate(`(() => {const r=${nextCard}.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}})()`)
+        const x = box.x + (side === 'left' ? 3 : side === 'right' ? box.width - 3 : box.width / 2)
+        const y = box.y + (side === 'top' ? 3 : side === 'bottom' ? box.height - 3 : box.height / 2)
+        assert.equal(await evaluate(`document.elementFromPoint(${x},${y})?.closest('button') === ${nextCard}.querySelector('button')`), true, `${side} card padding was not clickable`)
+        await rpc('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }, sessionId)
+        await rpc('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }, sessionId)
+        await eventually(() => pendingSaves.length === 1, `${side} edge click did not toggle the favorite`)
+        releaseSave(); await wait(50)
+      }
       await clickCard('Next'); await eventually(() => pendingSaves.length === 1, 'favorite save did not start')
       assert.equal(pendingSaves[0].update.FAVORITES, 'local/next')
       await clickCard('A'); await clickCard('B'); await wait(300)
