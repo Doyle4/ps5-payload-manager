@@ -9,6 +9,13 @@ export function isOfficialRepoUrl(url) {
   return norm === OFFICIAL_REPOSITORY_URL || norm === LEGACY_OFFICIAL_REPOSITORY_URL;
 }
 
+export function isOfficialSource(sourceName, sourceUrl) {
+  if (sourceUrl && isOfficialRepoUrl(sourceUrl)) return true;
+  if (!sourceName || typeof sourceName !== 'string') return false;
+  const s = sourceName.trim().toLowerCase();
+  return s === 'official repository' || isOfficialRepoUrl(s);
+}
+
 export function isOfficialSelfUpdate(payload, srcUrl) {
   return (payload?.id || slug(payload?.name || payload?.filename)) === 'pldmgr' &&
     isOfficialRepoUrl(srcUrl);

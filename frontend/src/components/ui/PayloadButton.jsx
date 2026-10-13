@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Loader2, Globe, Star, ChevronLeft, ChevronRight, CheckCircle2, Trash2 } from 'lucide-react'
 import PayloadName from './PayloadName'
 import PayloadIcon from './PayloadIcon'
-import { cn } from '../../utils/helpers'
+import { cn, formatSourceTag } from '../../utils/helpers'
 
 const PayloadButton = ({
   path = '',
@@ -79,9 +79,9 @@ const PayloadButton = ({
             </div>
             {sourceName && !isUsb && (
               <div className="flex items-center mt-0.5">
-                <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0 max-w-full select-none leading-none">
+                <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0 max-w-full select-none leading-none" title={sourceName}>
                   <Globe className="w-3 h-3 text-zinc-400 shrink-0" />
-                  <span className="truncate">{sourceName}</span>
+                  <span className="truncate">{formatSourceTag(sourceName)}</span>
                 </span>
               </div>
             )}

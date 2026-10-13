@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatVersionTag, parsePayloadName, getBaseName, cleanDisplayName, isSystemPayload } from '../src/utils/helpers.js';
+import { formatVersionTag, formatSourceTag, parsePayloadName, getBaseName, cleanDisplayName, isSystemPayload } from '../src/utils/helpers.js';
 
 test('formatVersionTag preserves short and normal versions', () => {
   assert.equal(formatVersionTag('0.1'), '0.1');
@@ -28,6 +28,15 @@ test('formatVersionTag handles empty, null, and non-string inputs safely', () =>
   assert.equal(formatVersionTag(undefined), '');
   assert.equal(formatVersionTag(''), '');
   assert.equal(formatVersionTag(123), '');
+});
+
+test('formatSourceTag formats and truncates long source names with trailing ellipsis', () => {
+  assert.equal(formatSourceTag('Homebrew Repo'), 'Homebrew Repo');
+  assert.equal(formatSourceTag('My Source Of Payloads 2026'), 'My Source Of Payl...');
+  assert.equal(formatSourceTag('Short', 10), 'Short');
+  assert.equal(formatSourceTag('A Very Long Custom Name', 12), 'A Very Lo...');
+  assert.equal(formatSourceTag(null), '');
+  assert.equal(formatSourceTag(''), '');
 });
 
 test('getBaseName extracts clean normalized lowercase base names', () => {

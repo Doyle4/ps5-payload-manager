@@ -66,6 +66,13 @@ export const formatVersionTag = (version, maxLen = 8) => {
   return `...${trimmed.slice(-keepCount)}`;
 };
 
+export const formatSourceTag = (sourceName, maxLen = 20) => {
+  if (!sourceName || typeof sourceName !== 'string') return '';
+  const trimmed = sourceName.trim();
+  if (trimmed.length <= maxLen) return trimmed;
+  return `${trimmed.slice(0, maxLen - 3)}...`;
+};
+
 export const cleanDisplayName = (name, version) => {
   if (!name || typeof name !== 'string') return '';
   let cleaned = name.trim();

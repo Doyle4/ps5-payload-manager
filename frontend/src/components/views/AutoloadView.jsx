@@ -1,13 +1,14 @@
 import { saveConfigOnExit } from '../../utils/mutationRequest'
 import React, { useState, useEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import { RefreshCw, Loader2, ArrowLeft, ArrowRight, Activity, Zap, ChevronUp, ChevronDown, Trash2, Globe } from 'lucide-react'
-import { cn, isPS5, isSystemPayload, parsePayloadName } from '../../utils/helpers'
+import { cn, isPS5, isSystemPayload, parsePayloadName, formatSourceTag } from '../../utils/helpers'
 import { useTranslation } from 'react-i18next'
 import PayloadName from '../ui/PayloadName'
 import PayloadIcon from '../ui/PayloadIcon'
 import Modal from '../ui/Modal'
 import { createAutoloadEditorSession } from '../../utils/autoloadEditorSession'
 import { useRepository } from '../../contexts/RepositoryContext'
+import { isOfficialSource } from '../../utils/payloadStatus'
 
 const AutoloadView = ({
   items = [],
@@ -131,8 +132,10 @@ const AutoloadView = ({
         author = repoMeta?.author || itemObj.author || null
         icon = repoMeta?.icon || null
         const hasDup = Boolean(itemObj.id && idCounts[itemObj.id] > 1)
-        if (hasDup || config?.MULTI_SOURCES_ENABLED) {
-          sourceName = itemObj.source_name || repoMeta?.source_name || null
+        const repName = itemObj.source_name || repoMeta?.source_name || null
+        const isOfficial = isOfficialSource(repName, itemObj.source_url || repoMeta?.source_url)
+        if (!isOfficial && (hasDup || config?.MULTI_SOURCES_ENABLED)) {
+          sourceName = repName
         }
       }
 
@@ -246,9 +249,9 @@ const AutoloadView = ({
                         </div>
                         {meta?.sourceName && (
                           <div className="flex items-center mt-0.5">
-                            <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0 max-w-full select-none leading-none">
+                            <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0 max-w-full select-none leading-none" title={meta.sourceName}>
                               <Globe className="w-3 h-3 text-zinc-400 shrink-0" />
-                              <span className="truncate">{meta.sourceName}</span>
+                              <span className="truncate">{formatSourceTag(meta.sourceName)}</span>
                             </span>
                           </div>
                         )}
@@ -351,9 +354,9 @@ const AutoloadView = ({
                         </div>
                         {meta?.sourceName && (
                           <div className="flex items-center mt-0.5">
-                            <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0 max-w-full select-none leading-none">
+                            <span className="inline-flex items-center gap-1 text-[10px] text-zinc-400 font-bold bg-white/10 px-1.5 py-0.5 rounded uppercase shrink-0 max-w-full select-none leading-none" title={meta.sourceName}>
                               <Globe className="w-3 h-3 text-zinc-400 shrink-0" />
-                              <span className="truncate">{meta.sourceName}</span>
+                              <span className="truncate">{formatSourceTag(meta.sourceName)}</span>
                             </span>
                           </div>
                         )}

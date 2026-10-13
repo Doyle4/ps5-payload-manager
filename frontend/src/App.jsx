@@ -24,9 +24,9 @@ import { apiFetch, mutationFetch, saveConfigOnExit } from './utils/mutationReque
 import { useRepository } from './contexts/RepositoryContext'
 
 // Utilities
-import { cn, isPS5, isSystemPayload, parsePayloadName } from './utils/helpers'
+import { cn, isPS5, isSystemPayload, parsePayloadName, formatSourceTag } from './utils/helpers'
 import { slug } from './utils/versions'
-import { resolveSourceDisplayName } from './utils/payloadStatus'
+import { resolveSourceDisplayName, isOfficialSource } from './utils/payloadStatus'
 
 // UI Components
 import Toast from './components/ui/Toast'
@@ -919,7 +919,8 @@ function App() {
                 author = repoMeta?.author || itemObj.author || null
                 icon = repoMeta?.icon || null
                 repositoryName = itemObj.source_name || repoMeta?.source_name || null
-                if (itemObj.hasDuplicateId || config.MULTI_SOURCES_ENABLED) {
+                const isOfficial = isOfficialSource(repositoryName, itemObj.source_url || repoMeta?.source_url)
+                if (!isOfficial && (itemObj.hasDuplicateId || config.MULTI_SOURCES_ENABLED)) {
                   sourceName = repositoryName
                 }
               }
@@ -942,7 +943,7 @@ function App() {
                     if (isFavoriteEditMode) toggleFavorite(itemObj.key)
                     else loadPayload(itemObj.isUsb ? itemObj.path : (itemObj.slot || slotOrKey), {
                       name: displayName, path: pathProp, version, icon,
-                      sourceName: repositoryName || sourceName,
+                      sourceName,
                     })
                   }}
                   onDelete={() => handleDelete(itemObj.slot || slotOrKey, displayName)}
@@ -1167,9 +1168,9 @@ function App() {
                   </span>
                 )}
                 {activeLoadingPayload?.sourceName && (
-                  <span className="inline-flex items-center gap-2 text-sm text-zinc-400 font-medium bg-white/10 px-3 py-1 rounded-lg max-w-full">
+                  <span className="inline-flex items-center gap-2 text-sm text-zinc-400 font-medium bg-white/10 px-3 py-1 rounded-lg max-w-full" title={activeLoadingPayload.sourceName}>
                     <Globe className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{activeLoadingPayload.sourceName}</span>
+                    <span className="truncate">{formatSourceTag(activeLoadingPayload.sourceName)}</span>
                   </span>
                 )}
               </div>

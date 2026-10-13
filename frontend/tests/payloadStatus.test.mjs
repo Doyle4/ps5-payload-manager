@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getPayloadStatus, formatRepoNameFromUrl, resolveSourceDisplayName, isGitHubUrl } from '../src/utils/payloadStatus.js';
+import { getPayloadStatus, formatRepoNameFromUrl, resolveSourceDisplayName, isGitHubUrl, isOfficialSource } from '../src/utils/payloadStatus.js';
 
 const OFFICIAL_URL = 'https://official.repo/payloads.json';
 const OTHER_URL = 'https://other.repo/payloads.json';
@@ -292,4 +292,15 @@ test('self-update is always installed, only newer versions offer an update, and 
   assert.equal(pending.restartRequired, true);
   assert.equal(pending.installedSlot.version, '0.6.0');
   assert.equal(getPayloadStatus({ payload, srcUrl }).buttonAction, null);
+});
+
+test('isOfficialSource accurately identifies official repo names and urls', () => {
+  assert.equal(isOfficialSource('Official Repository'), true);
+  assert.equal(isOfficialSource('official repository'), true);
+  assert.equal(isOfficialSource(null, 'https://itsplk.github.io/ps5-payloads-mirror/payloads_v2.json'), true);
+  assert.equal(isOfficialSource(null, 'https://itsplk.github.io/ps5-payloads-mirror/payloads.json'), true);
+  assert.equal(isOfficialSource(null, 'https://itsplk.github.io/ps5-payloads-mirror/payloads.json/'), true);
+  assert.equal(isOfficialSource('My Custom Source', 'https://example.com/payloads.json'), false);
+  assert.equal(isOfficialSource('Other Repository'), false);
+  assert.equal(isOfficialSource(null, null), false);
 });
