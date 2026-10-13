@@ -81,7 +81,7 @@ int download_to_file_limited(const char *url, const char *path, size_t limit) { 
         binary = build / "json_size_tests"
         sources = [source(name) for name in ["history_mgr", "log_server", "payload_mgr", "slot", "sources", "process_mgr", "config"]]
         subprocess.run(common + [str(helper), str(repository), "src/utils.c", "src/sha256.c", *sources,
-                                 str(build / "kernel.c"), "tests/json_size_driver.c", "-o", str(binary)],
+                                 str(build / "kernel.c"), "tests/json_size_driver.c", "-lcurl", "-o", str(binary)],
                        cwd=ROOT, check=True)
         failures = []
         # Fresh on-disk cache proves actual repository serialization without a
@@ -104,7 +104,7 @@ int download_to_file_limited(const char *url, const char *path, size_t limit) { 
                 count = 30 if mode == "repository" else 300
                 cache.write_text(json.dumps([{"id": f"item-{i}", "name": f"Item {i}", "filename": "safe.elf",
                                              "url": "https://example.invalid/safe.elf", "description": "\x01" * 1000,
-                                             "release_notes": "\x01" * 2000, "icon": icon} for i in range(count)]))
+                                             "release_notes": "\x01" * 2000, "icon_key": "shared-icon"} for i in range(count)]))
                 Path(str(cache) + ".ts").write_text(str(int(time.time())))
             result = subprocess.run([str(binary), mode], text=True, capture_output=True)
             summaries = [line for line in result.stdout.splitlines() if line.startswith("JSON size checks:")]
@@ -130,7 +130,7 @@ int download_to_file_limited(const char *url, const char *path, size_t limit) { 
                         items = document["sources"][0]["payloads"]
                         assert len(items) == 30
                         assert all(item["description"] == "\x01" * 1000 and item["release_notes"] == "\x01" * 2000 and
-                                   item["icon"] == icon for item in items)
+                                   item["icon_key"] == "shared-icon" and "icon" not in item for item in items)
                 except (ValueError, AssertionError) as error:
                     failures.append((mode, "independent decoding/content check failed: " + str(error)))
         if failures:

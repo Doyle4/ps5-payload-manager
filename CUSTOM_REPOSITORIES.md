@@ -19,6 +19,7 @@ To create a repository, you must host a JSON file that conforms to the following
 ```json
 {
   "name": "My Custom Payloads",
+  "icons_url": "icons.json",
   "payloads": [
     {
       "id": "ftpsrv",
@@ -31,7 +32,7 @@ To create a repository, you must host a JSON file that conforms to the following
       "category": "Networking",
       "checksum": "e6c1babbfd5e1b766d12b659853b514b9faedf6333cbe8cb514b1a3e79b7ce39",
       "author": "hippie68",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxMjgnIGhlaWdodD0nMTI4Jz48cmVjdCB3aWR0aD0nMTI4JyBoZWlnaHQ9JzEyOCcgcng9JzI0JyBmaWxsPScjM2I4MmY2Jy8+PHRleHQgeD0nNjQnIHk9JzgyJyBmb250LWZhbWlseT0nQXJpYWwsc2Fucy1zZXJpZicgZm9udC1zaXplPSc0NCcgZm9udC13ZWlnaHQ9J2JvbGQnIGZpbGw9JyNmZmYnIHRleHQtYW5jaG9yPSdtaWRkbGUnPkZUUDwvdGV4dD48L3N2Zz4="
+      "icon_key": "ftp-server"
     },
     {
       "id": "debug-tool",
@@ -61,7 +62,8 @@ To create a repository, you must host a JSON file that conforms to the following
 | **`category`** (item-level) | String | No | The category name used to group payloads in the frontend (e.g. `"Networking"`). Defaults to `"Uncategorized"`. |
 | **`checksum`** (item-level) | String | No | **SHA-256** hash: exactly 64 hexadecimal characters when nonempty. Missing/empty remains optional; malformed supplied values reject the entry. Every download attempt, including retries, is checked when a hash is supplied. If versions are identical but checksum differs, it is flagged as an update. |
 | **`author`** (item-level) | String | No | Author or creator of the payload. |
-| **`icon`** (item-level) | String | No | Inline base64 data URI icon (e.g. `data:image/svg+xml;base64,...` or `data:image/png;base64,...`). See [Payload Icons](#payload-icons) below. |
+| **`icons_url`** (top-level) | String | No | Relative or absolute HTTP/HTTPS URL of a separate icon catalog. Requires the object wrapper. |
+| **`icon_key`** (item-level) | String | No | Key in the separate catalog’s `icons` map, up to 127 UTF-8 bytes. Multiple payloads can share one key. |
 | **`details_url`** (item-level) | String | No | URL to documentation or README markdown for the payload. |
 | **`release_notes`** (item-level) | String | No | Markdown release notes for this version. The backend field holds up to 2047 UTF-8 bytes, with UTF-8-safe truncation and an ellipsis when exceeded. This is a byte budget, not 2000 Unicode characters. |
 | **`source`** (item-level) | String | No | Link to the upstream source repository or releases page. |
@@ -70,11 +72,41 @@ To create a repository, you must host a JSON file that conforms to the following
 
 ### Payload Icons
 
-- **Data URIs Only**: The `icon` field must be an inline data URI starting with `data:image/` (e.g., SVG `data:image/svg+xml;base64,...` or PNG `data:image/png;base64,...`).
-- **No External Image URLs**: Direct HTTP/HTTPS image URLs (such as `https://example.com/icon.png`) are **not supported**. Inline data URIs are embedded directly inside the repository catalog, ensuring icons load instantly without extra network roundtrips, work 100% offline, and are unaffected by DNS blockers commonly configured on PS5 consoles.
-- **Maximum Length**: The data URI must not exceed **12 KB** (~12,288 characters). Icons exceeding this limit are ignored.
-- **Recommended Dimensions**: Square icons (e.g. 128x128 or 256x256) with rounded or transparent borders look best across the Dashboard, Autoload, and Repository views.
-- **Automatic Fallback**: If `icon` is omitted, malformed, or exceeds the size limit, Payload Manager automatically renders a colorful gradient icon based on a hash of the payload's name.
+Declare `icons_url` on the object wrapper, such as `"icons_url": "icons.json"`.
+Relative URLs resolve against the payload catalog URL; absolute HTTP/HTTPS URLs
+are also supported. HTTPS catalogs cannot downgrade to HTTP for icons. Sources
+without `icons_url`, including bare arrays, use the normal generated fallback.
+Inline item-level `icon` data is not supported.
+
+The separate file has this shape:
+
+```json
+{
+  "icons": {
+    "ftp-server": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxMjgnIGhlaWdodD0nMTI4Jz48cmVjdCB3aWR0aD0nMTI4JyBoZWlnaHQ9JzEyOCcgcng9JzI0JyBmaWxsPScjM2I4MmY2Jy8+PHRleHQgeD0nNjQnIHk9JzgyJyBmb250LWZhbWlseT0nQXJpYWwsc2Fucy1zZXJpZicgZm9udC1zaXplPSc0NCcgZm9udC13ZWlnaHQ9J2JvbGQnIGZpbGw9JyNmZmYnIHRleHQtYW5jaG9yPSdtaWRkbGUnPkZUUDwvdGV4dD48L3N2Zz4="
+  }
+}
+```
+
+Values must be base64 PNG, JPEG or SVG data URIs, each at most 12,288 characters.
+Direct image URLs and WebP are unsupported. Use square images around 128×128.
+An icon catalog must be smaller than 4 MiB, with at most 4,096 unique keys;
+keys are nonempty and at most 127 UTF-8 bytes. Malformed JSON, duplicate keys, unsupported data URIs or exceeded limits reject
+that icon update while preserving the last valid cache and the payload catalog.
+Images that fail to decode in the browser use the generated fallback.
+
+The PS5 caches each source's icon catalog persistently. It checks for a refresh
+when the source is listed and the cache is seven days old, or when a referenced
+key is missing. Changed `icons_url` values trigger a refresh too. Failed updates
+and still-missing keys are retried at most hourly unless a different missing-key
+set is discovered. Catalog refreshes do not otherwise force icon refreshes.
+When a catalog refresh fails, a valid cached payload list remains available with
+a source error indicator. Cached icons are served locally to the browser, separately from payload metadata;
+the browser reuses them while their content revision is unchanged.
+
+**Settings → Repository Cache → Clear Cache** removes downloaded catalogs, icons
+and their freshness records, then reloads them. Installed payloads, configured
+sources, favorites, autoload and settings are preserved.
 
 ## Version Comparison Rules
 

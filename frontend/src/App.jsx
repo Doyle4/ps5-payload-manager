@@ -51,7 +51,7 @@ let toastSeq = 0
 
 function App() {
   const { t } = useTranslation();
-  const { getRepoEntry, findRepoEntryById, fetchRemote, sources } = useRepository()
+  const { getRepoEntry, findRepoEntryById, fetchRemote, clearCache, sources } = useRepository()
   const [items, setItems] = useState([])
   const [usbPayloads, setUsbPayloads] = useState([])
   const [uploadConflictModal, setUploadConflictModal] = useState({ show: false, file: null, folderName: '' })
@@ -1107,6 +1107,7 @@ function App() {
               showLogs={showLogs}
               setShowLogs={setShowLogs}
               onNavigate={(v) => navigate(v)}
+              onClearCache={clearCache}
             />
           )}
 

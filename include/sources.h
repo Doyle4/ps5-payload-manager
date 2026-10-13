@@ -22,6 +22,10 @@ int sources_ensure_fresh(const char *url, int force_refresh);
  * Returns complete bytes written, or 0 on serialization failure. */
 size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refresh);
 
+/* Cached icon catalog for a configured source ID; no remote URL accepted. */
+size_t sources_icons_json(const char *source_id, char *buf, size_t size);
+int sources_clear_cache(void);
+
 /* Unified repository install pipeline.
  * Finds entry by id in source cache (refreshing if missing or on error).
  * Handles conflicts, mode=replace|keep_both, and downloads to slot/.part before commit. */

@@ -243,5 +243,11 @@
   "storage_hub.payload_count_one": "{{count}} payload",
   "storage_hub.payload_count_few": "{{count}} payloady",
   "storage_hub.payload_count_many": "{{count}} payloadów",
-  "storage_hub.payload_count_other": "{{count}} payloadu"
+  "storage_hub.payload_count_other": "{{count}} payloadu",
+  "settings.cache_title": "Pamięć podręczna repozytoriów",
+  "settings.cache_clear": "Wyczyść pamięć",
+  "settings.cache_clearing": "Czyszczenie…",
+  "settings.cache_cleared": "Wyczyszczono pamięć podręczną repozytoriów.",
+  "settings.cache_failed": "Nie udało się wyczyścić pamięci podręcznej repozytoriów.",
+  "settings.cache_desc": "Usuń pobrane katalogi i ikony, a następnie pobierz je ponownie. Zainstalowane payloady i ustawienia zostaną zachowane."
 }

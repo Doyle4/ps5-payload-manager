@@ -226,11 +226,7 @@ int parse_repository_payloads(const char *json, RepoPayload **out_items, size_t 
             strcpy(item->release_notes + length, "...");
         }
 
-        json_extract_string(p, end + 1, "icon", item->icon, sizeof(item->icon));
-        /* Only allow inline data URIs (e.g. data:image/svg+xml;base64,... or data:image/png;base64,...); reject external URLs */
-        if (strncmp(item->icon, "data:image/", 11) != 0 || strlen(item->icon) > 12288) {
-            item->icon[0] = '\0';
-        }
+        json_extract_string(p, end + 1, "icon_key", item->icon_key, sizeof(item->icon_key));
 
         if (json_extract_string(p, end + 1, "category", item->category, sizeof(item->category)) != 0 ||
             strlen(item->category) == 0) {

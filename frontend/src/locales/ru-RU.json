@@ -243,5 +243,11 @@
   "storage_hub.payload_count_one": "{{count}} пейлоад",
   "storage_hub.payload_count_few": "{{count}} пейлоада",
   "storage_hub.payload_count_many": "{{count}} пейлоадов",
-  "storage_hub.payload_count_other": "{{count}} пейлоада"
+  "storage_hub.payload_count_other": "{{count}} пейлоада",
+  "settings.cache_title": "Кэш репозиториев",
+  "settings.cache_clear": "Очистить кэш",
+  "settings.cache_clearing": "Очистка…",
+  "settings.cache_cleared": "Кэш репозиториев очищен.",
+  "settings.cache_failed": "Не удалось очистить кэш репозиториев.",
+  "settings.cache_desc": "Удаляет загруженные каталоги и значки, затем загружает их заново. Установленные пейлоады и настройки сохраняются."
 }

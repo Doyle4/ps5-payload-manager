@@ -22,6 +22,7 @@ const publicFixture = (req, res, next) => {
 };
 // Serve the locally generated details/ README folder (repo root)
 app.use('/details', publicFixture, express.static(path.resolve(process.cwd(), '..', 'details')));
+app.use('/test_icons.json', publicFixture, express.static(path.resolve(process.cwd(), '..', 'test_icons.json')));
 app.use('/test_repo.json', publicFixture, express.static(path.resolve(process.cwd(), '..', 'test_repo.json')));
 
 // Log all requests to terminal
@@ -40,9 +41,11 @@ let logs = [
 
 // Load the new-schema test repository (icons, author, release_notes, details_url)
 let remoteRepository = [];
+let remoteIcons = {};
 try {
   const testRepo = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), '..', 'test_repo.json'), 'utf8'));
   remoteRepository = testRepo.payloads || [];
+  remoteIcons = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "..", "test_icons.json"), "utf8")).icons;
 } catch {
   console.log('[Mock] Could not load ../test_repo.json — using built-in payloads');
   remoteRepository = [
@@ -164,6 +167,13 @@ app.get('/get_config', (req, res) => {
   });
 });
 
+app.get('/repository_icons', (req, res) => {
+  const items = req.query.source === 'default' ? remoteRepository : req.query.source === 'source_community' ? communityRepository : null;
+  if (!items) return res.status(404).json({ icons: {} });
+  res.json({ icons: req.query.source === 'default' ? remoteIcons : {} });
+});
+app.post('/repository_cache_clear', (req, res) => res.json({ ok: true }));
+
 app.get('/repository_payloads', (req, res) => {
   // Return source-grouped format (multi-source mode always on in mock)
   res.json({
@@ -174,6 +184,7 @@ app.get('/repository_payloads', (req, res) => {
         url: 'http://localhost:8081/test_repo.json',
         last_update: lastRepositoryUpdate,
         error: false,
+        icons_revision: 'mock-icons-v1',
         payloads: remoteRepository.map(p => ({ ...p, source_id: 'default', source_name: 'Official Repository' }))
       },
       {
@@ -182,6 +193,7 @@ app.get('/repository_payloads', (req, res) => {
         url: 'https://example.com/community-payloads.json',
         last_update: lastRepositoryUpdate,
         error: false,
+        icons_revision: 'mock-icons-v1',
         payloads: communityRepository.map(p => ({ ...p, source_id: 'source_community', source_name: 'Community Payloads' }))
       }
     ]
@@ -199,6 +211,7 @@ app.post('/repository_refresh', (req, res) => {
         url: 'http://localhost:8081/test_repo.json',
         last_update: lastRepositoryUpdate,
         error: false,
+        icons_revision: 'mock-icons-v1',
         payloads: remoteRepository.map(p => ({ ...p, source_id: 'default', source_name: 'Official Repository' }))
       },
       {
@@ -207,6 +220,7 @@ app.post('/repository_refresh', (req, res) => {
         url: 'https://example.com/community-payloads.json',
         last_update: lastRepositoryUpdate,
         error: false,
+        icons_revision: 'mock-icons-v1',
         payloads: communityRepository.map(p => ({ ...p, source_id: 'source_community', source_name: 'Community Payloads' }))
       }
     ]

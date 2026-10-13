@@ -239,5 +239,11 @@
   "move_usb.replace_copy_btn": "Replace & Copy",
   "move_usb.replace_move_btn": "Replace & Move",
   "move_usb.keep_both_copy_btn": "Keep both & Copy",
-  "move_usb.keep_both_move_btn": "Keep both & Move"
+  "move_usb.keep_both_move_btn": "Keep both & Move",
+  "settings.cache_title": "Repository Cache",
+  "settings.cache_clear": "Clear Cache",
+  "settings.cache_clearing": "Clearing…",
+  "settings.cache_cleared": "Repository cache cleared.",
+  "settings.cache_failed": "Could not clear repository cache.",
+  "settings.cache_desc": "Clear downloaded catalogs and icons, then fetch fresh copies. Installed payloads and your settings are preserved."
 }

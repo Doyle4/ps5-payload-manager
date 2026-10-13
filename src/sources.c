@@ -8,6 +8,8 @@
 #include <dirent.h>
 #include <errno.h>
 #include <pthread.h>
+#include <curl/curl.h>
+#include <ctype.h>
 
 #include "sources.h"
 #include "repository.h"
@@ -308,7 +310,9 @@ static void get_cache_paths(const char *url, char *cache_path, size_t csize,
     snprintf(ts_path, tsize, "%s/repo_cache_%s.json.ts", BASE_DATA_DIR, h8);
 }
 
-int sources_ensure_fresh(const char *url, int force_refresh) {
+static pthread_mutex_t repository_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int ensure_catalog_fresh(const char *url, int force_refresh) {
     if (!url || !url[0]) return -1;
 
     char cache_path[512], ts_path[512];
@@ -374,7 +378,209 @@ int sources_ensure_fresh(const char *url, int force_refresh) {
     return 0;
 }
 
-size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refresh) {
+#define ICON_CATALOG_LIMIT ((size_t)4 * 1024 * 1024 - 1024)
+#define ICON_REFRESH_SECONDS (7L * 86400)
+#define ICON_RETRY_SECONDS 3600L
+
+typedef struct {
+    char (*keys)[128];
+    size_t count;
+    const char *map_start, *map_end;
+    int found;
+} IconCatalog;
+
+static int valid_icon(const char *value) {
+    const char *prefixes[] = {"data:image/png;base64,", "data:image/jpeg;base64,", "data:image/svg+xml;base64,"};
+    const char *data = NULL;
+    for (size_t i = 0; i < sizeof(prefixes)/sizeof(prefixes[0]); i++)
+        if (!strncmp(value, prefixes[i], strlen(prefixes[i]))) data = value + strlen(prefixes[i]);
+    if (!data || !*data || strlen(value) > 12288 || strlen(data) % 4) return 0;
+    size_t n = strlen(data), padding = 0;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)data[i];
+        if (c == '=') { if (i < n - 2 || ++padding > 2) return 0; }
+        else if (padding || !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/')) return 0;
+    }
+    return 1;
+}
+static int icon_member(const char *key, const char *start, const char *end, void *context) {
+    IconCatalog *catalog = context; char value[12289];
+    if (!key[0] || strlen(key) >= 128 || catalog->count >= 4096 ||
+        json_decode_string(start, end, value, sizeof(value)) || !valid_icon(value)) return -1;
+    for (size_t i = 0; i < catalog->count; i++) if (!strcmp(catalog->keys[i], key)) return -1;
+    strcpy(catalog->keys[catalog->count++], key);
+    return 0;
+}
+static int icon_wrapper(const char *key, const char *start, const char *end, void *context) {
+    IconCatalog *catalog = context;
+    if (strcmp(key, "icons")) return 0;
+    if (catalog->found++) return -1;
+    catalog->map_start = start; catalog->map_end = end;
+    return json_visit_object(start, end, icon_member, catalog);
+}
+static int parse_icons(const char *json, size_t size, IconCatalog *catalog) {
+    memset(catalog, 0, sizeof(*catalog));
+    if (size > ICON_CATALOG_LIMIT) return -1;
+    catalog->keys = calloc(4096, sizeof(*catalog->keys));
+    if (!catalog->keys) return -1;
+    int result = json_visit_object(json, json + size, icon_wrapper, catalog) || !catalog->found;
+    if (result) { free(catalog->keys); catalog->keys = NULL; }
+    return result ? -1 : 0;
+}
+static void digest_text(const char *text, char hex[65]) {
+    SHA256_CTX ctx; unsigned char hash[32];
+    sha256_init(&ctx); sha256_update(&ctx, (const unsigned char *)text, strlen(text)); sha256_final(&ctx, hash);
+    for (size_t i = 0; i < 32; i++) snprintf(hex + 2*i, 3, "%02x", hash[i]);
+}
+static void icon_paths(const char *url, char path[512], char meta[512]) {
+    char hex[65]; digest_text(url, hex);
+    snprintf(path, 512, "%s/repo_icons_%s.json", BASE_DATA_DIR, hex);
+    snprintf(meta, 512, "%s/repo_icons_%s.meta", BASE_DATA_DIR, hex);
+}
+static int read_icons(const char *path, char **text, size_t *size, IconCatalog *catalog) {
+    struct stat st;
+    *text = NULL;
+    if (stat(path, &st) || !S_ISREG(st.st_mode) || st.st_size < 0 || (size_t)st.st_size > ICON_CATALOG_LIMIT ||
+        read_file_text(path, text, size)) return -1;
+    if (parse_icons(*text, *size, catalog)) { free(*text); *text = NULL; return -1; }
+    return 0;
+}
+static int resolve_icons_url(const char *base, const char *catalog, char out[1024]) {
+    char relative[1024]; out[0] = 0;
+    if (!catalog || json_extract_string(catalog, catalog + strlen(catalog), "icons_url", relative, sizeof(relative)) || !relative[0]) return -1;
+    CURLU *url = curl_url(); char *resolved = NULL, *scheme = NULL, *user = NULL;
+    if (!url) return -1;
+    int ok = !curl_url_set(url, CURLUPART_URL, base, 0) && !curl_url_set(url, CURLUPART_URL, relative, 0) &&
+        !curl_url_get(url, CURLUPART_SCHEME, &scheme, 0) && (!strcmp(scheme, "http") || !strcmp(scheme, "https")) &&
+        (strncasecmp(base, "https://", 8) || !strcmp(scheme, "https")) &&
+        curl_url_get(url, CURLUPART_USER, &user, 0) == CURLUE_NO_USER &&
+        !curl_url_set(url, CURLUPART_FRAGMENT, NULL, 0) && !curl_url_get(url, CURLUPART_URL, &resolved, 0) && strlen(resolved) < 1024;
+    if (ok) strcpy(out, resolved);
+    curl_free(user); curl_free(scheme); curl_free(resolved); curl_url_cleanup(url);
+    return ok ? 0 : -1;
+}
+static long meta_time(const char *json, const char *key) {
+    char value[32], *end;
+    if (json_extract_string(json, json + strlen(json), key, value, sizeof(value))) return 0;
+    errno = 0; long number = strtol(value, &end, 10);
+    return errno || end == value || *end || number < 0 ? 0 : number;
+}
+static int missing_compare(const void *a, const void *b) { return strcmp(a, b); }
+static int missing_icons(IconCatalog *icons, RepoPayload *items, size_t count, char digest[65]) {
+    char (*missing)[128] = calloc(count ? count : 1, 128);
+    if (!missing) return -1;
+    size_t n = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (!items[i].icon_key[0]) continue;
+        size_t k = 0;
+        while (k < icons->count && strcmp(items[i].icon_key, icons->keys[k])) k++;
+        if (k == icons->count) strcpy(missing[n++], items[i].icon_key);
+    }
+    qsort(missing, n, 128, missing_compare);
+    SHA256_CTX ctx; unsigned char hash[32]; sha256_init(&ctx);
+    for (size_t i = 0; i < n; i++)
+        if (!i || strcmp(missing[i], missing[i-1])) sha256_update(&ctx, (unsigned char *)missing[i], strlen(missing[i]) + 1);
+    sha256_final(&ctx, hash);
+    for (size_t i = 0; i < 32; i++) snprintf(digest + 2*i, 3, "%02x", hash[i]);
+    free(missing); return n ? 1 : 0;
+}
+static void ensure_icons(const char *source, const char *catalog, RepoPayload *items, size_t count, char revision[65]) {
+    char url[1024], path[512], meta[512]; revision[0] = 0;
+    if (resolve_icons_url(source, catalog, url)) return;
+    icon_paths(source, path, meta);
+    char *old = NULL, *state = NULL; size_t size = 0, state_size = 0;
+    IconCatalog icons = {0};
+    int cached = !read_icons(path, &old, &size, &icons);
+    read_file_text(meta, &state, &state_size);
+    const char *metadata = state ? state : "{}";
+    char old_url[1024] = "", attempt_url[1024] = "", old_missing[65] = "", missing[65] = "";
+    json_extract_string(metadata, metadata + strlen(metadata), "url", old_url, sizeof(old_url));
+    json_extract_string(metadata, metadata + strlen(metadata), "attempt_url", attempt_url, sizeof(attempt_url));
+    json_extract_string(metadata, metadata + strlen(metadata), "missing", old_missing, sizeof(old_missing));
+    long updated = meta_time(metadata, "updated"), attempted = meta_time(metadata, "attempted"), now = (long)time(NULL);
+    int unknown = missing_icons(&icons, items, count, missing);
+    int changed = strcmp(old_url, url) != 0;
+    int due = !cached || changed || now < updated || now - updated >= ICON_REFRESH_SECONDS || unknown > 0;
+    int retry = strcmp(attempt_url, url) || strcmp(old_missing, missing) || now < attempted || now - attempted >= ICON_RETRY_SECONDS;
+    if (unknown >= 0 && due && retry) {
+        char temporary[544]; snprintf(temporary, sizeof(temporary), "%s.tmp-XXXXXX", path);
+        int fd = mkstemp(temporary);
+        if (fd >= 0) {
+            int ready = !close(fd);
+            char *fresh = NULL; size_t fresh_size = 0; IconCatalog downloaded = {0};
+            if (ready && !download_to_file_limited(url, temporary, ICON_CATALOG_LIMIT) &&
+                !read_icons(temporary, &fresh, &fresh_size, &downloaded) && !rename(temporary, path)) {
+                updated = now; strcpy(old_url, url);
+            }
+            free(downloaded.keys); free(fresh); remove(temporary);
+        }
+        char escaped[6 * 1024], cached_url[6 * 1024], output[16384]; JsonListBuilder builder = {output, sizeof(output), 0, 1, 0};
+        json_escape_checked(&builder, url, escaped, sizeof(escaped));
+        json_escape_checked(&builder, old_url, cached_url, sizeof(cached_url));
+        json_append(&builder, "{\"url\":\"%s\",\"attempt_url\":\"%s\",\"updated\":\"%ld\",\"attempted\":\"%ld\",\"missing\":\"%s\"}", cached_url, escaped, updated, now, missing);
+        if (!builder.error) write_file_text(meta, output, builder.pos);
+    }
+    free(icons.keys); free(old); free(state);
+    IconCatalog current = {0}; char *text = NULL; size_t current_size;
+    if (!read_icons(path, &text, &current_size, &current)) compute_sha256_file(path, revision);
+    free(current.keys); free(text);
+}
+
+int sources_ensure_fresh(const char *url, int force_refresh) {
+    pthread_mutex_lock(&repository_cache_mutex);
+    int result = ensure_catalog_fresh(url, force_refresh);
+    pthread_mutex_unlock(&repository_cache_mutex);
+    return result;
+}
+
+size_t sources_icons_json(const char *source_id, char *buf, size_t size) {
+    if (!source_id || !buf || !size) return 0;
+    buf[0] = 0; size_t result = 0;
+    pthread_mutex_lock(&repository_cache_mutex);
+    SourceEntry *sources = calloc(MAX_SOURCES, sizeof(*sources)); int count = 0;
+    if (sources && !load_sources(sources, &count)) for (int i = 0; i < count; i++) {
+        if (strcmp(sources[i].id, source_id)) continue;
+        char path[512], meta[512], *text = NULL; size_t length = 0; IconCatalog icons = {0};
+        icon_paths(sources[i].url, path, meta);
+        if (!read_icons(path, &text, &length, &icons) && length < size) { memcpy(buf, text, length); buf[length] = 0; result = length; }
+        free(icons.keys); free(text); break;
+    }
+    free(sources);
+    pthread_mutex_unlock(&repository_cache_mutex);
+    return result;
+}
+static int cache_filename(const char *name) {
+    size_t prefix, digits;
+    if (!strncmp(name, "repo_cache_", 11)) { prefix = 11; digits = 8; }
+    else if (!strncmp(name, "repo_icons_", 11)) { prefix = 11; digits = 64; }
+    else return 0;
+    if (strlen(name) < prefix + digits) return 0;
+    for (size_t i = prefix; i < prefix + digits; i++) if (!isxdigit((unsigned char)name[i])) return 0;
+    const char *suffix = name + prefix + digits;
+    if (!strcmp(suffix, ".json") || (digits == 8 && !strcmp(suffix, ".json.ts")) || (digits == 64 && !strcmp(suffix, ".meta"))) return 1;
+    const char *temporary = NULL;
+    if (!strncmp(suffix, ".json.tmp-", 10)) temporary = suffix + 10;
+    if (digits == 8 && !strncmp(suffix, ".json.ts.tmp-", 13)) temporary = suffix + 13;
+    if (digits == 64 && !strncmp(suffix, ".meta.tmp-", 10)) temporary = suffix + 10;
+    if (!temporary || strlen(temporary) != 6) return 0;
+    for (size_t i = 0; i < 6; i++) if (!isalnum((unsigned char)temporary[i])) return 0;
+    return 1;
+}
+int sources_clear_cache(void) {
+    pthread_mutex_lock(&repository_cache_mutex);
+    DIR *directory = opendir(BASE_DATA_DIR); int result = directory ? 0 : (errno == ENOENT ? 0 : -1);
+    if (directory) {
+        struct dirent *entry;
+        while ((entry = readdir(directory))) if (cache_filename(entry->d_name)) {
+            if (unlinkat(dirfd(directory), entry->d_name, 0) && errno != ENOENT) result = -1;
+        }
+        closedir(directory);
+    }
+    pthread_mutex_unlock(&repository_cache_mutex);
+    return result;
+}
+
+static size_t repository_list_locked(char *buf, size_t size, int force_refresh) {
     if (!buf || !size) return 0;
     SourceEntry *sources = calloc(MAX_SOURCES, sizeof(SourceEntry));
     if (!sources) {
@@ -397,7 +603,7 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
     json_append(&jb, "{\"sources\":[\n");
 
     for (int si = 0; si < src_count; si++) {
-        int fetch_ok = (sources_ensure_fresh(sources[si].url, force_refresh) == 0);
+        int fetch_ok = (ensure_catalog_fresh(sources[si].url, force_refresh) == 0);
 
         char cache_path[512], ts_path[512];
         get_cache_paths(sources[si].url, cache_path, sizeof(cache_path), ts_path, sizeof(ts_path));
@@ -411,16 +617,11 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
         FILE *tf = fopen(ts_path, "r");
         if (tf) { fscanf(tf, "%ld", &last_update); fclose(tf); }
 
-        if (json_append(&jb, "  {\"id\":\"%s\",\"name\":\"%s\",\"url\":\"%s\",\"last_update\":%ld,\"error\":%s,\"payloads\":[\n",
-            id_e, name_e, url_e, last_update, fetch_ok ? "false" : "true") != 0) {
-            break;
-        }
-
-        if (fetch_ok) {
+        RepoPayload *items = NULL; size_t count = 0; char icons_revision[65] = "";
+        int have_catalog = fetch_ok || access(cache_path, F_OK) == 0;
+        if (have_catalog) {
             char *cached = NULL;
             size_t cached_size = 0;
-            RepoPayload *items = NULL;
-            size_t count = 0;
 
             if (read_file_text(cache_path, &cached, &cached_size) != 0 || !cached) {
                 free(cached); free(sources);
@@ -428,22 +629,22 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 return 0;
             }
             int parsed = parse_repository_payloads(cached, &items, &count);
-            free(cached);
             if (parsed != 0) {
-                free(items); free(sources);
+                free(cached); free(items); free(sources);
                 json_builder_fail(&jb);
                 return 0;
             }
 
-            size_t icon_capacity = 6 * sizeof(items[0].icon);
-            char *icon_e = (char *)malloc(icon_capacity);
-            if (!icon_e) {
-                if (items) free(items);
-                free(sources);
-                json_builder_fail(&jb);
-                return 0;
-            }
+            ensure_icons(sources[si].url, cached, items, count, icons_revision);
+            free(cached);
+        }
 
+        if (json_append(&jb, "  {\"id\":\"%s\",\"name\":\"%s\",\"url\":\"%s\",\"last_update\":%ld,\"error\":%s,\"icons_revision\":\"%s\",\"payloads\":[\n",
+            id_e, name_e, url_e, last_update, fetch_ok ? "false" : "true", icons_revision) != 0) {
+            free(items); break;
+        }
+
+        if (have_catalog) {
             int first_payload = 1;
             for (size_t pi = 0; pi < count; pi++) {
                 if (is_pldmgr_name(items[pi].id) ||
@@ -455,7 +656,7 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 char id_pe[6 * 128], name_pe[6 * 256], filename_e[6 * 256], desc_e[6 * 1024];
                 char ver_e[6 * 64], url_e[6 * 1024], src_id_e[6 * 128], src_name_e[6 * 256];
                 char last_upd_e[6 * 64], cat_e[6 * 128], csum_e[6 * 65];
-                char auth_e[6 * 128], det_url_e[6 * 1024], rn_e[6 * 2048];
+                char auth_e[6 * 128], det_url_e[6 * 1024], rn_e[6 * 2048], icon_e[6 * 128];
                 char src_pe[6 * 1024], sd_pe[6 * 1024];
 
                 json_escape_checked(&jb, items[pi].id, id_pe, sizeof(id_pe));
@@ -474,13 +675,13 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 json_escape_checked(&jb, items[pi].author, auth_e, sizeof(auth_e));
                 json_escape_checked(&jb, items[pi].details_url, det_url_e, sizeof(det_url_e));
                 json_escape_checked(&jb, items[pi].release_notes, rn_e, sizeof(rn_e));
-                json_escape_checked(&jb, items[pi].icon, icon_e, icon_capacity);
+                json_escape_checked(&jb, items[pi].icon_key, icon_e, sizeof(icon_e));
 
                 if (json_append(&jb, "%s    {\"id\":\"%s\",\"name\":\"%s\",\"filename\":\"%s\",\"description\":\"%s\","
                     "\"version\":\"%s\",\"checksum\":\"%s\",\"last_update\":\"%s\",\"url\":\"%s\","
                     "\"source\":\"%s\",\"source_direct\":\"%s\","
                     "\"source_id\":\"%s\",\"source_name\":\"%s\",\"category\":\"%s\","
-                    "\"author\":\"%s\",\"details_url\":\"%s\",\"release_notes\":\"%s\",\"icon\":\"%s\"}",
+                    "\"author\":\"%s\",\"details_url\":\"%s\",\"release_notes\":\"%s\",\"icon_key\":\"%s\"}",
                     first_payload ? "" : ",\n",
                     id_pe, name_pe, filename_e, desc_e, ver_e, csum_e, last_upd_e, url_e,
                     src_pe, sd_pe,
@@ -493,7 +694,6 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
                 json_append(&jb, "\n");
             }
 
-            free(icon_e);
             if (items) free(items);
         }
 
@@ -505,6 +705,13 @@ size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refr
     json_append(&jb, "]}\n");
     free(sources);
     return jb.pos;
+}
+
+size_t sources_multi_repository_list_json(char *buf, size_t size, int force_refresh) {
+    pthread_mutex_lock(&repository_cache_mutex);
+    size_t result = repository_list_locked(buf, size, force_refresh);
+    pthread_mutex_unlock(&repository_cache_mutex);
+    return result;
 }
 
 int sources_repo_install(const char *source_url, const char *id,

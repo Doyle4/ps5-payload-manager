@@ -22,17 +22,17 @@ const stringToHash = (str) => {
 };
 
 const PayloadIcon = ({ icon, name, className }) => {
-  const [loadError, setLoadError] = useState(false);
+  const [failedIcon, setFailedIcon] = useState(null);
   const isDataUri = typeof icon === 'string' && icon.startsWith('data:image/');
 
-  if (isDataUri && !loadError) {
+  if (isDataUri && failedIcon !== icon) {
     return (
       <div className={cn("rounded-2xl overflow-hidden border border-white/10 shrink-0 bg-white/5", className)}>
         <img
           src={icon}
           alt={name || 'Payload'}
           className="w-full h-full object-cover"
-          onError={() => setLoadError(true)}
+          onError={() => setFailedIcon(icon)}
         />
       </div>
     );

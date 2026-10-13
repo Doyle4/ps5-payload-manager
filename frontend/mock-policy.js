@@ -1,7 +1,7 @@
 // Mirrors the native HTTP contract so development cannot hide GET mutations.
 export const mutationRoutes = [
   '/manage:upload', '/manage:delete', '/shutdown', '/set_config', '/abort',
-  '/autoload_clear', '/repository_refresh', '/repository_install', '/sources_set',
+  '/autoload_clear', '/repository_cache_clear', '/repository_refresh', '/repository_install', '/sources_set',
   '/sources_add', '/sources_remove', '/usb_move_perform', '/process_kill',
 ]
 export function isMutationRoute(path) {

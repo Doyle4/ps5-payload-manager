@@ -239,5 +239,11 @@
   "storage_hub.files_count_one": "{{count}} dosya",
   "storage_hub.files_count_other": "{{count}} dosya",
   "storage_hub.payload_count_one": "{{count}} payload",
-  "storage_hub.payload_count_other": "{{count}} payload"
+  "storage_hub.payload_count_other": "{{count}} payload",
+  "settings.cache_title": "Depo Önbelleği",
+  "settings.cache_clear": "Önbelleği Temizle",
+  "settings.cache_clearing": "Temizleniyor…",
+  "settings.cache_cleared": "Depo önbelleği temizlendi.",
+  "settings.cache_failed": "Depo önbelleği temizlenemedi.",
+  "settings.cache_desc": "İndirilen katalogları ve simgeleri silip yeniden indirir. Yüklü payloadlar ve ayarlar korunur."
 }

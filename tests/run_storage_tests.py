@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix="pldmgr-storage-") as temp:
         subprocess.run(flags + extra + ["-c", source, "-o", str(obj)], cwd=ROOT, check=True)
         objects.append(str(obj))
     binary = build / "storage_tests"
-    subprocess.run(flags + objects + ["tests/storage_driver.c", "-Wl,--gc-sections", "-o", str(binary)], cwd=ROOT, check=True)
+    subprocess.run(flags + objects + ["tests/storage_driver.c", "-Wl,--gc-sections", "-lcurl", "-o", str(binary)], cwd=ROOT, check=True)
     url = re.search(r'#define REPOSITORY_SOURCE_URL\s*\\?\s*"([^"]+)"', header)[1]
     cache = storage / ("repo_cache_" + hashlib.sha256(url.rstrip('/').encode()).hexdigest()[:8] + ".json")
     cache.write_text(json.dumps([{"id":"fixture", "name":"Fixture", "filename":"safe.elf", "url":"fixture://payload", "version":"2"}]))

@@ -237,5 +237,11 @@
   "move_usb.keep_both_copy_btn": "เก็บทั้งสองและคัดลอก",
   "move_usb.keep_both_move_btn": "เก็บทั้งสองและย้าย",
   "storage_hub.files_count_other": "{{count}} ไฟล์",
-  "storage_hub.payload_count_other": "{{count}} เพย์โหลด"
+  "storage_hub.payload_count_other": "{{count}} เพย์โหลด",
+  "settings.cache_title": "แคชคลังเพย์โหลด",
+  "settings.cache_clear": "ล้างแคช",
+  "settings.cache_clearing": "กำลังล้าง…",
+  "settings.cache_cleared": "ล้างแคชคลังเพย์โหลดแล้ว",
+  "settings.cache_failed": "ไม่สามารถล้างแคชคลังเพย์โหลดได้",
+  "settings.cache_desc": "ล้างรายการและไอคอนที่ดาวน์โหลด แล้วดาวน์โหลดใหม่ เพย์โหลดที่ติดตั้งและการตั้งค่าจะยังคงอยู่"
 }

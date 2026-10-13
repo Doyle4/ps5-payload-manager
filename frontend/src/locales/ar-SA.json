@@ -247,5 +247,11 @@
   "storage_hub.payload_count_two": "{{count}} حمولتان",
   "storage_hub.payload_count_few": "{{count}} حمولات",
   "storage_hub.payload_count_many": "{{count}} حمولة",
-  "storage_hub.payload_count_other": "{{count}} حمولة"
+  "storage_hub.payload_count_other": "{{count}} حمولة",
+  "settings.cache_title": "ذاكرة المستودعات المؤقتة",
+  "settings.cache_clear": "مسح الذاكرة المؤقتة",
+  "settings.cache_clearing": "جارٍ المسح…",
+  "settings.cache_cleared": "تم مسح ذاكرة المستودعات المؤقتة.",
+  "settings.cache_failed": "تعذر مسح ذاكرة المستودعات المؤقتة.",
+  "settings.cache_desc": "امسح الكتالوجات والأيقونات المحملة ثم أعد تنزيلها. تبقى الحمولات المثبتة والإعدادات محفوظة."
 }

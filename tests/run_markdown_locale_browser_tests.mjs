@@ -9,6 +9,9 @@ import { createServer } from '../frontend/node_modules/vite/dist/node/index.js'
 const frontend = fileURLToPath(new URL('../frontend/', import.meta.url))
 process.chdir(frontend)
 const baseline = process.argv.includes('--baseline')
+const iconsMode = process.argv.includes('--repository-icons')
+let iconRequests = 0, iconRevision = 'r1', failClear = false, brokenIcon = false, clearRequests = 0
+const fixtureIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT1cAAAAASUVORK5CYII='
 const previousMarkdown = baseline ? execFileSync('git', ['show', 'c799297:frontend/src/utils/markdown.js'], { encoding: 'utf8' }) : null
 const chrome = process.env.CHROME_BIN || (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/google-chrome')
 let readmeRequests = 0
@@ -20,8 +23,26 @@ const vite = await createServer({ root: frontend, configFile: join(frontend, 'vi
       server.middlewares.use(async (req, res, next) => {
         if (req.url === '/__markdown_page') {
           res.setHeader('Content-Type', 'text/html')
-          res.end(await server.transformIndexHtml(req.url, '<!doctype html><html><body><div id="root"></div><script type="module" src="/tests/markdownLocale.browser.jsx"></script></body></html>'))
+          res.end(await server.transformIndexHtml(req.url, `<!doctype html><html><body><div id="root"></div><script type="module" src="/tests/${iconsMode ? 'repositoryIcons' : 'markdownLocale'}.browser.jsx"></script></body></html>`))
           return
+        }
+        if (iconsMode) {
+          const json = (value, status = 200) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)) }
+          if (req.url.startsWith('/__icon_control')) {
+            const action = new URL(req.url, 'http://fixture').searchParams.get('action');
+            if (action === 'new') iconRevision = 'r2';
+            if (action === 'fail') failClear = true;
+            if (action === 'restore') failClear = false;
+            if (action === 'break') { brokenIcon = true; iconRevision = 'broken' }
+            if (action === 'repair') { brokenIcon = false; iconRevision = 'repaired' }
+            json({ iconRequests, clearRequests }); return
+          }
+          if (req.url === '/repository_payloads' || req.url === '/repository_refresh') {
+            json({ sources: [{ id: 'default', url: 'https://mirror.invalid/payloads.json', icons_revision: iconRevision,
+              payloads: [{ id: 'one', name: 'One', icon_key: 'shared' }, ...(iconRevision === 'r2' ? [{id:'two',name:'Two',icon_key:'new'}] : [])] }] }); return
+          }
+          if (req.url.startsWith('/repository_icons?')) { iconRequests++; json({ icons: {shared: brokenIcon ? 'data:image/png;base64,aGVsbG8=' : fixtureIcon, new: fixtureIcon} }); return }
+          if (req.url === '/repository_cache_clear') { clearRequests++; json({ok:!failClear}, failClear ? 500 : 200); return }
         }
         if (req.url === '/__readme') {
           readmeRequests++
@@ -84,6 +105,30 @@ try {
     return response.result?.value
   }
   await rpc('Page.navigate', { url: `http://127.0.0.1:${vite.httpServer.address().port}/__markdown_page` }, sessionId)
+  if (iconsMode) {
+    await eventually(() => evaluate('window.fixtureReady && document.querySelector("[data-testid=icons] img")?.naturalWidth > 0'), 'cached repository image did not render')
+    const control = action => evaluate(`fetch('/__icon_control?action=${action}').then(r=>r.json())`)
+    assert.equal((await control('state')).iconRequests, 1)
+    await evaluate('window.refreshIcons(true)'); assert.equal((await control('state')).iconRequests, 1)
+    await control('new'); await evaluate('window.refreshIcons(true)')
+    await eventually(() => evaluate('document.querySelectorAll("[data-testid=icons] img").length === 2'), 'new icon key did not render')
+    assert.equal((await control('state')).iconRequests, 2)
+    await control('fail')
+    const clearButton = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('Clear Cache'))`
+    await evaluate(`${clearButton}.click()`)
+    await eventually(() => evaluate(`document.body.textContent.includes('Could not clear repository cache.')`), 'cache failure was not shown')
+    assert.equal(await evaluate('document.querySelectorAll("[data-testid=icons] img").length'), 2)
+    await control('restore'); await evaluate(`${clearButton}.click()`)
+    await eventually(() => evaluate(`document.body.textContent.includes('Repository cache cleared.')`), 'cache success was not shown')
+    assert.equal((await control('state')).iconRequests, 3)
+    await control('break'); await evaluate('window.refreshIcons(true)')
+    await eventually(() => evaluate('document.querySelectorAll("[data-testid=icons] img").length === 0'), 'invalid image failed to show fallback')
+    await control('repair'); await evaluate('window.refreshIcons(true)')
+    await eventually(() => evaluate('document.querySelector("[data-testid=icons] img")?.naturalWidth > 0'), 'updated icon failed to recover after an image error')
+    assert.deepEqual(remoteRequests, [])
+    assert.deepEqual(await evaluate('window.__errors'), [])
+    console.log('Repository icon browser: separate fetches, revision reuse, new keys, Settings clear success/failure, fallback and image recovery passed')
+  } else {
   try {
     await eventually(() => evaluate('window.fixtureReady === true && document.body.textContent.includes("Cached README")'), 'real details panel failed to load README')
   } catch (error) {
@@ -196,6 +241,7 @@ try {
     assert.deepEqual(remoteRequests, [])
     assert.deepEqual(await evaluate('window.__errors'), [])
     console.log('Markdown/locale browser: real DOM sanitation, malicious URLs/media, unavailable sanitizer, decoded offline emoji sprites, cached README, link confirmation, Dutch selection/fallback and representative locales passed')
+  }
   }
 } finally {
   ws?.close()

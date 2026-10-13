@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { slug } from '../utils/versions';
+import { createRepositoryIconCache } from '../utils/repositoryIcons';
 import { normalizeUrl } from '../utils/payloadStatus';
 
 import { apiFetch, mutationFetch } from '../utils/mutationRequest';
@@ -14,7 +15,11 @@ export const RepositoryProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
+  const [iconCache] = useState(() => createRepositoryIconCache(apiFetch));
+  const requestGeneration = useRef(0);
+
   const fetchRemote = useCallback(async (force = false) => {
+    const generation = ++requestGeneration.current;
     setLoading(true);
     setError(false);
     try {
@@ -22,16 +27,29 @@ export const RepositoryProvider = ({ children }) => {
       const res = await (force ? mutationFetch(endpoint) : apiFetch(endpoint));
       if (!res.ok) throw new Error();
       const data = await res.json();
+      if (generation !== requestGeneration.current) return;
 
-      setRepoData(data);
+      const hydrated = await iconCache.hydrate(data);
+      if (generation === requestGeneration.current) setRepoData(hydrated);
     } catch (err) {
       console.error(err);
-      setError(true);
-      setRepoData({ sources: [] });
+      if (generation === requestGeneration.current) {
+        setError(true);
+        setRepoData({ sources: [] });
+      }
     } finally {
-      setLoading(false);
+      if (generation === requestGeneration.current) setLoading(false);
     }
-  }, []);
+  }, [iconCache]);
+
+  const clearCache = useCallback(async () => {
+    const response = await mutationFetch('/repository_cache_clear');
+    if (!response.ok) throw Error('Repository cache could not be cleared');
+    requestGeneration.current++;
+    iconCache.clear();
+    setRepoData({ sources: [] });
+    await fetchRemote();
+  }, [fetchRemote, iconCache]);
 
   // Fetch once on mount
   useEffect(() => {
@@ -174,6 +192,7 @@ export const RepositoryProvider = ({ children }) => {
         loading,
         error,
         fetchRemote,
+        clearCache,
         repoIndex,
         getRepoEntry,
         findRepoEntryById,

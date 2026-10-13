@@ -17,7 +17,7 @@ typedef struct RepoPayload {
     char checksum[65];
     char source_name[256];
     char category[128];
-    char icon[16384];
+    char icon_key[128];
     char release_notes[2048];
     char author[128];
     char details_url[1024];

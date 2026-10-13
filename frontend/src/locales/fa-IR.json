@@ -239,5 +239,11 @@
   "storage_hub.files_count_one": "{{count}} فایل",
   "storage_hub.files_count_other": "{{count}} فایل",
   "storage_hub.payload_count_one": "{{count}} پیلود",
-  "storage_hub.payload_count_other": "{{count}} پیلود"
+  "storage_hub.payload_count_other": "{{count}} پیلود",
+  "settings.cache_title": "حافظهٔ موقت مخزن‌ها",
+  "settings.cache_clear": "پاک کردن حافظه",
+  "settings.cache_clearing": "در حال پاک کردن…",
+  "settings.cache_cleared": "حافظهٔ موقت مخزن‌ها پاک شد.",
+  "settings.cache_failed": "پاک کردن حافظهٔ موقت مخزن‌ها ممکن نشد.",
+  "settings.cache_desc": "فهرست‌ها و نمادهای دریافت‌شده را پاک و دوباره دریافت می‌کند. پیلودهای نصب‌شده و تنظیمات حفظ می‌شوند."
 }

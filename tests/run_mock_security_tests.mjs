@@ -17,8 +17,14 @@ try {
     await wait(50)
   }
   assert.ok(output.includes('Running at'), output)
+  const catalog = await (await request('/repository_payloads')).json()
+  const entries = catalog.sources[0].payloads
+  assert.ok(entries.some(entry => entry.icon_key))
+  assert.ok(entries.every(entry => !Object.hasOwn(entry, 'icon')))
+  const images = await (await request('/repository_icons?source=default')).json()
+  assert.ok(entries.filter(entry => entry.icon_key).every(entry => images.icons[entry.icon_key]?.startsWith('data:image/')))
   const sources = await (await request('/sources_list')).json()
-  for (const route of ['/abort', '/autoload_clear', '/repository_refresh', '/repository_install?id=test',
+  for (const route of ['/repository_cache_clear', '/abort', '/autoload_clear', '/repository_refresh', '/repository_install?id=test',
     '/sources_add?url=http://evil.invalid', '/sources_remove?index=1', '/manage:delete?slot=local/test',
     '/loadpayload:local/test', '/process_kill?pid=123', '/usb_move_perform?path=test', '/shutdown',
     '/set_config', '/sources_set', '/manage:upload?filename=test.elf']) {

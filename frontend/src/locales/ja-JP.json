@@ -237,5 +237,11 @@
   "move_usb.keep_both_copy_btn": "両方を保持してコピー",
   "move_usb.keep_both_move_btn": "両方を保持して移動",
   "storage_hub.files_count_other": "{{count}} ファイル",
-  "storage_hub.payload_count_other": "{{count}} ペイロード"
+  "storage_hub.payload_count_other": "{{count}} ペイロード",
+  "settings.cache_title": "リポジトリのキャッシュ",
+  "settings.cache_clear": "キャッシュを削除",
+  "settings.cache_clearing": "削除中…",
+  "settings.cache_cleared": "リポジトリのキャッシュを削除しました。",
+  "settings.cache_failed": "リポジトリのキャッシュを削除できませんでした。",
+  "settings.cache_desc": "ダウンロード済みのカタログとアイコンを削除し、再取得します。インストール済みのペイロードと設定は保持されます。"
 }

@@ -239,5 +239,11 @@
   "storage_hub.files_count_one": "{{count}} Datei",
   "storage_hub.files_count_other": "{{count}} Dateien",
   "storage_hub.payload_count_one": "{{count}} Payload",
-  "storage_hub.payload_count_other": "{{count}} Payloads"
+  "storage_hub.payload_count_other": "{{count}} Payloads",
+  "settings.cache_title": "Repository-Cache",
+  "settings.cache_clear": "Cache leeren",
+  "settings.cache_clearing": "Wird geleert…",
+  "settings.cache_cleared": "Repository-Cache geleert.",
+  "settings.cache_failed": "Repository-Cache konnte nicht geleert werden.",
+  "settings.cache_desc": "Geladene Kataloge und Symbole löschen und neu laden. Installierte Payloads und Einstellungen bleiben erhalten."
 }

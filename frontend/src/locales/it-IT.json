@@ -241,5 +241,11 @@
   "storage_hub.files_count_other": "{{count}} file",
   "storage_hub.payload_count_one": "{{count}} payload",
   "storage_hub.payload_count_many": "{{count}} payload",
-  "storage_hub.payload_count_other": "{{count}} payload"
+  "storage_hub.payload_count_other": "{{count}} payload",
+  "settings.cache_title": "Cache dei repository",
+  "settings.cache_clear": "Svuota cache",
+  "settings.cache_clearing": "Svuotamento…",
+  "settings.cache_cleared": "Cache dei repository svuotata.",
+  "settings.cache_failed": "Impossibile svuotare la cache dei repository.",
+  "settings.cache_desc": "Elimina i cataloghi e le icone scaricati, poi scaricali di nuovo. I payload installati e le impostazioni vengono mantenuti."
 }

@@ -21,6 +21,8 @@
 #define ROUTE_ABORT "/abort"
 #define ROUTE_AUTOLOAD_STATUS "/autoload_status"
 #define ROUTE_AUTOLOAD_CLEAR "/autoload_clear"
+#define ROUTE_REPO_ICONS "/repository_icons"
+#define ROUTE_REPO_CACHE_CLEAR "/repository_cache_clear"
 #define ROUTE_REPO_LIST "/repository_payloads"
 #define ROUTE_REPO_REFRESH "/repository_refresh"
 #define ROUTE_REPO_INSTALL "/repository_install"

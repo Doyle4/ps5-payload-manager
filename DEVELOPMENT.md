@@ -319,8 +319,8 @@ normally uses **5173** with its same-origin proxy.
 
 | Request class | Method and behavior |
 | --- | --- |
-| Read APIs | GET: `/list_payloads`, `/get_config`, `/processes_list`, `/history_list`, `/repository_payloads`, `/sources_list`, `/autoload_status`, `/log`, `/events`, `/version`, `/getip`, `/manage:check`, `/usb_move_check`. Ordinary repository reads may refresh their cache. Anonymous/foreign autoload status reads do not signal frontend readiness. |
-| Explicit mutations | POST: `/manage:upload`, `/manage:delete`, `/loadpayload:<slot-or-path>`, `/set_config`, `/abort`, `/autoload_clear`, `/repository_refresh`, `/repository_install`, `/sources_set`, `/sources_add`, `/sources_remove`, `/usb_move_perform`, `/process_kill`, `/shutdown`. GET does not perform these actions. |
+| Read APIs | GET: `/list_payloads`, `/get_config`, `/processes_list`, `/history_list`, `/repository_payloads`, `/repository_icons?source=<source-id>`, `/sources_list`, `/autoload_status`, `/log`, `/events`, `/version`, `/getip`, `/manage:check`, `/usb_move_check`. Ordinary repository reads may refresh their cache. Anonymous/foreign autoload status reads do not signal frontend readiness. |
+| Explicit mutations | POST: `/manage:upload`, `/manage:delete`, `/loadpayload:<slot-or-path>`, `/set_config`, `/abort`, `/autoload_clear`, `/repository_refresh`, `/repository_cache_clear`, `/repository_install`, `/sources_set`, `/sources_add`, `/sources_remove`, `/usb_move_perform`, `/process_kill`, `/shutdown`. GET does not perform these actions. |
 | Preflight | OPTIONS is validated against the requesting origin, route/method and supported headers. Foreign origins do not gain mutation access. |
 | Removed updater compatibility | GET `/update_check` returns `{"status":"none"}`. It does not check, download or apply updates. |
 
@@ -353,3 +353,23 @@ remaps and multi-file settings updates have the limits described above.
 Automated host/browser checks use stubs and local transports. They do not prove
 PS5 kernel ABI, native TLS behavior, fonts/layout, rest/resume or the external
 loader. Verify these on the target console after runtime changes.
+
+## Repository icon caching
+
+Catalogs use `icons_url` and item-level `icon_key`; see
+[CUSTOM_REPOSITORIES.md](CUSTOM_REPOSITORIES.md) for the format and refresh policy.
+The daemon stores `repo_icons_<source-url-sha256>.json` and `.meta` alongside
+`repo_cache_*.json`. Catalog/icon refresh, icon snapshots and cache clearing share
+a mutex. Icon downloads are bounded and validated before atomic publication;
+failed updates preserve good data and use a one-hour retry delay.
+
+`GET /repository_icons?source=<configured-id>` serves the local icon catalog.
+It cannot fetch an arbitrary requested URL. `POST /repository_cache_clear` uses
+the existing mutation-origin policy and deletes only recognized cache filenames.
+`python3 tests/run_repository_icons_tests.py` checks the production caching code
+with recorded downloads and sanitizers, without contacting a console or WAN.
+
+`node tests/run_markdown_locale_browser_tests.mjs --repository-icons` checks the
+actual repository provider, rendered images and Settings action in Chrome, with
+all external requests blocked. Mock repository fixtures use `test_repo.json` and
+`test_icons.json`.

@@ -45,7 +45,7 @@ def main():
             objects.append(str(obj))
         binary = build / "allocation_tests"
         subprocess.run(common + objects + ["src/utils.c", "src/sha256.c", "src/config.c", "tests/allocation_driver.c",
-                        "-Wl,--gc-sections", "-o", str(binary)], cwd=ROOT, check=True)
+                        "-Wl,--gc-sections", "-lcurl", "-o", str(binary)], cwd=ROOT, check=True)
         header = (ROOT / "include/pldmgr.h").read_text()
         url = re.search(r'#define REPOSITORY_SOURCE_URL\s*\\?\s*"([^"]+)"', header)[1]
         cache = storage / ("repo_cache_" + hashlib.sha256(url.rstrip('/').encode()).hexdigest()[:8] + ".json")

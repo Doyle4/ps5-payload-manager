@@ -17,7 +17,7 @@
     "preview": "vite preview",
     "extract": "i18next",
     "prebuild": "npm run lint && npm test",
-    "test:browser": "node ../tests/run_autoload_editor_browser_tests.mjs && node ../tests/run_autoload_editor_browser_tests.mjs --lifecycle && node ../tests/run_markdown_locale_browser_tests.mjs",
+    "test:browser": "node ../tests/run_autoload_editor_browser_tests.mjs && node ../tests/run_autoload_editor_browser_tests.mjs --lifecycle && node ../tests/run_markdown_locale_browser_tests.mjs && node ../tests/run_markdown_locale_browser_tests.mjs --repository-icons",
     "postbuild": "node ../tools/check_frontend_bundle.mjs"
   },
   "dependencies": {

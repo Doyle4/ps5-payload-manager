@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix='pldmgr-config-') as temp:
         objects.append(str(obj))
     binary = build / 'config_tests'
     gc = '-Wl,-dead_strip' if sys.platform == 'darwin' else '-Wl,--gc-sections'
-    subprocess.run(flags+objects+['tests/config_driver.c', gc, '-o', str(binary)], cwd=ROOT, check=True)
+    subprocess.run(flags+objects+['tests/config_driver.c', gc, '-lcurl', '-o', str(binary)], cwd=ROOT, check=True)
     cases = ['history'] if args.legacy_history else (['scalar'] if args.legacy else (['settings', 'history', 'sources'] if args.thread_sanitize else ['scalar','validation','atomic','settings','history','sources']))
     for case in cases:
         # Independent clean storage for each scenario.

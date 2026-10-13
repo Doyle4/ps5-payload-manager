@@ -241,5 +241,11 @@
   "storage_hub.files_count_other": "{{count}} archivos",
   "storage_hub.payload_count_one": "{{count}} payload",
   "storage_hub.payload_count_many": "{{count}} payloads",
-  "storage_hub.payload_count_other": "{{count}} payloads"
+  "storage_hub.payload_count_other": "{{count}} payloads",
+  "settings.cache_title": "Caché de repositorios",
+  "settings.cache_clear": "Borrar caché",
+  "settings.cache_clearing": "Borrando…",
+  "settings.cache_cleared": "Caché de repositorios borrada.",
+  "settings.cache_failed": "No se pudo borrar la caché de repositorios.",
+  "settings.cache_desc": "Borra los catálogos e iconos descargados y vuelve a descargarlos. Se conservan los payloads instalados y la configuración."
 }

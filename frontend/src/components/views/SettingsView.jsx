@@ -41,13 +41,27 @@ const SettingRow = ({ title, description, children, icon: Icon, vertical }) => (
   </div>
 )
 
-const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate }) => {
+const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate, onClearCache }) => {
   const { t, i18n } = useTranslation()
   const autoOpen = config.AUTO_BROWSER_OPEN !== false
   const autoInstall = config.AUTO_INSTALL_APP !== false
   const autoloadDelay = config.AUTOLOAD_DELAY ?? 5
   const multiSources = config.MULTI_SOURCES_ENABLED === true
   const [followBrowserLanguage, setFollowBrowserLanguage] = useState(isFollowingBrowserLanguage)
+
+  const [clearingCache, setClearingCache] = useState(false)
+  const [cacheMessage, setCacheMessage] = useState('')
+  const handleClearCache = async () => {
+    if (clearingCache) return
+    setClearingCache(true)
+    setCacheMessage('')
+    try {
+      await onClearCache()
+      setCacheMessage(t('settings.cache_cleared', 'Repository cache cleared.'))
+    } catch {
+      setCacheMessage(t('settings.cache_failed', 'Could not clear repository cache.'))
+    } finally { setClearingCache(false) }
+  }
 
   const getLanguageDisplayName = lang => LANGUAGE_NAMES[lang] || lang;
 
@@ -222,6 +236,19 @@ const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate }) => {
                 multiSources ? "translate-x-7 md:translate-x-10" : "translate-x-0"
               )} />
             </button>
+          </SettingRow>
+
+          <SettingRow
+            title={t('settings.cache_title', 'Repository Cache')}
+            description={t('settings.cache_desc', 'Clear downloaded catalogs and icons, then fetch fresh copies. Installed payloads and your settings are preserved.')}
+            icon={Globe}
+            vertical
+          >
+            <button onClick={handleClearCache} disabled={clearingCache}
+              className="px-5 py-3 rounded-xl bg-white/10 hover:bg-ps-blue/20 disabled:opacity-50 font-bold">
+              {clearingCache ? t('settings.cache_clearing', 'Clearing…') : t('settings.cache_clear', 'Clear Cache')}
+            </button>
+            {cacheMessage && <p role="status" className="mt-3 text-sm text-zinc-400">{cacheMessage}</p>}
           </SettingRow>
 
           {multiSources && (

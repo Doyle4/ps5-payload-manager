@@ -64,7 +64,7 @@ static int is_mutation_route(const char *url) {
     const char *routes[] = { ROUTE_UPLOAD, ROUTE_DELETE, ROUTE_SHUTDOWN,
         ROUTE_SET_CONFIG, ROUTE_ABORT, ROUTE_AUTOLOAD_CLEAR, ROUTE_REPO_REFRESH,
         ROUTE_REPO_INSTALL, ROUTE_SOURCES_SET, ROUTE_SOURCES_ADD,
-        ROUTE_SOURCES_REMOVE, ROUTE_USB_MOVE_PERFORM, ROUTE_PROCESS_KILL };
+        ROUTE_SOURCES_REMOVE, ROUTE_REPO_CACHE_CLEAR, ROUTE_USB_MOVE_PERFORM, ROUTE_PROCESS_KILL };
     for (size_t i = 0; i < sizeof(routes)/sizeof(routes[0]); i++)
         if (!strcmp(url, routes[i])) return 1;
     return !strncmp(url, ROUTE_LOAD_PAYLOAD, strlen(ROUTE_LOAD_PAYLOAD));
@@ -742,6 +742,26 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         add_response_header(resp, "Content-Type", "application/json");
 
         return send_response(conn, rc == 0 ? MHD_HTTP_OK : MHD_HTTP_INTERNAL_SERVER_ERROR, resp);
+    } else if (strcmp(url, ROUTE_REPO_CACHE_CLEAR) == 0) {
+        int result = sources_clear_cache();
+        const char *body = result ? "{\"ok\":false}" : "{\"ok\":true}";
+        resp = create_buffer_response(strlen(body), (void *)body, MHD_RESPMEM_PERSISTENT);
+        add_response_header(resp, "Content-Type", "application/json");
+        return send_response(conn, result ? MHD_HTTP_INTERNAL_SERVER_ERROR : MHD_HTTP_OK, resp);
+    } else if (strcmp(url, ROUTE_REPO_ICONS) == 0) {
+        const char *source = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "source");
+        char *buffer;
+        if (!alloc_response_buffer(&buffer)) return send_out_of_memory(conn);
+        size_t length = sources_icons_json(source, buffer, RESPONSE_BUFFER_SIZE);
+        if (!length) {
+            free(buffer);
+            resp = create_buffer_response(strlen("{\"icons\":{}}"), (void *)"{\"icons\":{}}", MHD_RESPMEM_PERSISTENT);
+            add_response_header(resp, "Content-Type", "application/json");
+            return send_response(conn, MHD_HTTP_NOT_FOUND, resp);
+        }
+        resp = create_buffer_response(length, buffer, MHD_RESPMEM_MUST_FREE);
+        add_response_header(resp, "Content-Type", "application/json");
+        add_response_header(resp, "Cache-Control", "no-store");
     } else if (strcmp(url, ROUTE_REPO_LIST) == 0) {
         char *resp_buf;
         if (!alloc_response_buffer(&resp_buf))

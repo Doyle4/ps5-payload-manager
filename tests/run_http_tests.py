@@ -213,7 +213,7 @@ def security_tests(port, storage, legacy=False):
         return
 
     routes = ["/abort", "/autoload_clear", "/process_kill?pid=123", "/repository_refresh",
-              "/repository_install?id=test", "/sources_add?url=http://example.invalid",
+              "/repository_cache_clear", "/repository_install?id=test", "/sources_add?url=http://example.invalid",
               "/sources_remove?index=1", "/usb_move_perform?path=/mnt/usb0/test.elf",
               "/manage:delete?slot=local/test", "/loadpayload:missing.elf",
               "/set_config", "/sources_set", "/manage:upload?filename=policy.elf", "/shutdown"]

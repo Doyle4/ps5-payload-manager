@@ -127,3 +127,6 @@ void log_stream_init(struct LogSSEConnection *conn, const char *id) {
 }
 void log_stream_cleanup(void *cls) { free(cls); }
 #endif
+
+int sources_clear_cache(void) { test_mutation_calls++; return 0; }
+size_t sources_icons_json(const char *id, char *buf, size_t size) { (void)id; return json(buf, size, "{\"icons\":{}}"); }

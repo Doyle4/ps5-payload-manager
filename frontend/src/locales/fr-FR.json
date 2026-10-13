@@ -241,5 +241,11 @@
   "storage_hub.files_count_other": "{{count}} fichiers",
   "storage_hub.payload_count_one": "{{count}} payload",
   "storage_hub.payload_count_many": "{{count}} payloads",
-  "storage_hub.payload_count_other": "{{count}} payloads"
+  "storage_hub.payload_count_other": "{{count}} payloads",
+  "settings.cache_title": "Cache des dépôts",
+  "settings.cache_clear": "Vider le cache",
+  "settings.cache_clearing": "Suppression…",
+  "settings.cache_cleared": "Cache des dépôts vidé.",
+  "settings.cache_failed": "Impossible de vider le cache des dépôts.",
+  "settings.cache_desc": "Supprime les catalogues et icônes téléchargés, puis les télécharge à nouveau. Les payloads installés et les paramètres sont conservés."
 }
