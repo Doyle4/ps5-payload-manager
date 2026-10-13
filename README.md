@@ -16,7 +16,6 @@
 - **Automated Startup**: Set up a list of payloads to load automatically whenever you start the manager.
 - **Home Screen Shortcut**: Installs a dedicated "Payload Manager" app icon to your PS5 home screen for quick access.
 - **Favorites and Process Management**: Keep favorite payloads at hand, inspect active processes, and terminate eligible processes.
-- **Offline Emoji**: Bundled emoji artwork keeps release notes and loaded README content readable without CDN access. Uncached remote README files still need connectivity.
 
 
 ## Installation
@@ -37,26 +36,6 @@ You can also manually load the manager like any other `.elf` file. Grab the late
 
 ## Custom Repositories
 You can add third-party payload repositories to the manager. To learn how to create your own repository JSON and host it, see the [Custom Repositories Guide](CUSTOM_REPOSITORIES.md).
-
-## Access and Updates
-
-The dashboard runs at `http://[PS5_IP]:8084`; a separate ELF loader on port
-`9021` receives payloads. Settings, lists, repository caches and managed payloads
-live under `/data/pldmgr`. USB payloads can also run in place; import them to
-internal storage for autoload.
-
-Use the manager on a trusted local network. Browser-origin checks protect
-actions from foreign websites, but there is no login or pairing: a direct LAN
-client can still upload, launch and manage payloads. The full
-[HTTP contract](DEVELOPMENT.md#http-access-contract) explains the boundary.
-
-Update Payload Manager from its entry in **Get Payloads → Official Repository**.
-A newer release offers **Update**; the downloaded update applies on the next
-start. Its ELF remains at `/data/pldmgr/payloads/pldmgr/pldmgr_vX.Y.Z.elf` so
-older manager versions can hand off to it. The manager stays out of the dashboard
-and autoload list. Custom repositories, USB imports and web uploads cannot
-install manager updates. You can also replace/load its ELF through your
-standalone loader. Disc Player auto-close remains absent from settings.
 
 ## Translations
 PS5 Payload Manager supports multiple languages. For the list of supported languages, how to report translation issues or suggest improvements, and past community translators, see [TRANSLATIONS.md](TRANSLATIONS.md).
