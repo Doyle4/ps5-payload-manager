@@ -1,4 +1,17 @@
 import { compareVersions, slug } from './versions.js';
+import { isSystemPayload } from './helpers.js';
+
+export const OFFICIAL_REPOSITORY_URL = 'https://itsplk.github.io/ps5-payloads-mirror/payloads.json';
+
+export function isOfficialSelfUpdate(payload, srcUrl) {
+  return (payload?.id || slug(payload?.name || payload?.filename)) === 'pldmgr' &&
+    normalizeUrl(srcUrl) === OFFICIAL_REPOSITORY_URL;
+}
+
+export function isRepositoryPayloadVisible(payload, srcUrl) {
+  return isOfficialSelfUpdate(payload, srcUrl) ||
+    ![payload?.id, payload?.name, payload?.filename].some(isSystemPayload);
+}
 
 export function normalizeUrl(url) {
   if (!url || typeof url !== 'string') return '';
@@ -108,7 +121,7 @@ export function resolveSourceDisplayName(slot, sources = []) {
  *
  * Local slots never show up on repo cards.
  */
-export function getPayloadStatus({ payload, srcUrl, items = [], sources = [], multiSources = false }) {
+export function getPayloadStatus({ payload, srcUrl, items = [], sources = [], multiSources = false, self = null }) {
   void multiSources;
   if (!payload) {
     return {
@@ -122,6 +135,27 @@ export function getPayloadStatus({ payload, srcUrl, items = [], sources = [], mu
       alsoInstalledFrom: null,
       badge: null,
       buttonAction: null,
+    };
+  }
+
+  if (isOfficialSelfUpdate(payload, srcUrl)) {
+    const runningVersion = self?.running_version;
+    const pendingVersion = self?.pending_version;
+    const pending = Boolean(pendingVersion && runningVersion && compareVersions(pendingVersion, runningVersion) > 0);
+    const version = pending ? pendingVersion : runningVersion;
+    const isUpdate = Boolean(version && compareVersions(payload.version, version) > 0);
+    return {
+      status: isUpdate ? 'update' : 'installed',
+      isInstalled: true,
+      isUpdate,
+      installedSlot: { id: 'pldmgr', version },
+      otherSlots: [],
+      hasConflict: false,
+      conflictSlot: null,
+      alsoInstalledFrom: null,
+      badge: isUpdate ? 'update' : 'installed',
+      buttonAction: isUpdate ? 'update' : null,
+      restartRequired: pending,
     };
   }
 

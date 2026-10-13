@@ -1,4 +1,5 @@
 {
+  "app.toasts.self_update_downloaded": "به‌روزرسانی دانلود شد — در اجرای بعدی اعمال می‌شود",
   "app.toasts.sequence_aborted": "اجرا متوقف شد",
   "app.toasts.launch_failed": "اجرا با خطا مواجه شد",
   "app.toasts.payload_launched": "{{name}} اجرا شد",

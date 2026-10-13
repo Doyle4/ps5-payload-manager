@@ -1,4 +1,5 @@
 {
+  "app.toasts.self_update_downloaded": "Atualização baixada — será aplicada na próxima inicialização",
   "app.toasts.sequence_aborted": "Sequência interrompida",
   "app.toasts.launch_failed": "Falha no carregamento",
   "app.toasts.payload_launched": "{{name}} carregado",

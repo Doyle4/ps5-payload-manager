@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include "utils.h"
+#include "pldmgr.h"
 
 int pldmgr_get_local_ip(char *ip_buf, size_t buf_size) {
     struct ifaddrs *ifaddr, *ifa;
@@ -158,5 +159,12 @@ int is_pldmgr_name(const char *name) {
             strncasecmp(base, "payload_manager", 15) == 0 ||
             strncasecmp(base, "payload manager", 15) == 0 ||
             strncasecmp(base, "payloadmanager", 14) == 0);
+}
+
+int is_pldmgr_official_source(const char *url) {
+    if (!url) return 0;
+    size_t n = strlen(url);
+    while (n && url[n - 1] == '/') n--;
+    return n == strlen(REPOSITORY_SOURCE_URL) && !strncmp(url, REPOSITORY_SOURCE_URL, n);
 }
 

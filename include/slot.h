@@ -76,6 +76,8 @@ void slot_free_all(SlotMeta *slots);
 /* Shared HTTP/autoload loader gate. Open rejects substituted symlink components. */
 int slot_validate_payload_path(const char *path, char *out_path, size_t out_size);
 int slot_open_payload(const char *path, char *out_path, size_t out_size);
+/* Internal startup handoff only; accepts direct files in legacy update directories. */
+int slot_open_self_update(const char *path);
 
 /* Resolve a slot key or path to absolute payload file path */
 int slot_resolve(const char *slot_or_path, char *out_path, size_t out_size);

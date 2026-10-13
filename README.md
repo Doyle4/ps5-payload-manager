@@ -50,10 +50,13 @@ actions from foreign websites, but there is no login or pairing: a direct LAN
 client can still upload, launch and manage payloads. The full
 [HTTP contract](DEVELOPMENT.md#http-access-contract) explains the boundary.
 
-Update Payload Manager by replacing/loading its ELF through your autoloader or
-standalone loader. In-app self-update was deliberately removed; the manager
-cannot install or launch another copy of itself. Disc Player auto-close is also
-absent from the current settings.
+Update Payload Manager from its entry in **Get Payloads → Official Repository**.
+A newer release offers **Update**; the downloaded update applies on the next
+start. Its ELF remains at `/data/pldmgr/payloads/pldmgr/pldmgr_vX.Y.Z.elf` so
+older manager versions can hand off to it. The manager stays out of the dashboard
+and autoload list. Custom repositories, USB imports and web uploads cannot
+install manager updates. You can also replace/load its ELF through your
+standalone loader. Disc Player auto-close remains absent from settings.
 
 ## Translations
 PS5 Payload Manager supports multiple languages. For the list of supported languages, how to report translation issues or suggest improvements, and past community translators, see [TRANSLATIONS.md](TRANSLATIONS.md).

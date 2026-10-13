@@ -143,7 +143,11 @@ size_t payload_mgr_list_json(char *json_buf, size_t buf_size) {
 
     JsonListBuilder jb = { json_buf, buf_size, 0, 1, 0 };
     if (legacy_result < -1) json_builder_fail(&jb);
-    json_append(&jb, "{\n  \"items\": [\n");
+    char update_path[1024], pending_version[64], pending_e[6 * 64];
+    int pending = repository_check_self_update(update_path, sizeof(update_path), pending_version, sizeof(pending_version));
+    json_escape_checked(&jb, pending ? pending_version : "", pending_e, sizeof(pending_e));
+    json_append(&jb, "{\n  \"self\":{\"id\":\"pldmgr\",\"running_version\":\"%s\",\"pending_version\":\"%s\"},\n", MENU_VERSION, pending_e);
+    json_append(&jb, "  \"items\": [\n");
 
     for (size_t i = 0; i < slot_count; i++) {
         char sk_e[6 * 128], pp_e[6 * 512], kind_e[6 * 16], fn_e[6 * 256];
@@ -297,6 +301,10 @@ int payload_mgr_delete_payload(const char *slot_or_filename) {
 
 int payload_mgr_check_existing(const char *filename, char *out_json, size_t out_size) {
     JsonListBuilder jb = { out_json, out_size, 0, 1, 0 };
+    if (is_pldmgr_name(filename)) {
+        json_append(&jb, "{\"status\":\"error\",\"message\":\"Payload Manager updates require the official repository\"}");
+        return -1;
+    }
     if (!filename || filename[0] == '\0') {
         json_append(&jb, "{\"status\":\"error\",\"message\":\"Missing filename\"}");
         return -1;
@@ -340,7 +348,7 @@ int payload_mgr_import_to_storage_mode(const char *filename, const char *temp_pa
                                        const char *install_source_detail,
                                        char *msg_buf, size_t msg_buf_size,
                                        char *out_slot, size_t out_slot_size) {
-    if (!filename || strstr(filename, "/") || strstr(filename, "..")) {
+    if (!filename || strstr(filename, "/") || strstr(filename, "..") || is_pldmgr_name(filename)) {
         snprintf(msg_buf, msg_buf_size, "Invalid filename");
         return -1;
     }
@@ -386,7 +394,7 @@ int payload_mgr_import_to_storage_mode(const char *filename, const char *temp_pa
 
 int payload_mgr_usb_check(const char *usb_path, char *out_json, size_t out_size) {
     JsonListBuilder jb = { out_json, out_size, 0, 1, 0 };
-    if (!is_allowed_usb_path(usb_path)) {
+    if (!is_allowed_usb_path(usb_path) || is_pldmgr_name(usb_path)) {
         json_append(&jb, "{\"error\":\"Invalid USB path\"}");
         return -1;
     }
@@ -449,7 +457,7 @@ int payload_mgr_usb_check(const char *usb_path, char *out_json, size_t out_size)
 int payload_mgr_usb_move(const char *usb_path, const char *mode, int keep_original,
                          char *out_json, size_t out_size) {
     JsonListBuilder jb = { out_json, out_size, 0, 1, 0 };
-    if (!is_allowed_usb_path(usb_path)) {
+    if (!is_allowed_usb_path(usb_path) || is_pldmgr_name(usb_path)) {
         json_append(&jb, "{\"ok\":false,\"message\":\"Invalid USB path\"}");
         return -1;
     }

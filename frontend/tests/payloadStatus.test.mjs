@@ -274,3 +274,22 @@ test('isGitHubUrl accurately identifies GitHub repo URLs vs third party URLs', (
   assert.equal(isGitHubUrl(null), false);
   assert.equal(isGitHubUrl(undefined), false);
 });
+
+test('self-update is always installed, only newer versions offer an update, and pending versions suppress it', () => {
+  const srcUrl = 'https://itsplk.github.io/ps5-payloads-mirror/payloads.json/';
+  const payload = { id: 'pldmgr', version: 'v0.6.0', checksum: 'new' };
+  const self = { running_version: '0.5.2', pending_version: '' };
+  const items = [{ kind: 'repo', id: 'pldmgr', source_url: OTHER_URL, version: '0.5.1' }];
+  const status = getPayloadStatus({ payload, srcUrl, self, items });
+  assert.equal(status.isInstalled, true);
+  assert.equal(status.buttonAction, 'update');
+  assert.equal(status.hasConflict, false);
+  for (const version of ['v0.5.2', '0.5.1']) {
+    assert.equal(getPayloadStatus({ payload: { ...payload, version }, srcUrl, self }).buttonAction, null);
+  }
+  const pending = getPayloadStatus({ payload, srcUrl, self: { ...self, pending_version: '0.6.0' } });
+  assert.equal(pending.buttonAction, null);
+  assert.equal(pending.restartRequired, true);
+  assert.equal(pending.installedSlot.version, '0.6.0');
+  assert.equal(getPayloadStatus({ payload, srcUrl }).buttonAction, null);
+});

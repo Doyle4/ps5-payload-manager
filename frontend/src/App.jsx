@@ -53,6 +53,7 @@ function App() {
   const { t } = useTranslation();
   const { getRepoEntry, findRepoEntryById, fetchRemote, clearCache, sources } = useRepository()
   const [items, setItems] = useState([])
+  const [selfUpdate, setSelfUpdate] = useState(null)
   const [usbPayloads, setUsbPayloads] = useState([])
   const [uploadConflictModal, setUploadConflictModal] = useState({ show: false, file: null, folderName: '' })
   const [conflictPrompt, setConflictPrompt] = useState(null)
@@ -330,6 +331,7 @@ function App() {
     if (data?.items || data?.payloads) {
       const rawItems = data.items || []
       setItems(rawItems)
+      setSelfUpdate(data.self || null)
 
       const rawUsb = data.usb || (data.payloads ? data.payloads.filter(p => p.startsWith('/mnt/usb')) : [])
       setUsbPayloads(rawUsb)
@@ -531,7 +533,7 @@ function App() {
       if (res.ok && data?.ok) {
         setDownloadModal((prev) => ({ ...prev, progress: 100 }))
         addToast(
-          t("app.toasts.payload_installed", "{{fileName}} installed", {
+          data.self_update ? t("app.toasts.self_update_downloaded", "Update downloaded — applies on next start") : t("app.toasts.payload_installed", "{{fileName}} installed", {
             fileName: displayName,
           })
         )
@@ -1047,6 +1049,7 @@ function App() {
           {view === 'storage' && (
             <StorageHub
               items={items}
+              self={selfUpdate}
               payloads={payloads}
               payloadMeta={payloadMeta}
               onInstall={handleInstall}

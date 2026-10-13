@@ -1,3 +1,9 @@
+## Unreleased
+
+- Restore official-repository self-updates in Get Payloads, with downloaded-update status and application on the next start.
+- Preserve the legacy self-update directory for older launchers while retaining dashboard, autoload, custom-repository, USB and upload restrictions.
+- Verify update checksums, ELF signatures and embedded versions before atomic installation.
+
 ## v0.5.2
 - Rebuilt with latest SDK
 

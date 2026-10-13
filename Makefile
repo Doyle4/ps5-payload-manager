@@ -57,6 +57,7 @@ test-host:
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_allocation_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_integrity_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_repository_icons_tests.py
+	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_self_update_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_storage_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_autoload_tests.py
 	HOST_CC="$(HOST_CC)" $(PYTHON) tests/run_launcher_tests.py

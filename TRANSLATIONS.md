@@ -13,8 +13,9 @@ Use stable keys from the active UI and preserve `{{interpolation}}` placeholders
 and React translation markup such as `<1>...</1>` or `<strong>...</strong>`.
 Provide each language's cardinal forms (`_one`, `_few`, `_many`, `_other`, etc.)
 for count labels. Product names and technical terms can legitimately match English.
-Removed features such as self-update and Disc Player auto-close must not regain
-translation keys.
+Only active features should have translation keys. Self-update uses the Get
+Payloads download notice; the former notification toggle/banner and Disc Player
+auto-close remain absent.
 
 From `frontend/`, `npm run extract` updates the **English** catalog only. Review
 its diff before keeping it, especially dynamic categories and plural entries;

@@ -27,6 +27,12 @@ typedef struct RepoPayload {
 #define PLDMGR_MANIFEST_DOWNLOAD_LIMIT ((size_t)16 * 1024 * 1024)
 int repository_checksum_valid(const char *checksum);
 int repository_entry_valid(const RepoPayload *entry);
+int repository_self_update_entry_valid(const RepoPayload *entry, const char *source_url);
+/* Version reads preserve the descriptor offset; only versioned ELF files qualify. */
+int repository_self_update_version_fd(int fd, char *version, size_t size);
+/* Returns 1 for a strictly newer update, 0 when none is available. */
+int repository_check_self_update(char *out_path, size_t size, char *version, size_t version_size);
+int repository_install_self_update(const RepoPayload *entry, const char *source_url, const char *part_path);
 int download_to_file_limited(const char *url, const char *out_path, size_t limit);
 
 /* Download a URL to a local file. Returns 0 on success, -1 on failure. */

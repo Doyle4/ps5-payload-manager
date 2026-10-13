@@ -212,6 +212,12 @@ const PayloadDetailPanel = ({
             )}
           </div>
 
+          {statusInfo?.restartRequired && (
+            <p className="text-sm text-emerald-400">
+              {t("app.toasts.self_update_downloaded", "Update downloaded — applies on next start")}
+            </p>
+          )}
+
           {/* Author & Repository Metadata */}
           <div className="flex flex-wrap items-center gap-y-2 gap-x-4 text-xs sm:text-sm text-zinc-400">
             {payload.author && (

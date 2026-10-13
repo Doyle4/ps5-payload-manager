@@ -24,6 +24,11 @@ static long long now_ms(void) { struct timespec t;clock_gettime(CLOCK_MONOTONIC,
 void pldmgr_log(const char *fmt,...) { (void)fmt; }
 void history_mgr_add(const char *path) { CHECK(!strcmp(path,fixture));history++; }
 int slot_open_payload(const char *path,char *canonical,size_t size) { CHECK(!strcmp(path,fixture));opened++;snprintf(canonical,size,"%s",path);file=open(path,O_RDONLY);return file; }
+/* Self-update validation has its own integration suite. Ordinary transfers
+ * must never enter the privileged opener or version reader. */
+int slot_open_self_update(const char *path) { (void)path; abort(); }
+int repository_self_update_version_fd(int fd, char *version, size_t size) { (void)fd; (void)version; (void)size; abort(); }
+int slot_version_compare(const char *a, const char *b) { (void)a; (void)b; abort(); }
 static void *receive_bytes(void *unused) {
     (void)unused;
     for(;;) { ssize_t n=recv(peer,received+received_bytes,expected_size-received_bytes,0); if(n==0)break;CHECK(n>0);received_bytes+=(size_t)n;if(received_bytes==expected_size)break; }

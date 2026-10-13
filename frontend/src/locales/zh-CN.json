@@ -1,4 +1,5 @@
 {
+  "app.toasts.self_update_downloaded": "更新已下载，将在下次启动时应用",
   "app.toasts.sequence_aborted": "自动加载序列已中止",
   "app.toasts.launch_failed": "启动失败",
   "app.toasts.payload_launched": "{{name}} 已启动",

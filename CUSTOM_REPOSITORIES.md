@@ -149,8 +149,13 @@ Managed installations use slots under `/data/pldmgr/payloads/repo/`;
 uploads/USB imports use `/data/pldmgr/payloads/local/`. Payload and metadata
 publication uses staging/recovery so a failed install does not silently replace
 a valid previous version. Favorites/autoload use stable slot keys. The manager
-filters its own payload from listings and blocks self-install/self-launch;
-replace its ELF via the autoloader or standalone loader to update it.
+hides its own payload in custom repositories and rejects self-installation from
+them, uploads and USB. Only the official repository can offer `id: "pldmgr"`
+(or `name: "pldmgr"` when the ID is omitted) as a self-update. Self-updates require
+a SHA-256 checksum and a stable major.minor.patch ELF version matching the
+manifest (the manifest may prefix the version with `v`). They are stored at
+`/data/pldmgr/payloads/pldmgr/pldmgr_vX.Y.Z.elf`, outside slots, and apply at the
+next startup. They cannot be launched through payload/autoload APIs.
 
 README and release-note markdown preserves safe links, code, headings and tables
 through DOM sanitization. Arbitrary images, remote media, styles and scripts are

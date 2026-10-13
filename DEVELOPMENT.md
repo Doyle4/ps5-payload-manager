@@ -373,3 +373,46 @@ with recorded downloads and sanitizers, without contacting a console or WAN.
 actual repository provider, rendered images and Settings action in Chrome, with
 all external requests blocked. Mock repository fixtures use `test_repo.json` and
 `test_icons.json`.
+
+## Payload Manager self-updates
+
+The official repository alone supplies `pldmgr` updates. Downloads require a
+SHA-256 checksum and an embedded `PLDMGR_VER:X.Y.Z` signature matching the
+manifest version. The manifest may have a leading `v`; embedded versions must
+be numeric stable releases because legacy launchers cannot parse that prefix
+or reliably compare prereleases. A newer update is published by atomic rename
+to `/data/pldmgr/payloads/pldmgr/pldmgr_vX.Y.Z.elf`, outside managed slots.
+Migration preserves both `pldmgr` and `payload-manager` directories, ignoring
+case. Startup scans these directories for the highest version strictly above
+`MENU_VERSION` and uses a dedicated, symlink-rejecting ELF handoff. Failed
+handoffs continue normal startup. Equal-version files remain available for
+older initial launchers; startup must not delete them.
+
+`/list_payloads` exposes `self: {id, running_version, pending_version}` separately
+from payload slots. A pending version is present only when newer than the
+running version. The official catalog uses the higher version for Update
+eligibility. Self-updates never use conflict/reinstall/keep-both flows and
+remain blocked by regular launch, autoload, USB and upload paths. `/update_check`
+remains disabled; there is no restored notification banner or settings toggle.
+
+`tests/run_self_update_tests.py` covers selection, malformed/non-ELF files,
+legacy directory preservation, official-only installation, checksum/version
+validation, failed commit preservation, pending status, upload/USB guards, and
+recorded loader transfers.
+It runs under `make test-host` without connecting to a console.
+
+### Changes from the self-update handoff plan
+
+- Keep `repository_entry_valid` strict for ordinary payloads and add a separate
+  source-aware validator for self-updates, including refreshed download attempts.
+- Require a checksum, a matching embedded version, and a version newer than both
+  the running and pending versions; reject explicit storage modes.
+- Generate a canonical legacy filename from the embedded version instead of
+  trusting the repository filename for the final destination.
+- Retain equal/older files at startup. Deleting the currently running update
+  would prevent old initial launchers from finding it on their next boot.
+  Superseded files in the canonical directory are removed only after publication
+  and directory sync; failures retain the previous files and are logged.
+- Expose separate self-update status instead of synthesizing a payload slot.
+- Translate the download notice in all bundled locales because repository tests
+  require complete active-key coverage; English-only fallback would fail them.

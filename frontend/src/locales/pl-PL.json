@@ -1,4 +1,5 @@
 {
+  "app.toasts.self_update_downloaded": "Pobrano aktualizację — zostanie zastosowana przy następnym uruchomieniu",
   "app.toasts.sequence_aborted": "Sekwencja przerwana",
   "app.toasts.launch_failed": "Uruchomienie nie powiodło się",
   "app.toasts.payload_launched": "Payload {{name}} uruchomiony",

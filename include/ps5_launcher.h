@@ -9,6 +9,7 @@
  * @return 0 on success, -1 on failure.
  */
 int ps5_launch_elf(const char* path);
+int ps5_launch_self_update(const char *path);
 
 /* Stop callback is checked before socket work and between send/wait chunks.
  * Connect and total transfer have finite deadlines. Cancellation cannot undo

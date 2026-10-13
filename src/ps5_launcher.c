@@ -1,6 +1,7 @@
 #include "ps5_launcher.h"
 #include "pldmgr.h"
 #include "slot.h"
+#include "repository.h"
 #include <limits.h>
 #include "history_mgr.h"
 #include <arpa/inet.h>
@@ -45,10 +46,15 @@ static int wait_writable(int fd, long long deadline, PayloadLaunchCancelled canc
         } else if (ready<0 && errno!=EINTR) return -1;
     }
 }
-int ps5_launch_elf_cancellable(const char *path, PayloadLaunchCancelled cancelled, void *context) {
+static int launch_elf(const char *path, PayloadLaunchCancelled cancelled, void *context, int self_update) {
     if (launch_cancelled(cancelled,context)) return -1;
     char canonical[PATH_MAX];
-    int fd=slot_open_payload(path,canonical,sizeof(canonical));
+    int fd=self_update ? slot_open_self_update(path) : slot_open_payload(path,canonical,sizeof(canonical));
+    if (self_update && fd >= 0) {
+        char version[64];
+        if (repository_self_update_version_fd(fd, version, sizeof(version)) ||
+            slot_version_compare(version, MENU_VERSION) <= 0) { close(fd); return -1; }
+    }
     if (fd<0) { pldmgr_log("[PLDMGR] Payload path rejected: %s\n",path ? path : "(null)"); return -1; }
     int sock=socket(AF_INET,SOCK_STREAM,0);
     if (sock<0) { close(fd); return -1; }
@@ -96,10 +102,14 @@ int ps5_launch_elf_cancellable(const char *path, PayloadLaunchCancelled cancelle
     }
     if (!total) error=1;
     close(sock); close(fd);
-    if (!error) history_mgr_add(canonical);
+    if (!error && !self_update) history_mgr_add(canonical);
     pldmgr_log("[PLDMGR] Loader transfer %s (%zu bytes sent).\n",error ? "failed or cancelled" : "complete",total);
     return error ? -1 : 0;
 }
+int ps5_launch_elf_cancellable(const char *path, PayloadLaunchCancelled cancelled, void *context) {
+    return launch_elf(path, cancelled, context, 0);
+}
+int ps5_launch_self_update(const char *path) { return launch_elf(path, NULL, NULL, 1); }
 int ps5_launch_elf(const char *path) { return ps5_launch_elf_cancellable(path,NULL,NULL); }
 
 extern int sceSystemServiceLaunchWebBrowser(const char *uri);

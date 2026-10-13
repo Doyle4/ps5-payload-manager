@@ -1,4 +1,5 @@
 {
+  "app.toasts.self_update_downloaded": "ดาวน์โหลดอัปเดตแล้ว — จะมีผลเมื่อเริ่มใช้งานครั้งถัดไป",
   "app.toasts.sequence_aborted": "ยกเลิกลำดับการทำงานแล้ว",
   "app.toasts.launch_failed": "การเปิดใช้งานล้มเหลว",
   "app.toasts.payload_launched": "เปิดใช้งาน {{name}} แล้ว",

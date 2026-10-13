@@ -1,4 +1,5 @@
 {
+  "app.toasts.self_update_downloaded": "Güncelleme indirildi — sonraki başlatmada uygulanacak",
   "app.toasts.sequence_aborted": "Sıra İptal Edildi",
   "app.toasts.launch_failed": "Başlatma başarısız oldu",
   "app.toasts.payload_launched": "{{name}} başlatıldı",

@@ -2,6 +2,7 @@
   "app.toasts.sequence_aborted": "Sequence Aborted",
   "app.toasts.launch_failed": "Launch failed",
   "app.toasts.payload_launched": "{{name}} launched",
+  "app.toasts.self_update_downloaded": "Update downloaded — applies on next start",
   "app.toasts.payload_installed": "{{fileName}} installed",
   "app.toasts.install_failed": "Installation failed",
   "app.modals.delete_payload.title": "Delete Payload",

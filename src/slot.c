@@ -748,9 +748,9 @@ int slot_validate_payload_path(const char *path, char *out_path, size_t out_size
 }
 /* Open the canonical path by walking directory descriptors. O_NOFOLLOW on
  * every component rejects a symlink substituted after canonical validation. */
-int slot_open_payload(const char *path, char *out_path, size_t out_size) {
-    if (slot_validate_payload_path(path, out_path, out_size)) return -1;
-    char walk[PATH_MAX]; strcpy(walk, out_path);
+static int open_without_symlinks(const char *path) {
+    if (strlen(path) >= PATH_MAX) return -1;
+    char walk[PATH_MAX]; strcpy(walk, path);
     int fd = open("/", O_RDONLY | O_DIRECTORY);
     if (fd < 0) return -1;
     char *state = NULL, *part = strtok_r(walk + 1, "/", &state);
@@ -763,6 +763,27 @@ int slot_open_payload(const char *path, char *out_path, size_t out_size) {
     }
     struct stat st;
     if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0) { close(fd); return -1; }
+    return fd;
+}
+
+int slot_open_payload(const char *path, char *out_path, size_t out_size) {
+    if (slot_validate_payload_path(path, out_path, out_size)) return -1;
+    return open_without_symlinks(out_path);
+}
+
+int slot_open_self_update(const char *path) {
+    const char *root = PAYLOADS_STORAGE_DIR "/";
+    if (!path || strncmp(path, root, strlen(root))) return -1;
+    const char *dir = path + strlen(root), *file = strchr(dir, '/');
+    if (!file || !((file - dir == 6 && !strncasecmp(dir, "pldmgr", 6)) ||
+                  (file - dir == 15 && !strncasecmp(dir, "payload-manager", 15)))) return -1;
+    file++;
+    if (strchr(file, '/') || strstr(file, "..") || !is_pldmgr_name(file) || !is_supported_ext(file)) return -1;
+    int fd = open_without_symlinks(path);
+    unsigned char magic[4];
+    if (fd >= 0 && (pread(fd, magic, sizeof(magic), 0) != 4 || memcmp(magic, "\177ELF", 4))) {
+        close(fd); return -1;
+    }
     return fd;
 }
 
@@ -943,6 +964,7 @@ int slot_migrate_legacy(void) {
     while ((ent = readdir(d)) != NULL) {
         if (ent->d_name[0] == '.') continue;
         if (strcmp(ent->d_name, "repo") == 0 || strcmp(ent->d_name, "local") == 0) continue;
+        if (!strcasecmp(ent->d_name, "pldmgr") || !strcasecmp(ent->d_name, "payload-manager")) continue;
 
         char legacy_subdir[512];
         snprintf(legacy_subdir, sizeof(legacy_subdir), "%s/%s", PAYLOADS_STORAGE_DIR, ent->d_name);

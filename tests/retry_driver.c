@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <fcntl.h>
+int integrity_openat(int parent, const char *part, int flags, ...) { return openat(parent, part, flags); }
 #include <stdlib.h>
 #include <string.h>
 #include "sources.h"

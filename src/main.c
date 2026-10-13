@@ -86,6 +86,15 @@ int main(int argc, char *argv[]) {
     /* Run one-time migration to layout v2 if needed */
     slot_migrate_legacy();
 
+    /* The loader transfer may encounter a closed socket before services start. */
+    signal(SIGPIPE, SIG_IGN);
+    char update_path[1024], update_version[64];
+    if (repository_check_self_update(update_path, sizeof(update_path), update_version, sizeof(update_version))) {
+        pldmgr_log("[PLDMGR] Handing off to self-update %s\n", update_version);
+        if (ps5_launch_self_update(update_path) == 0) return 0;
+        pldmgr_log("[PLDMGR] Self-update handoff failed; continuing startup.\n");
+    }
+
     /* Initialize PS5 System Services */
     pldmgr_log("[PLDMGR] Initializing system services...\n");
     if (sceNetCtlInit() == 0) {

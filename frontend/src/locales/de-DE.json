@@ -1,4 +1,5 @@
 {
+  "app.toasts.self_update_downloaded": "Update heruntergeladen — wird beim nächsten Start angewendet",
   "app.toasts.sequence_aborted": "Autoload abgebrochen",
   "app.toasts.launch_failed": "Start fehlgeschlagen",
   "app.toasts.payload_launched": "{{name}} erfolgreich gestartet",

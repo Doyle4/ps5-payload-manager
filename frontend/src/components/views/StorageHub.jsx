@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo, useLayoutEffect, useRef, useCallba
 import { CloudDownload, Upload, Package, Database, RefreshCw, Loader2, AlertTriangle, HardDrive, Usb, ChevronDown, Globe, Search, ArrowUpDown, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { QRCodeSVG } from 'qrcode.react'
-import { cn, isPS5, isIOS, isSystemPayload } from '../../utils/helpers'
-import { getPayloadStatus, resolveSourceDisplayName } from '../../utils/payloadStatus'
+import { cn, isPS5, isIOS } from '../../utils/helpers'
+import { getPayloadStatus, resolveSourceDisplayName, isRepositoryPayloadVisible } from '../../utils/payloadStatus'
 import { slug } from '../../utils/versions'
 import PayloadName from '../ui/PayloadName'
 import Modal from '../ui/Modal'
@@ -13,6 +13,7 @@ import PayloadDetailPanel from '../ui/PayloadDetailPanel'
 
 const StorageHub = ({
   items = [],
+  self = null,
   payloads = [],
   onInstall,
   onUpload,
@@ -90,27 +91,13 @@ const StorageHub = ({
   const enrichedSources = useMemo(() => {
     return (sources || []).map((src) => {
       const rawPayloads = src.payloads || []
-      const filteredPayloads = rawPayloads.filter((p) => {
-        const idLower = (p.id || '').toLowerCase();
-        const nameLower = (p.name || '').toLowerCase();
-        return (
-          !isSystemPayload(p.filename) &&
-          !isSystemPayload(p.name) &&
-          !isSystemPayload(p.id) &&
-          idLower !== 'pldmgr' &&
-          idLower !== 'payload-manager' &&
-          idLower !== 'payload_manager' &&
-          nameLower !== 'pldmgr' &&
-          nameLower !== 'payload manager' &&
-          nameLower !== 'payload-manager' &&
-          nameLower !== 'payload_manager'
-        );
-      })
+      const filteredPayloads = rawPayloads.filter((p) => isRepositoryPayloadVisible(p, src.url))
       const enrichedPayloads = filteredPayloads.map((p) => {
         const statusInfo = getPayloadStatus({
           payload: p,
           srcUrl: src.url,
           items,
+          self,
           sources,
           multiSources,
         })
@@ -127,7 +114,7 @@ const StorageHub = ({
         payloads: enrichedPayloads,
       }
     })
-  }, [sources, items, multiSources])
+  }, [sources, items, multiSources, self])
 
   // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const resolvedPayloadData = useMemo(() => {
@@ -191,6 +178,7 @@ const StorageHub = ({
         payload: targetPayload,
         srcUrl,
         items,
+        self,
         sources,
         multiSources,
       })
@@ -206,7 +194,7 @@ const StorageHub = ({
     }
 
     return null
-  }, [selectedPayload, enrichedSources, items, sources, multiSources])
+  }, [selectedPayload, enrichedSources, items, sources, multiSources, self])
 
   const currentDetailId =
     resolvedPayloadData?.payload?.id ||

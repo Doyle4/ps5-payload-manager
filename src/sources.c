@@ -647,11 +647,9 @@ static size_t repository_list_locked(char *buf, size_t size, int force_refresh) 
         if (have_catalog) {
             int first_payload = 1;
             for (size_t pi = 0; pi < count; pi++) {
-                if (is_pldmgr_name(items[pi].id) ||
-                    is_pldmgr_name(items[pi].filename) ||
-                    is_pldmgr_name(items[pi].name)) {
-                    continue;
-                }
+                if ((is_pldmgr_name(items[pi].id) ||
+                     is_pldmgr_name(items[pi].filename) || is_pldmgr_name(items[pi].name)) &&
+                    !repository_self_update_entry_valid(&items[pi], sources[si].url)) continue;
 
                 char id_pe[6 * 128], name_pe[6 * 256], filename_e[6 * 256], desc_e[6 * 1024];
                 char ver_e[6 * 64], url_e[6 * 1024], src_id_e[6 * 128], src_name_e[6 * 256];
@@ -727,11 +725,6 @@ int sources_repo_install(const char *source_url, const char *id,
         json_append(&jb, "{\"ok\":false,\"message\":\"Missing payload id\"}");
         return -1;
     }
-    if (is_pldmgr_name(safe_id)) {
-        json_append(&jb,
-                 "{\"ok\":false,\"message\":\"Payload Manager cannot be installed as a payload\"}");
-        return -1;
-    }
 
     SourceEntry *sources = calloc(MAX_SOURCES, sizeof(SourceEntry));
     if (!sources) {
@@ -772,6 +765,15 @@ int sources_repo_install(const char *source_url, const char *id,
     }
     free(sources);
 
+    int self_update = !strcmp(safe_id, "pldmgr") && is_pldmgr_official_source(src.url);
+    if (is_pldmgr_name(safe_id) && (!self_update ||
+        (source_url && source_url[0] && !is_pldmgr_official_source(source_url) && strcmp(source_url, src.id)))) {
+        json_append(&jb, "{\"ok\":false,\"message\":\"Payload Manager updates require the official repository\"}"); return -1;
+    }
+    if (self_update && ((mode && mode[0]) || (replace_slot && replace_slot[0]))) {
+        json_append(&jb, "{\"ok\":false,\"message\":\"Self-updates do not support storage modes\"}"); return -1;
+    }
+
     char h8[16];
     slot_source_hash(src.url, h8, sizeof(h8));
 
@@ -782,7 +784,7 @@ int sources_repo_install(const char *source_url, const char *id,
     int is_mode_replace = (mode && strcmp(mode, "replace") == 0);
     int is_mode_keep_both = (mode && strcmp(mode, "keep_both") == 0);
 
-    if (!is_mode_replace && !is_mode_keep_both) {
+    if (!self_update && !is_mode_replace && !is_mode_keep_both) {
         SlotMeta *existing_slots = NULL;
         size_t existing_count = 0;
         if (slot_list_all(&existing_slots, &existing_count) != 0) {
@@ -882,8 +884,8 @@ int sources_repo_install(const char *source_url, const char *id,
     items = NULL;
 
     /* Block installing pldmgr as a payload */
-    if (is_pldmgr_name(safe_id) || is_pldmgr_name(entry->id) ||
-        is_pldmgr_name(entry->filename) || is_pldmgr_name(entry->name)) {
+    if (!self_update && (is_pldmgr_name(safe_id) || is_pldmgr_name(entry->id) ||
+        is_pldmgr_name(entry->filename) || is_pldmgr_name(entry->name))) {
         free(entry);
         json_append(&jb,
                  "{\"ok\":false,\"message\":\"Payload Manager cannot be installed as a payload\"}");
@@ -923,7 +925,8 @@ int sources_repo_install(const char *source_url, const char *id,
      * is validated before downloading and verifies its own supplied checksum. */
     int installed_bytes_verified = 0;
     for (int attempt = 0; attempt < 2; attempt++) {
-        if (repository_entry_valid(entry) && download_to_file(entry->url, part_path) == 0) {
+        if ((self_update ? repository_self_update_entry_valid(entry, src.url) : repository_entry_valid(entry)) &&
+            download_to_file(entry->url, part_path) == 0) {
             char calc[65];
             if (!entry->checksum[0] ||
                 (!compute_sha256_file(part_path, calc) && !strcasecmp(calc, entry->checksum))) {
@@ -946,6 +949,16 @@ int sources_repo_install(const char *source_url, const char *id,
     if (!installed_bytes_verified) {
         free(entry); remove(part_path);
         json_append(&jb, "{\"ok\":false,\"message\":\"Download or integrity verification failed\"}"); return -1;
+    }
+
+    if (self_update) {
+        int result = repository_install_self_update(entry, src.url, part_path);
+        free(entry); remove(part_path);
+        if (result) {
+            json_append(&jb, "{\"ok\":false,\"message\":\"Self-update must be a newer versioned ELF matching the repository\"}"); return -1;
+        }
+        json_append(&jb, "{\"ok\":true,\"self_update\":true,\"restart_required\":true,\"refreshed\":%s}", refreshed ? "true" : "false");
+        return jb.error ? -1 : 0;
     }
 
     /* Write meta.json */

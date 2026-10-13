@@ -1,4 +1,5 @@
 {
+  "app.toasts.self_update_downloaded": "アップデートをダウンロードしました。次回起動時に適用されます",
   "app.toasts.sequence_aborted": "シーケンスが中断されました",
   "app.toasts.launch_failed": "起動に失敗しました",
   "app.toasts.payload_launched": "{{name}} が起動されました",

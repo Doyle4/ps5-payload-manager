@@ -7,6 +7,12 @@
 #include <unistd.h>
 #include <curl/curl.h>
 #include <stdint.h>
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <sys/stat.h>
+#include "sha256.h"
 #include "utils.h"
 
 #include "repository.h"
@@ -257,3 +263,156 @@ size_t repository_list_json(char *json_buf, size_t buf_size, int force_refresh) 
     return sources_multi_repository_list_json(json_buf, buf_size, force_refresh);
 }
 
+
+/* Self-updates deliberately retain the pre-slot layout: old launchers scan it. */
+static pthread_mutex_t self_update_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int self_version_valid(const char *version) {
+    const char *p = version;
+    if (!p) return 0;
+    if (*p == 'v' || *p == 'V') p++;
+    /* Stable major.minor.patch releases are understood by every old launcher. */
+    for (int part = 0; part < 3; part++) {
+        int digits = 0;
+        while (*p >= '0' && *p <= '9') { p++; if (++digits > 9) return 0; }
+        if (!digits) return 0;
+        if (part < 2 && *p++ != '.') return 0;
+    }
+    return *p == '\0';
+}
+
+int repository_self_update_entry_valid(const RepoPayload *entry, const char *source_url) {
+    if (!entry || !is_pldmgr_official_source(source_url) || strcmp(entry->id, "pldmgr") ||
+        !is_pldmgr_name(entry->filename) || strchr(entry->filename, '/') ||
+        strchr(entry->filename, '\\') || strstr(entry->filename, "..") ||
+        !self_version_valid(entry->version) || !entry->checksum[0] ||
+        !repository_checksum_valid(entry->checksum)) return 0;
+    const char *ext = strrchr(entry->filename, '.');
+    return ext && (!strcasecmp(ext, ".elf") || !strcasecmp(ext, ".bin"));
+}
+
+int repository_self_update_version_fd(int fd, char *version, size_t size) {
+    struct stat st;
+    unsigned char magic[4];
+    if (!version || !size) return -1;
+    version[0] = 0;
+    if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+        (uint64_t)st.st_size > PLDMGR_PAYLOAD_DOWNLOAD_LIMIT ||
+        pread(fd, magic, 4, 0) != 4 || memcmp(magic, "\177ELF", 4)) return -1;
+    /* Overlap covers a marker and its complete, bounded version across chunks. */
+    char buffer[8192 + 74];
+    size_t carry = 0;
+    off_t offset = 0;
+    while (offset < st.st_size) {
+        ssize_t n = pread(fd, buffer + carry, 8192, offset);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1;
+        size_t used = carry + (size_t)n;
+        for (size_t i = 0; i + 11 < used; i++) {
+            if (memcmp(buffer + i, "PLDMGR_VER:", 11)) continue;
+            const char *v = buffer + i + 11;
+            size_t available = used - i - 11;
+            const char *end = memchr(v, 0, available < 64 ? available : 64);
+            if (!end || (size_t)(end - v) >= size || *v < '0' || *v > '9' || !self_version_valid(v)) continue;
+            strcpy(version, v);
+            return 0;
+        }
+        offset += n;
+        carry = used < 74 ? used : 74;
+        memmove(buffer, buffer + used - carry, carry);
+    }
+    return -1;
+}
+
+static int check_self_update(char *out_path, size_t size, char *version, size_t version_size) {
+    if (!out_path || !size || !version || version_size < 64) return 0;
+    out_path[0] = 0;
+    snprintf(version, version_size, "%s", MENU_VERSION);
+    DIR *root = opendir(PAYLOADS_STORAGE_DIR);
+    if (!root) return 0;
+    struct dirent *dir;
+    while ((dir = readdir(root))) {
+        if (strcasecmp(dir->d_name, "pldmgr") && strcasecmp(dir->d_name, "payload-manager")) continue;
+        char folder[768];
+        snprintf(folder, sizeof(folder), "%s/%s", PAYLOADS_STORAGE_DIR, dir->d_name);
+        DIR *d = opendir(folder);
+        if (!d) continue;
+        struct dirent *file;
+        while ((file = readdir(d))) {
+            char path[1024], candidate[64];
+            snprintf(path, sizeof(path), "%s/%s", folder, file->d_name);
+            int fd = slot_open_self_update(path);
+            if (fd < 0) continue;
+            int valid = repository_self_update_version_fd(fd, candidate, sizeof(candidate));
+            close(fd);
+            if (!valid && slot_version_compare(candidate, version) > 0 && strlen(path) < size) {
+                strcpy(version, candidate);
+                strcpy(out_path, path);
+            }
+        }
+        closedir(d);
+    }
+    closedir(root);
+    return out_path[0] != 0;
+}
+
+int repository_check_self_update(char *out_path, size_t size, char *version, size_t version_size) {
+    pthread_mutex_lock(&self_update_mutex);
+    int found = check_self_update(out_path, size, version, version_size);
+    pthread_mutex_unlock(&self_update_mutex);
+    return found;
+}
+
+int repository_install_self_update(const RepoPayload *entry, const char *source_url, const char *part_path) {
+    if (!repository_self_update_entry_valid(entry, source_url)) return -1;
+    int fd = open(part_path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) return -1;
+    char version[64], hash[65];
+    int invalid = repository_self_update_version_fd(fd, version, sizeof(version)) ||
+        slot_version_compare(version, entry->version) ||
+        slot_version_compare(version, MENU_VERSION) <= 0 ||
+        compute_sha256_file(part_path, hash) || strcasecmp(hash, entry->checksum) || fsync(fd);
+    close(fd);
+    if (invalid) return -1;
+    pthread_mutex_lock(&self_update_mutex);
+    char previous[1024], pending[64];
+    check_self_update(previous, sizeof(previous), pending, sizeof(pending));
+    int result = -1;
+    if (slot_version_compare(version, pending) <= 0) goto done;
+    const char *folder = PAYLOADS_STORAGE_DIR "/pldmgr";
+    if (mkdir(folder, 0755) && errno != EEXIST) goto done;
+    int parent_fd = open(PAYLOADS_STORAGE_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (parent_fd < 0) goto done;
+    int parent_sync = fsync(parent_fd);
+    close(parent_fd);
+    if (parent_sync) goto done;
+    int dir_fd = open(folder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (dir_fd < 0) goto done;
+    const char *v = version + (version[0] == 'v' || version[0] == 'V');
+    char filename[128];
+    snprintf(filename, sizeof(filename), "pldmgr_v%s.elf", v);
+    if (renameat(AT_FDCWD, part_path, dir_fd, filename)) { close(dir_fd); goto done; }
+    result = 0; /* Publication succeeded. Retain previous files if syncing fails. */
+    if (fsync(dir_fd)) {
+        pldmgr_log("[PLDMGR] Self-update published; directory sync failed.\n");
+    } else {
+        int scan_fd = dup(dir_fd);
+        DIR *d = scan_fd >= 0 ? fdopendir(scan_fd) : NULL;
+        if (!d && scan_fd >= 0) close(scan_fd);
+        struct dirent *file;
+        while (d && (file = readdir(d))) {
+            const char *ext = strrchr(file->d_name, '.');
+            if (strcmp(file->d_name, filename) && is_pldmgr_name(file->d_name) && ext &&
+                (!strcasecmp(ext, ".elf") || !strcasecmp(ext, ".bin"))) {
+                if (unlinkat(dir_fd, file->d_name, 0))
+                    pldmgr_log("[PLDMGR] Could not remove previous self-update: %s\n", file->d_name);
+            }
+        }
+        if (d) closedir(d);
+        if (fsync(dir_fd)) pldmgr_log("[PLDMGR] Self-update cleanup sync failed.\n");
+    }
+    close(dir_fd);
+done:
+    pthread_mutex_unlock(&self_update_mutex);
+    return result;
+}
