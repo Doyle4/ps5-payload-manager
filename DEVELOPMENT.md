@@ -356,7 +356,7 @@ loader. Verify these on the target console after runtime changes.
 
 ## Repository icon caching
 
-Catalogs place `icons.json` alongside `payloads.json` (or use optional `icons_url`) and item-level `icon_key`; see
+Catalogs use `icons_url` and item-level `icon_key`; see
 [CUSTOM_REPOSITORIES.md](CUSTOM_REPOSITORIES.md) for the format and refresh policy.
 The daemon stores `repo_icons_<source-url-sha256>.json` and `.meta` alongside
 `repo_cache_*.json`. Catalog/icon refresh, icon snapshots and cache clearing share

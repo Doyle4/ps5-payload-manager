@@ -447,8 +447,7 @@ static int read_icons(const char *path, char **text, size_t *size, IconCatalog *
 }
 static int resolve_icons_url(const char *base, const char *catalog, char out[1024]) {
     char relative[1024]; out[0] = 0;
-    if (!catalog || json_extract_string(catalog, catalog + strlen(catalog), "icons_url", relative, sizeof(relative)) || !relative[0])
-        strcpy(relative, "icons.json");
+    if (!catalog || json_extract_string(catalog, catalog + strlen(catalog), "icons_url", relative, sizeof(relative)) || !relative[0]) return -1;
     CURLU *url = curl_url(); char *resolved = NULL, *scheme = NULL, *user = NULL;
     if (!url) return -1;
     int ok = !curl_url_set(url, CURLUPART_URL, base, 0) && !curl_url_set(url, CURLUPART_URL, relative, 0) &&
@@ -487,9 +486,7 @@ static int missing_icons(IconCatalog *icons, RepoPayload *items, size_t count, c
 }
 static void ensure_icons(const char *source, const char *catalog, RepoPayload *items, size_t count, char revision[65]) {
     char url[1024], path[512], meta[512]; revision[0] = 0;
-    size_t icon_keys = 0;
-    for (size_t i = 0; i < count; i++) if (items[i].icon_key[0]) icon_keys++;
-    if (!icon_keys || resolve_icons_url(source, catalog, url)) return;
+    if (resolve_icons_url(source, catalog, url)) return;
     icon_paths(source, path, meta);
     char *old = NULL, *state = NULL; size_t size = 0, state_size = 0;
     IconCatalog icons = {0};
