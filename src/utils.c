@@ -168,3 +168,10 @@ int is_pldmgr_official_source(const char *url) {
     return n == strlen(REPOSITORY_SOURCE_URL) && !strncmp(url, REPOSITORY_SOURCE_URL, n);
 }
 
+int is_legacy_official_repo_url(const char *url) {
+    if (!url) return 0;
+    size_t n = strlen(url);
+    while (n && url[n - 1] == '/') n--;
+    return n == strlen(LEGACY_REPOSITORY_SOURCE_URL) && !strncmp(url, LEGACY_REPOSITORY_SOURCE_URL, n);
+}
+

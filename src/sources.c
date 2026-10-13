@@ -48,6 +48,9 @@ static int source_item(const char *start, const char *end, void *context) {
         json_extract_string(start, end, "url", entry.url, sizeof(entry.url)) ||
         !entry.id[0] || !entry.name[0] || !entry.url[0]) return -1;
     if (!strcmp(entry.id, "default")) return 0;
+    if (is_legacy_official_repo_url(entry.url)) {
+        snprintf(entry.url, sizeof(entry.url), "%s", REPOSITORY_SOURCE_URL);
+    }
     if (parse->count >= MAX_SOURCES) return -1;
     for (int i = 0; i < parse->count; i++)
         if (!strcmp(parse->entries[i].id, entry.id)) return -1;

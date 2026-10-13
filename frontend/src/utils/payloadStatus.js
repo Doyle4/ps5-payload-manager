@@ -1,11 +1,17 @@
 import { compareVersions, slug } from './versions.js';
 import { isSystemPayload } from './helpers.js';
 
-export const OFFICIAL_REPOSITORY_URL = 'https://itsplk.github.io/ps5-payloads-mirror/payloads.json';
+export const OFFICIAL_REPOSITORY_URL = 'https://itsplk.github.io/ps5-payloads-mirror/payloads_v2.json';
+export const LEGACY_OFFICIAL_REPOSITORY_URL = 'https://itsplk.github.io/ps5-payloads-mirror/payloads.json';
+
+export function isOfficialRepoUrl(url) {
+  const norm = normalizeUrl(url);
+  return norm === OFFICIAL_REPOSITORY_URL || norm === LEGACY_OFFICIAL_REPOSITORY_URL;
+}
 
 export function isOfficialSelfUpdate(payload, srcUrl) {
   return (payload?.id || slug(payload?.name || payload?.filename)) === 'pldmgr' &&
-    normalizeUrl(srcUrl) === OFFICIAL_REPOSITORY_URL;
+    isOfficialRepoUrl(srcUrl);
 }
 
 export function isRepositoryPayloadVisible(payload, srcUrl) {
@@ -166,15 +172,20 @@ export function getPayloadStatus({ payload, srcUrl, items = [], sources = [], mu
     ? items.filter((item) => item && item.kind === 'repo')
     : [];
 
+  const isOfficialSrc = isOfficialRepoUrl(normSrcUrl);
   const installedSlot =
     repoItems.find(
       (item) =>
-        normalizeUrl(item.source_url) === normSrcUrl && item.id === targetId
+        item.id === targetId &&
+        (normalizeUrl(item.source_url) === normSrcUrl ||
+         (isOfficialSrc && isOfficialRepoUrl(item.source_url)))
     ) || null;
 
   const otherSlots = repoItems.filter(
     (item) =>
-      item.id === targetId && normalizeUrl(item.source_url) !== normSrcUrl
+      item.id === targetId &&
+      normalizeUrl(item.source_url) !== normSrcUrl &&
+      !(isOfficialSrc && isOfficialRepoUrl(item.source_url))
   );
 
   if (!installedSlot) {

@@ -17,6 +17,7 @@ void pldmgr_utils_get_payload_folder_name(const char *filename, char *out_buf, s
 int pldmgr_json_escape(const char *src, char *dst, size_t dst_size);
 int is_pldmgr_name(const char *name);
 int is_pldmgr_official_source(const char *url);
+int is_legacy_official_repo_url(const char *url);
 
 #ifdef __cplusplus
 }
