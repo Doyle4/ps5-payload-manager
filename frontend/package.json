@@ -17,7 +17,8 @@
     "preview": "vite preview",
     "extract": "i18next",
     "prebuild": "npm run lint && npm test",
-    "test:browser": "node ../tests/run_autoload_editor_browser_tests.mjs && node ../tests/run_autoload_editor_browser_tests.mjs --lifecycle"
+    "test:browser": "node ../tests/run_autoload_editor_browser_tests.mjs && node ../tests/run_autoload_editor_browser_tests.mjs --lifecycle && node ../tests/run_markdown_locale_browser_tests.mjs",
+    "postbuild": "node ../tools/check_frontend_bundle.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

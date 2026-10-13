@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Terminal, ChevronRight, Globe, Languages } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../utils/helpers'
+import { LANGUAGE_NAMES } from '../../utils/localeSupport'
 
 const FOLLOW_BROWSER_LANGUAGE = '__auto__'
 
@@ -48,18 +49,7 @@ const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate }) => {
   const multiSources = config.MULTI_SOURCES_ENABLED === true
   const [followBrowserLanguage, setFollowBrowserLanguage] = useState(isFollowingBrowserLanguage)
 
-  const getLanguageDisplayName = (lang) => {
-    let displayName = lang;
-    try {
-      const baseLang = lang.split('-')[0];
-      const lookupLang = lang.startsWith('zh') ? lang : baseLang;
-      displayName = new Intl.DisplayNames([lang], { type: 'language' }).of(lookupLang);
-      displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
-    } catch {
-      return lang;
-    }
-    return displayName;
-  };
+  const getLanguageDisplayName = lang => LANGUAGE_NAMES[lang] || lang;
 
   const currentLang = i18n.resolvedLanguage || i18n.language || 'en';
   const selectedLanguage = followBrowserLanguage ? FOLLOW_BROWSER_LANGUAGE : currentLang;

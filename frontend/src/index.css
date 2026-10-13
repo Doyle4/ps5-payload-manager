@@ -1,3 +1,4 @@
+@import "./assets/emoji/sprites.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -524,20 +525,3 @@ button:focus .animate-marquee,
   font-style: italic;
   color: #e4e4e7;
 }
-
-/* Images */
-.markdown-body img {
-  max-width: 100%;
-  height: auto;
-  box-sizing: border-box;
-}
-
-/* Twemoji inline emojis */
-.markdown-body img.emoji {
-  display: inline-block;
-  height: 1.25em;
-  width: 1.25em;
-  margin: 0 0.15em;
-  vertical-align: -0.22em;
-}
-

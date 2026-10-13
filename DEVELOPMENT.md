@@ -209,9 +209,10 @@ history from newly arriving messages. Payload-card action and reorder buttons
 are siblings, avoiding nested interactive buttons.
 
 `npm run build` now requires zero-warning lint and all Node tests through
-`prebuild`; CI uses that gate and both actual-component Chrome suites.
-`cd frontend && npm run test:browser` runs reload retention plus the broader
-StrictMode/lifecycle regression. The runner's `--lifecycle-baseline` reproduces
+`prebuild`; CI uses that gate and the actual-component Chrome checks.
+`cd frontend && npm run test:browser` runs reload retention, the broader
+StrictMode/lifecycle regression, and real-DOM markdown/offline/locale checks.
+The runner's `--lifecycle-baseline` reproduces
 the previous editor's unhandled rejected save using the committed source.
 
 Collected arrays are limited to **4,096 items** and **64 MiB** of allocated array
@@ -253,10 +254,42 @@ build a candidate under `scratch/` rather than run `make clean`:
 ```bash
 mkdir -p scratch
 docker run --rm --network=none -v "$(pwd):/src" -w /src \
-  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-candidate.elf
+  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-step8b-emoji-compact.elf
 ```
 
 This command assumes the SDK image, frontend distribution, and embedded CA
 header already exist. For a new checkout, follow the normal build setup first.
 The ELF target currently does not track ordinary header dependencies; use a new
 candidate filename or force the ELF target to rebuild after header-only edits.
+
+Markdown emoji use bundled Twemoji PNG sprites. The 3,838 assets share one
+20px-tile image embedded in the single HTML file; no CDN or external emoji
+requests occur. A postbuild check verifies the PNG is embedded exactly once,
+attribution remains and the old Twemoji CDN URL is absent. Source/license/attribution and optional regeneration instructions
+are in `frontend/src/assets/emoji/README.md`; builds need no asset download.
+Native Unicode emoji can render as missing glyph boxes on PS5, so Unicode is
+kept as the safe text fallback when DOM sanitization is unavailable.
+
+DOMPurify first removes untrusted media, classes/styles, forms and scripts while
+retaining links/code/tables/headings. Sanitized text nodes produce sprite spans;
+a second pass sanitizes the final HTML, including those trusted classes and
+accessibility attributes. Loaded notes and browser-cached README responses remain
+readable without WAN; this does not add persistent caching or offline uncached
+downloads.
+
+All shipped locales are registered, including Dutch. Active-key coverage,
+interpolation/React markup, and locale cardinal forms are mandatory Node checks.
+Native language names work without Intl.DisplayNames; a scoped i18next cardinal
+fallback supports older WebKit without Intl.PluralRules. Locale completeness is
+not measured by requiring every value to differ from English.
+
+The actual markdown/locale browser check can also be run separately:
+
+```bash
+node tests/run_markdown_locale_browser_tests.mjs
+node tests/run_markdown_locale_browser_tests.mjs --baseline
+```
+
+The baseline uses the previous committed renderer without modifying source files,
+reproducing the CDN dependency and unavailable-DOM raw HTML fallback. The test
+blocks external requests; it runs against a local Vite fixture and Chrome.
