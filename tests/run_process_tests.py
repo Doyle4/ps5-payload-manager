@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='pldmgr-process-') as temp:
     (build / 'sys').mkdir()
     # Measured with the PS5 target compiler. Production asserts these same
     # offsets against the actual SDK; this shim only supplies host types.
-    (build / 'sys/proc.h').write_text('#include <stdint.h>\n#define PAGE_SIZE 16384\n')
+    (build / 'sys/proc.h').write_text('#include <stdint.h>\n')
     (build / 'sys/user.h').write_text((ROOT / 'tests/process_sdk_stub.h').read_text())
     (build / 'sys/sysctl.h').write_text('''#include <stddef.h>
 #define CTL_KERN 1

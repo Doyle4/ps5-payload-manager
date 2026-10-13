@@ -5,6 +5,12 @@
 #endif
 #include <stdint.h>
 #include <sys/types.h>
+/* Linux x86 sys/user.h defines its own 4 KiB PAGE_SIZE. Restore the
+ * PS5's 16 KiB pages after including host headers for sanitizer support. */
+#ifdef PAGE_SIZE
+#undef PAGE_SIZE
+#endif
+#define PAGE_SIZE 16384
 /* Measured PS5 target SDK layout, not the host operating system's ABI.
  * Production static assertions check these offsets against the real SDK. */
 struct kinfo_proc {

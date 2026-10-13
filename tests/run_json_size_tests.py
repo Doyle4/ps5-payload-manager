@@ -34,7 +34,7 @@ def main():
         (build / "sys").mkdir()
         (build / "sys/proc.h").write_text("")
         (build / "sys/user.h").write_text((ROOT / "tests/process_sdk_stub.h").read_text())
-        (build / "sys/sysctl.h").write_text("#include <stddef.h>\n#define CTL_KERN 1\n#define KERN_PROC 2\n#define KERN_PROC_PROC 3\n#define PAGE_SIZE 4096\nint sysctl(const int *, unsigned, void *, size_t *, const void *, size_t);\n")
+        (build / "sys/sysctl.h").write_text("#include <stddef.h>\n#define CTL_KERN 1\n#define KERN_PROC 2\n#define KERN_PROC_PROC 3\nint sysctl(const int *, unsigned, void *, size_t *, const void *, size_t);\n")
         (build / "kernel.c").write_text('''#include <string.h>
 #include <stdlib.h>
 #include <sys/user.h>
