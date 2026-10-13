@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Database,
   RefreshCw,
+  Globe,
   Package,
   Heart,
   Menu,
@@ -32,6 +33,8 @@ import Toast from './components/ui/Toast'
 import Modal from './components/ui/Modal'
 import NavButton from './components/ui/NavButton'
 import PayloadButton from './components/ui/PayloadButton'
+import PayloadIcon from './components/ui/PayloadIcon'
+import PayloadName from './components/ui/PayloadName'
 import LogoIcon from './components/ui/LogoIcon'
 import ErrorBoundary from './components/ui/ErrorBoundary'
 
@@ -103,7 +106,7 @@ function App() {
   const [config, setConfig] = useState({})
   const [ip, setIp] = useState('0.0.0.0')
   const [loading, setLoading] = useState(false)
-  const [activeLoadingName, setActiveLoadingName] = useState('')
+  const [activeLoadingPayload, setActiveLoadingPayload] = useState(null)
   const [launchHistory, setLaunchHistory] = useState([])
   const [toasts, setToasts] = useState([])
   const [loadingPayloads, setLoadingPayloads] = useState(true)
@@ -417,11 +420,11 @@ function App() {
     window.location.reload()
   }
 
-  const loadPayload = async (slotOrPath, customName) => {
+  const loadPayload = async (slotOrPath, presentation = {}) => {
     if (!slotOrPath) return
-    const name = customName || slotOrPath.split('/').pop().replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')
+    const name = presentation.name || slotOrPath.split('/').pop().replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')
     setLoading(true)
-    setActiveLoadingName(name)
+    setActiveLoadingPayload({ ...presentation, key: slotOrPath, name, path: presentation.path || slotOrPath })
     try {
       const safeParam = encodeURI(slotOrPath)
       const res = await mutationFetch(`/loadpayload:${safeParam}`)
@@ -433,7 +436,7 @@ function App() {
     }
     setTimeout(() => {
       setLoading(false)
-      setActiveLoadingName('')
+      setActiveLoadingPayload(null)
     }, 1500)
   }
 
@@ -898,6 +901,7 @@ function App() {
               let author = null
               let icon = null
               let sourceName = null
+              let repositoryName = null
 
               if (isUsb) {
                 const parsed = parsePayloadName(itemObj.filename)
@@ -914,8 +918,9 @@ function App() {
                 version = itemObj.version || repoMeta?.version || null
                 author = repoMeta?.author || itemObj.author || null
                 icon = repoMeta?.icon || null
+                repositoryName = itemObj.source_name || repoMeta?.source_name || null
                 if (itemObj.hasDuplicateId || config.MULTI_SOURCES_ENABLED) {
-                  sourceName = itemObj.source_name || repoMeta?.source_name || null
+                  sourceName = repositoryName
                 }
               }
 
@@ -935,10 +940,13 @@ function App() {
                       return
                     }
                     if (isFavoriteEditMode) toggleFavorite(itemObj.key)
-                    else loadPayload(itemObj.isUsb ? itemObj.path : (itemObj.slot || slotOrKey), displayName)
+                    else loadPayload(itemObj.isUsb ? itemObj.path : (itemObj.slot || slotOrKey), {
+                      name: displayName, path: pathProp, version, icon,
+                      sourceName: repositoryName || sourceName,
+                    })
                   }}
                   onDelete={() => handleDelete(itemObj.slot || slotOrKey, displayName)}
-                  isLoading={loading && activeLoadingName === (displayName || '').replace(/\.(elf|bin)$/i, '').replace(/_/g, ' ')}
+                  isLoading={loading && activeLoadingPayload?.key === (itemObj.isUsb ? itemObj.path : (itemObj.slot || slotOrKey))}
                   sourceName={sourceName}
                   version={version}
                   icon={icon}
@@ -1137,11 +1145,37 @@ function App() {
       </div>
 
       {loading && (
-        <div className="fixed inset-0 bg-ps-black/95 z-[9999] flex flex-col items-center justify-center space-y-12">
-          <div className="ps5-robust-spinner" />
-          <div className="text-center">
-            <h4 className="text-4xl font-extrabold text-white tracking-tight mb-4 uppercase italic">{activeLoadingName || t("app.loading.title", "Launching...")}</h4>
-            <p className="label-caps !text-ps-blue tracking-[0.3em] font-black">{t("app.loading.subtitle", "LAUNCHING PAYLOAD...")}</p>
+        <div className="fixed inset-0 bg-ps-black/95 z-[9999] flex flex-col items-center justify-center px-6 py-10" role="status" aria-live="polite">
+          <div className="w-full max-w-xl flex flex-col items-center text-center space-y-6">
+            <PayloadIcon
+              icon={activeLoadingPayload?.icon}
+              name={activeLoadingPayload?.path?.split('/').pop() || activeLoadingPayload?.name}
+              className="w-24 h-24 md:w-28 md:h-28 text-4xl shadow-lg"
+            />
+            <div className="w-full space-y-4">
+              <PayloadName
+                path={activeLoadingPayload?.path}
+                displayName={activeLoadingPayload?.name || t("app.loading.title", "Launching...")}
+                version={activeLoadingPayload?.version}
+                hideVersion hideIcon centered
+                className="text-white text-2xl md:text-4xl leading-snug"
+              />
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {activeLoadingPayload?.version && (
+                  <span className="text-sm text-zinc-400 font-bold bg-white/10 px-3 py-1 rounded-lg">
+                    {activeLoadingPayload.version}
+                  </span>
+                )}
+                {activeLoadingPayload?.sourceName && (
+                  <span className="inline-flex items-center gap-2 text-sm text-zinc-400 font-medium bg-white/10 px-3 py-1 rounded-lg max-w-full">
+                    <Globe className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{activeLoadingPayload.sourceName}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="ps5-robust-spinner !w-10 !h-10 !border-4" />
+            <p className="text-sm text-ps-blue font-medium tracking-wide">{t("app.loading.subtitle", "LAUNCHING PAYLOAD...")}</p>
           </div>
         </div>
       )}
