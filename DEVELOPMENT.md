@@ -13,20 +13,36 @@ make frontend-build
 ### 2. Build the SDK Docker Image
 If you haven't already, build the SDK environment:
 ```bash
-docker build -t ps5-payload-sdk -f Dockerfile.sdk .
+docker build -t ps5-payload-sdk-pldmgr -f Dockerfile.sdk .
 ```
 
 ### 3. Build the ELF
-Use the Docker container to compile the Payload Manager. It is recommended to run `make clean` if you updated the frontend.
+Use the SDK container after building the frontend. Preserve your working ELF
+and build a candidate at a new path; this regenerates changed embedded assets
+without deleting previous candidates.
 ```bash
-docker run --rm -v $(pwd):/src -w /src ps5-payload-sdk make clean all
+mkdir -p scratch
+docker run --rm --network=none -v "$(pwd):/src" -w /src \
+  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-candidate.elf
 ```
 
-The resulting `pldmgr.elf` will be created in the root directory.
+The resulting candidate is `scratch/pldmgr-candidate.elf`. The SDK image and
+embedded CA header must already exist for this offline compilation. The ELF
+target does not track ordinary header dependencies; use a fresh candidate name
+when changing headers alone. A normal release build with `make all` produces
+`pldmgr.elf` at the repository root.
 
 ## Automated Deploy
 
-For a quick build & deploy cycle, use the `deploy.sh` script. It will automatically call `/shutdown` on the PS5, run the docker build, and send the new ELF via `socat`.
+For a build-and-send cycle, `deploy.sh` builds the frontend, runs
+`make clean all` in the existing `ps5-payload-sdk-pldmgr` image, and sends the
+root `pldmgr.elf` to port 9021 using `socat`. It does **not** call `/shutdown`,
+build the SDK image, or verify successful startup on the console. If replacing a
+running instance, stop it explicitly with an authorized POST first; keep a
+working ELF outside the root output path because the script cleans that output.
+That clean also removes the embedded CA header, whose regeneration downloads the
+CA bundle; use the candidate build above with an existing header for offline
+compilation.
 
 ```bash
 ./deploy.sh [PS5_IP]
@@ -34,7 +50,8 @@ For a quick build & deploy cycle, use the `deploy.sh` script. It will automatica
 (Requires PS5 IP as the first argument).
 
 ## Manual Deploy
-1. Upload `pldmgr.elf` to your PS5 (e.g., via port 9021).
+1. Load the built ELF using your autoloader, or send it to a separate running
+   ELF loader on port 9021. Payload Manager does not provide that loader itself.
 2. The menu will be available at `http://[PS5_IP]:8084`.
 
 ## Automated Verification
@@ -84,15 +101,14 @@ UTF-8-safe prefixes. The backend suite uses real repository, source save/load,
 and slot metadata read/write code inside temporary storage. It parses their
 results independently with Python. Unused network/PS5 code is discarded at
 link time, and no download or payload launch occurs. `make test-host` runs all
-eight host suites with sanitizers.
+host helper suites and actual-HTTP scenarios listed in the Makefile, with sanitizers.
 
 The serializer suite exercises actual history/log/payload/process/repository
 output at small and large capacities, sixfold escape expansion, failed format
 calls, and metadata/source preservation on serialization failure. Repository
 fixtures use fresh temporary caches and a recording download function that
 aborts if called. Process records use a host fixture; this checks serialization,
-not the PS5 kernel ABI. The existing unused SSE `pos` parameter produces a host
-`-Wextra` warning; the native build has no new warnings.
+not the PS5 kernel ABI. Current native builds pass without warnings.
 
 The allocation suite executes actual repository parsing, managed-slot discovery,
 cached-source serialization, and all USB discovery branches. It faults every
@@ -254,7 +270,7 @@ build a candidate under `scratch/` rather than run `make clean`:
 ```bash
 mkdir -p scratch
 docker run --rm --network=none -v "$(pwd):/src" -w /src \
-  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-step8b-emoji-compact.elf
+  ps5-payload-sdk-pldmgr make ELF=scratch/pldmgr-candidate.elf
 ```
 
 This command assumes the SDK image, frontend distribution, and embedded CA
@@ -293,3 +309,47 @@ node tests/run_markdown_locale_browser_tests.mjs --baseline
 The baseline uses the previous committed renderer without modifying source files,
 reproducing the CDN dependency and unavailable-DOM raw HTML fallback. The test
 blocks external requests; it runs against a local Vite fixture and Chrome.
+
+## HTTP Access Contract
+
+The native daemon serves the UI/API on HTTP port **8084**. It sends approved
+payloads to a separate ELF loader on port **9021**; it does not provide that
+loader or a login/pairing service. The mock API uses loopback **8081**, and Vite
+normally uses **5173** with its same-origin proxy.
+
+| Request class | Method and behavior |
+| --- | --- |
+| Read APIs | GET: `/list_payloads`, `/get_config`, `/processes_list`, `/history_list`, `/repository_payloads`, `/sources_list`, `/autoload_status`, `/log`, `/events`, `/version`, `/getip`, `/manage:check`, `/usb_move_check`. Ordinary repository reads may refresh their cache. Anonymous/foreign autoload status reads do not signal frontend readiness. |
+| Explicit mutations | POST: `/manage:upload`, `/manage:delete`, `/loadpayload:<slot-or-path>`, `/set_config`, `/abort`, `/autoload_clear`, `/repository_refresh`, `/repository_install`, `/sources_set`, `/sources_add`, `/sources_remove`, `/usb_move_perform`, `/process_kill`, `/shutdown`. GET does not perform these actions. |
+| Preflight | OPTIONS is validated against the requesting origin, route/method and supported headers. Foreign origins do not gain mutation access. |
+| Removed updater compatibility | GET `/update_check` returns `{"status":"none"}`. It does not check, download or apply updates. |
+
+A mutation requires an Origin matching the HTTP Host, including port; when
+Origin is absent, a matching Referer suffices. Only when **both** are absent can
+`X-PLDMGR-Request: 1` authorize it. An explicit foreign Origin or Referer is not
+overridden by that marker, and `Sec-Fetch-Site: cross-site` is rejected. Thus an
+older same-origin browser window can still make a valid POST without the marker.
+The frontend helper supplies the marker for normal actions; same-origin exit
+beacons can use the Origin/Referer path.
+
+These are browser CSRF checks, not a secret credential, LAN authentication or
+DNS-rebinding protection. A terminal script/direct LAN application can provide
+its own headers and perform actions. Read responses are not access-controlled
+by a login either. Use a trusted local network; pairing/authentication remains
+separate feature work. Do not bypass rejected HTTPS certificate checks or add
+wildcard CORS to native mutations as a workaround.
+
+Configuration and lists live in `/data/pldmgr/`: `pldmgr_config.txt`,
+`autoload.txt`, `favorites.txt`, `sources.json` and repository caches. Managed
+payloads use `/data/pldmgr/payloads/repo/` and `/data/pldmgr/payloads/local/` slots.
+USB libraries include `/mnt/usb0/pldmgr` through `/mnt/usb7/pldmgr`; optional root
+USB scanning adds `.elf`/`.bin` files on those drives. Launches require supported
+regular files within canonical approved roots, and block the manager itself.
+Imported/repository slot data is published with staging/recovery; configuration
+remaps and multi-file settings updates have the limits described above.
+
+## Hardware Verification
+
+Automated host/browser checks use stubs and local transports. They do not prove
+PS5 kernel ABI, native TLS behavior, fonts/layout, rest/resume or the external
+loader. Verify these on the target console after runtime changes.

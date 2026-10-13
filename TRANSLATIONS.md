@@ -2,7 +2,27 @@
 
 PS5 Payload Manager supports multiple languages to provide an accessible and intuitive experience for users worldwide.
 
-Starting with **version 0.6.0**, new strings and translations are generated and maintained using **Google Gemini AI**.
+Translation files live in `frontend/src/locales/`. Some strings have been
+prepared with AI assistance; community corrections remain welcome. Structural
+checks do not certify that wording is natural or correct. All 17 bundled locales
+are available, including Dutch; there is no percentage-based language-hiding rule.
+
+## Maintaining Translations
+
+Use stable keys from the active UI and preserve `{{interpolation}}` placeholders
+and React translation markup such as `<1>...</1>` or `<strong>...</strong>`.
+Provide each language's cardinal forms (`_one`, `_few`, `_many`, `_other`, etc.)
+for count labels. Product names and technical terms can legitimately match English.
+Removed features such as self-update and Disc Player auto-close must not regain
+translation keys.
+
+From `frontend/`, `npm run extract` updates the **English** catalog only. Review
+its diff before keeping it, especially dynamic categories and plural entries;
+it does not translate other locales. Update those locales explicitly, then run
+`npm test` and `npm run build`. The locale suite checks active source-key coverage,
+placeholders, markup, required plural forms and obsolete entries. Browser checks
+include Dutch selection, reload persistence, fallback and representative locales.
+Native-speaker wording review and console layout testing remain useful.
 
 ---
 

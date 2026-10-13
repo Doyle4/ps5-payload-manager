@@ -11,10 +11,12 @@ A modern, web-based dashboard to easily manage, import, and automatically load p
 
 ## Usage
 
-1. Add this repository as a source in Payload Manager.
-2. Open the app shop and find the payload.
-3. Tap **Install** (or **Update** if a newer version exists).
+Load Payload Manager with your autoloader or standalone ELF loader. To update,
+replace the manager ELF through that workflow. The current manager filters itself
+from the app shop and blocks self-install/self-launch; there is no in-app updater.
 
 ## Notes
 
-This is a generated test README served by the local `details/` folder for development. Images referenced here must use absolute URLs.
+This is a generated development fixture served by the local `details/` folder.
+Its version/date above are sample metadata, not the running daemon version.
+Markdown images are excluded by the renderer even when their URLs are absolute.

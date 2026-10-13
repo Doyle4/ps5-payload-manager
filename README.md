@@ -15,7 +15,8 @@
 - **Import Payloads**: Easily add new payloads from a USB drive or download them from the cloud repository.
 - **Automated Startup**: Set up a list of payloads to load automatically whenever you start the manager.
 - **Home Screen Shortcut**: Installs a dedicated "Payload Manager" app icon to your PS5 home screen for quick access.
-- **Auto-Close Disc Player**: Optional setting to automatically close the Disc Player on startup (useful for BD-JB users).
+- **Favorites and Process Management**: Keep favorite payloads at hand, inspect active processes, and terminate eligible processes.
+- **Offline Emoji**: Bundled emoji artwork keeps release notes and loaded README content readable without CDN access. Uncached remote README files still need connectivity.
 
 
 ## Installation
@@ -37,12 +38,30 @@ You can also manually load the manager like any other `.elf` file. Grab the late
 ## Custom Repositories
 You can add third-party payload repositories to the manager. To learn how to create your own repository JSON and host it, see the [Custom Repositories Guide](CUSTOM_REPOSITORIES.md).
 
+## Access and Updates
+
+The dashboard runs at `http://[PS5_IP]:8084`; a separate ELF loader on port
+`9021` receives payloads. Settings, lists, repository caches and managed payloads
+live under `/data/pldmgr`. USB payloads can also run in place; import them to
+internal storage for autoload.
+
+Use the manager on a trusted local network. Browser-origin checks protect
+actions from foreign websites, but there is no login or pairing: a direct LAN
+client can still upload, launch and manage payloads. The full
+[HTTP contract](DEVELOPMENT.md#http-access-contract) explains the boundary.
+
+Update Payload Manager by replacing/loading its ELF through your autoloader or
+standalone loader. In-app self-update was deliberately removed; the manager
+cannot install or launch another copy of itself. Disc Player auto-close is also
+absent from the current settings.
+
 ## Translations
 PS5 Payload Manager supports multiple languages. For the list of supported languages, how to report translation issues or suggest improvements, and past community translators, see [TRANSLATIONS.md](TRANSLATIONS.md).
 
 ## Credits
 - [John Törnblom](https://github.com/john-tornblom) - for the [shell UI installer](https://github.com/ps5-payload-dev/ftpsrv/blob/master/install-ps5.c) and various payloads used as reference.
-- [BenNoxXD](https://github.com/BenNoxXD) - for the [Disc Player App termination logic](https://github.com/BenNoxXD/PS5-BDJ-HEN-loader/blob/main/HENloader_C_part/src/kill_disc_player.c).
+- [BenNoxXD](https://github.com/BenNoxXD) - for the [Disc Player termination logic](https://github.com/BenNoxXD/PS5-BDJ-HEN-loader/blob/main/HENloader_C_part/src/kill_disc_player.c) used in earlier versions.
+- Twitter, Inc. and contributors - for the bundled Twemoji artwork; [source, license and modifications](frontend/src/assets/emoji/README.md).
 - [owendswang](https://github.com/owendswang) - for [contributions](https://github.com/itsPLK/ps5-payload-manager/commits/main/?author=owendswang)
 - Everyone else contributing to the PS5 homebrew scene.
 

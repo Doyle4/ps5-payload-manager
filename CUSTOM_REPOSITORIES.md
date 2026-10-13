@@ -12,7 +12,7 @@ To create a repository, you must host a JSON file that conforms to the following
 1. Both formats are supported:
    - Object wrapper with top-level `"name"` and `"payloads"` array (recommended).
    - Bare array of payload objects `[ { ... }, { ... } ]`.
-2. When using the object wrapper, the `"name"` field **must appear before** the `"payloads"` field in the JSON structure.
+2. In the object wrapper, `"name"` is recommended for a readable catalog label. Field order does not matter; if the label is absent/empty, the source host is used.
 3. The `"payloads"` field must be an array of payload objects.
 
 ### Example JSON:
@@ -49,7 +49,7 @@ To create a repository, you must host a JSON file that conforms to the following
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| **`name`** (top-level) | String | Yes | The display name of your repository catalog in the user interface (e.g. `"My Custom Payloads"`). |
+| **`name`** (top-level) | String | Recommended | The display name of your repository catalog in the user interface (e.g. `"My Custom Payloads"`). |
 | **`payloads`** (top-level) | Array | Yes | List of payload items available in this repository. |
 | **`id`** (item-level) | String | Recommended | Stable identifier, unique within the repository, unchanged across versions (`[a-z0-9._-]`). Defaults to `slug(name)`. Stable IDs allow slots to maintain favorites and autoload entries across updates. |
 | **`name`** (item-level) | String | Yes | Human-readable name of the specific payload. |
@@ -59,11 +59,11 @@ To create a repository, you must host a JSON file that conforms to the following
 | **`last_update`** (item-level) | String | No | ISO 8601 date (e.g. `"2026-10-11"`). Serves as a tie-breaker when version strings compare equal. |
 | **`description`** (item-level) | String | No | A description of what the payload does, displayed in the dashboard. |
 | **`category`** (item-level) | String | No | The category name used to group payloads in the frontend (e.g. `"Networking"`). Defaults to `"Uncategorized"`. |
-| **`checksum`** (item-level) | String | No | **SHA-256** hash (64 hex characters) of the file. If provided, the manager automatically validates the downloaded file against it before installation. If versions are identical but checksum differs, it is flagged as an update. |
+| **`checksum`** (item-level) | String | No | **SHA-256** hash: exactly 64 hexadecimal characters when nonempty. Missing/empty remains optional; malformed supplied values reject the entry. Every download attempt, including retries, is checked when a hash is supplied. If versions are identical but checksum differs, it is flagged as an update. |
 | **`author`** (item-level) | String | No | Author or creator of the payload. |
 | **`icon`** (item-level) | String | No | Inline base64 data URI icon (e.g. `data:image/svg+xml;base64,...` or `data:image/png;base64,...`). See [Payload Icons](#payload-icons) below. |
 | **`details_url`** (item-level) | String | No | URL to documentation or README markdown for the payload. |
-| **`release_notes`** (item-level) | String | No | Markdown release notes for this version (truncated at 2000 characters by backend). |
+| **`release_notes`** (item-level) | String | No | Markdown release notes for this version. The backend field holds up to 2047 UTF-8 bytes, with UTF-8-safe truncation and an ellipsis when exceeded. This is a byte budget, not 2000 Unicode characters. |
 | **`source`** (item-level) | String | No | Link to the upstream source repository or releases page. |
 
 ---
@@ -94,10 +94,38 @@ Payload Manager implements a strict version comparison algorithm:
 ## Hosting Your Repository
 
 1. **Accessibility**: Upload your JSON file and your payload binaries to any static hosting provider (e.g., GitHub Pages, Vercel, Netlify, or your own VPS). The PS5 must be able to resolve and reach the host IP.
-2. **CORS Headers**: To ensure that the web interface can interact with the files from the browser, your server should respond with CORS headers:
+2. **CORS Headers**: Catalog and binary downloads happen in the PS5 daemon and do not require browser CORS. The frontend fetches README/details content directly, so that content's host must allow cross-origin browser GETs when it is on another origin. For public documentation, for example:
    ```http
    Access-Control-Allow-Origin: *
    ```
+
+## Integrity, Storage and Markdown
+
+HTTP and HTTPS custom sources remain supported. HTTPS validates the certificate
+and hostname and permits only HTTPS redirects; certificate failures do not retry
+with verification disabled. A supplied hash checks file integrity, not the
+identity or safety of its author: a manifest publisher controls both the binary
+URL and its hash. Use sources you trust; mandatory hashes or LAN authentication
+are separate policies that are not enabled here.
+
+Catalog downloads are bounded at 16 MiB; payload downloads at 512 MiB.
+Collections also have 4,096-item and 64 MiB allocation limits. Required string
+fields must fit their backend buffers. A failed/over-limit serialized response
+returns an error instead of a broken partial JSON document.
+
+Managed installations use slots under `/data/pldmgr/payloads/repo/`;
+uploads/USB imports use `/data/pldmgr/payloads/local/`. Payload and metadata
+publication uses staging/recovery so a failed install does not silently replace
+a valid previous version. Favorites/autoload use stable slot keys. The manager
+filters its own payload from listings and blocks self-install/self-launch;
+replace its ELF via the autoloader or standalone loader to update it.
+
+README and release-note markdown preserves safe links, code, headings and tables
+through DOM sanitization. Arbitrary images, remote media, styles and scripts are
+excluded even if they use absolute URLs. Emoji use bundled local artwork.
+Loaded content and browser-cached README responses can remain readable without
+WAN; uncached remote documentation still requires a connection. Repository icons
+are a separate data-URI feature, not an exception for raw markdown images.
 
 ---
 
