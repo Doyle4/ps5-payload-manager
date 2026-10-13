@@ -25,7 +25,10 @@ const fixtureItems = [
   { slot: 'local/kept-a', filename: 'a.elf', name: 'A', kind: 'local' },
   { slot: 'local/kept-b', filename: 'b.elf', name: 'B', kind: 'local' },
   { slot: 'local/next', filename: 'next.elf', name: 'Next', kind: 'local' },
+  { slot: 'repo/demo@bbabc123', id: 'demo', filename: 'demo.elf', kind: 'repo', version: '1.2', source_url: 'https://mirror.invalid/payloads.json' },
 ]
+const pendingReadmes = [], deletedSlots = []
+let readmeText = null
 const html = `<!doctype html><html><body><div id="root"></div><script type="module" src="/tests/${lifecycle ? 'frontendLifecycle' : 'autoloadEditor'}.browser.jsx"></script></body></html>`
 const vite = await createServer({ root: frontend, configFile: join(frontend, 'vite.config.js'),
   server: { host: '127.0.0.1', port: 0 }, plugins: [{ name: 'autoload-editor-fixture', enforce: 'pre',
@@ -49,6 +52,17 @@ const vite = await createServer({ root: frontend, configFile: join(frontend, 'vi
       }
       if (lifecycle) {
         const json = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)) }
+        if (req.url === '/__payload_readme') {
+          if (readmeText === null) pendingReadmes.push(res); else res.end(readmeText)
+          return
+        }
+        if (req.url.startsWith('/manage:delete?')) {
+          assert.equal(req.method, 'POST'); assert.equal(req.headers['x-pldmgr-request'], '1')
+          const slot = new URL(req.url, 'http://fixture').searchParams.get('slot')
+          deletedSlots.push(slot)
+          const index = fixtureItems.findIndex(item => item.slot === slot)
+          assert.ok(index >= 0); fixtureItems.splice(index, 1); json({ ok: true }); return
+        }
         if (req.url === '/processes_list') { pendingProcesses.push(res); return }
         if (req.url === '/autoload_status') {
           if (holdStatus) pendingStatuses.push(res); else json({ remaining: -1, state: 'disabled' }); return
@@ -63,7 +77,7 @@ const vite = await createServer({ root: frontend, configFile: join(frontend, 'vi
         if (req.url === '/history_list') { json({ history: [] }); return }
         if (req.url === '/repository_payloads') {
           json({ sources: [{ id: 'demo', name: 'Demo Repository', url: 'https://mirror.invalid/payloads.json', icons_revision: 'demo-r1',
-            payloads: [{ id: 'demo', name: 'Example Payload', filename: 'demo.elf', version: '1.2', author: 'Example Author', icon_key: 'demo' }] }] }); return
+            payloads: [{ id: 'demo', name: 'Example Payload', filename: 'demo.elf', version: '1.2', author: 'Example Author', icon_key: 'demo', details_url: `http://${req.headers.host}/__payload_readme` }] }] }); return
         }
         if (req.url.startsWith('/repository_icons?')) {
           if (holdIcons) pendingIcons.push(res); else json(iconCatalog)
@@ -354,6 +368,36 @@ try {
       for (const res of pendingAppConfigs) res.end(JSON.stringify({ ...stored, FAVORITES: 'local/kept-a,local/next,local/kept-b', FAVORITES_INITIALIZED: true }))
       holdAppConfig = false; await wait(100)
       assert.equal(await evaluate(`localStorage.getItem('favoritePayloads')`), '["local/kept-a","local/next"]', 'stale config response replaced newer favorite edits')
+
+      // Actual App details: wide README content stays inside its own scrollers; removal uses the installed slot.
+      await clickText('Get Payloads')
+      await eventually(() => evaluate(`!!document.querySelector('#cloud-repository')`), 'repository did not open')
+      await evaluate(`Array.from(document.querySelectorAll('#cloud-repository button')).find(b => b.textContent.includes('Example Payload')).click()`)
+      await eventually(() => pendingReadmes.length > 0, 'details README request did not start')
+      assert.equal(await hasButton('Remove Payload'), true)
+      assert.equal(await hasButton('Reinstall'), false)
+      await rpc('Emulation.setDeviceMetricsOverride', { width: 900, height: 800, deviceScaleFactor: 1, mobile: false }, sessionId)
+      await wait(50)
+      assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), true, 'details overflowed before README')
+      const readme = '# Wide README\n\n```\n' + 'long_code_line_'.repeat(200) + '\n```\n\n| Name | Value |\n| --- | --- |\n| ' + 'wide_table_cell_'.repeat(100) + ' | content |'
+      readmeText = readme
+      for (const response of pendingReadmes.splice(0)) response.end(readme)
+      await eventually(() => evaluate(`document.body.textContent.includes('Wide README')`), 'README did not render')
+      for (const width of [900, 768, 390]) {
+        await rpc('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: false }, sessionId)
+        await wait(50)
+        assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth && document.querySelector('main').scrollWidth <= document.querySelector('main').clientWidth`), true, `README widened the page at ${width}px`)
+        assert.equal(await evaluate(`document.querySelector('.markdown-body pre').scrollWidth > document.querySelector('.markdown-body pre').clientWidth`), true, 'wide code should scroll within the README')
+      }
+      await clickText('Remove Payload')
+      await eventually(() => evaluate(`document.body.textContent.includes('Are you sure you want to remove Example Payload?')`), 'remove did not request confirmation')
+      assert.equal(deletedSlots.length, 0, 'remove ran before confirmation')
+      await clickText('Confirm')
+      await eventually(() => deletedSlots.length === 1, 'confirmed removal did not reach the server')
+      assert.equal(deletedSlots[0], 'repo/demo@bbabc123')
+      await eventually(() => hasButton('Install'), 'details did not update after removal')
+      assert.equal(await hasButton('Remove Payload'), false)
+      await rpc('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false }, sessionId)
       const statusCount = await evaluate(`window.__fetchRequests.filter(url => url === '/autoload_status').length`)
       await evaluate(`window.editor.mount(false)`)
       for (const res of pendingStatuses) if (!res.destroyed) res.end(JSON.stringify({ remaining: 5, state: 'countdown' }))

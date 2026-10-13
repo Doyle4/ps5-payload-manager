@@ -848,11 +848,11 @@ function App() {
 
       {/* MAIN CONTENT AREA */}
       <div className={cn(
-        "flex flex-col relative",
+        "flex flex-col relative min-w-0",
         isPS5 ? "h-screen flex-1 min-h-0" : "md:h-screen md:flex-1 md:min-h-0"
       )}>
         <main ref={mainRef} className={cn(
-          "custom-scrollbar max-w-[1800px] mx-auto w-full flex flex-col",
+          "custom-scrollbar max-w-[1800px] mx-auto w-full min-w-0 flex flex-col",
           view === 'autoload'
             ? (isPS5
                 ? "pt-8 px-12 pb-6 flex-1 min-h-0 overflow-hidden"

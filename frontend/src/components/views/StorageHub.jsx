@@ -17,6 +17,7 @@ const StorageHub = ({
   self = null,
   payloads = [],
   onInstall,
+  onDelete,
   onUpload,
   onImportFromUsb,
   config,
@@ -258,6 +259,7 @@ const StorageHub = ({
           isInstalled={resolvedPayloadData.isInstalled}
           isUpdate={resolvedPayloadData.isUpdate}
           isInstalling={isDetailInstalling}
+          onDelete={onDelete}
           externalLinkUrl={externalLinkUrl}
           setExternalLinkUrl={setExternalLinkUrl}
           onClose={handleCloseDetail}

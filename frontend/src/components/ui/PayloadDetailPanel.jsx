@@ -9,7 +9,7 @@ import {
   ExternalLink,
   FileText,
   Sparkles,
-  RefreshCw,
+  Trash2,
   Globe,
 } from 'lucide-react';
 import { parseMarkdown } from '../../utils/markdown';
@@ -74,6 +74,7 @@ const PayloadDetailPanel = ({
   payload,
   onClose,
   onInstall,
+  onDelete,
   statusInfo,
   isInstalled,
   isUpdate,
@@ -94,6 +95,8 @@ const PayloadDetailPanel = ({
   const setLinkModalUrl = propSetExternalLinkUrl || setLocalLinkUrl;
 
   const repoUrl = getRepoUrl(payload);
+  const installedSlot = statusInfo?.installedSlot?.slot;
+  const canRemove = Boolean(isInstalled && installedSlot && onDelete);
 
   const handleMarkdownClick = (e) => {
     const link = e.target.closest('a');
@@ -278,7 +281,7 @@ const PayloadDetailPanel = ({
         </div>
 
         {/* Action Button: Compact, nicely proportioned */}
-        <div className="shrink-0 w-full sm:w-auto md:self-start pt-1">
+        <div className="shrink-0 w-full sm:w-auto md:self-start pt-1 flex flex-col gap-2">
           {(() => {
             const buttonAction = statusInfo ? statusInfo.buttonAction : (isUpdate ? 'update' : (isInstalled ? 'reinstall' : 'install'));
 
@@ -312,16 +315,7 @@ const PayloadDetailPanel = ({
             }
 
             if (buttonAction === 'reinstall') {
-              return (
-                <button
-                  type="button"
-                  onClick={() => onInstall(payload, srcId, srcUrl, statusInfo)}
-                  className="w-full sm:w-auto inline-flex items-center justify-center space-x-2.5 px-7 py-3.5 rounded-2xl font-extrabold text-base transition-all active:scale-95 shadow-lg bg-white/10 hover:bg-white/20 text-white border border-white/20"
-                >
-                  <RefreshCw className="w-5 h-5 shrink-0" />
-                  <span>{t("payload_detail.reinstall", "Reinstall")}</span>
-                </button>
-              );
+              return null;
             }
 
             if (buttonAction === 'install') {
@@ -337,7 +331,9 @@ const PayloadDetailPanel = ({
               );
             }
 
-            // Older version in repo -> show Installed state, no action button
+            if (canRemove) return null;
+
+            // The manager itself has no removable payload slot.
             return (
               <div className="w-full sm:w-auto inline-flex items-center justify-center space-x-2.5 px-7 py-3.5 rounded-2xl font-extrabold text-base bg-white/5 text-zinc-400 border border-white/10">
                 <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
@@ -345,6 +341,14 @@ const PayloadDetailPanel = ({
               </div>
             );
           })()}
+          {canRemove && (
+            <button type="button" disabled={isInstalling}
+              onClick={() => onDelete(installedSlot, payload.name || payload.filename)}
+              className="w-full sm:w-auto inline-flex items-center justify-center space-x-2.5 px-7 py-3.5 rounded-2xl font-extrabold text-base transition-colors bg-red-600/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 disabled:opacity-50 disabled:pointer-events-none">
+              <Trash2 className="w-5 h-5 shrink-0" />
+              <span>{t("app.dashboard.removePayload", "Remove Payload")}</span>
+            </button>
+          )}
         </div>
       </div>
 
