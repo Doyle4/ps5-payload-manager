@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile, mkdtemp, rm } from 'node:fs/promises'
+import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn, execFileSync } from 'node:child_process'
@@ -17,6 +17,9 @@ const keptList = 'local/kept-a,!1000,local/kept-b'
 let stored = { AUTOLOAD_ENABLED: true, AUTOLOAD_LIST: keptList }
 let pending = [], writes = []
 const pendingSaves = [], pendingProcesses = [], pendingStatuses = [], pendingAppConfigs = [], requests = []
+const pendingIcons = []
+let holdIcons = false
+const iconCatalog = { icons: { demo: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jrlsAAAAASUVORK5CYII=' } }
 let holdAppConfig = false, holdStatus = false
 const fixtureItems = [
   { slot: 'local/kept-a', filename: 'a.elf', name: 'A', kind: 'local' },
@@ -58,7 +61,14 @@ const vite = await createServer({ root: frontend, configFile: join(frontend, 'vi
         if (req.url === '/getip' || req.url === '/version') { res.end(req.url === '/getip' ? '127.0.0.1' : '0.5.2'); return }
         if (req.url === '/list_payloads') { json({ items: fixtureItems, payloads: fixtureItems.map(item => item.slot) }); return }
         if (req.url === '/history_list') { json({ history: [] }); return }
-        if (req.url === '/repository_payloads') { json({ sources: [] }); return }
+        if (req.url === '/repository_payloads') {
+          json({ sources: [{ id: 'demo', name: 'Demo Repository', url: 'https://mirror.invalid/payloads.json', icons_revision: 'demo-r1',
+            payloads: [{ id: 'demo', name: 'Example Payload', filename: 'demo.elf', version: '1.2', author: 'Example Author', icon_key: 'demo' }] }] }); return
+        }
+        if (req.url.startsWith('/repository_icons?')) {
+          if (holdIcons) pendingIcons.push(res); else json(iconCatalog)
+          return
+        }
         if (req.url.startsWith('/process_kill')) { json({ ok: true }); return }
       }
       next()
@@ -131,6 +141,15 @@ try {
       assert.equal(await hasButton('Retry'), false)
       console.log('Baseline 4fe3588: actual editor save rejection escapes its handler and has no retry control')
     } else {
+      // Sequence rows must leave navigation to their actual controls, skipping disabled moves.
+      await evaluate(`Array.from(document.querySelectorAll('button')).find(b => b.offsetParent !== null && b.textContent.trim() === 'Disable Autoload').focus()`)
+      for (const title of ['Move Down', 'Remove', 'Move Up']) {
+        await rpc('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }, sessionId)
+        await rpc('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }, sessionId)
+        assert.equal(await evaluate(`document.activeElement.tagName`), 'BUTTON')
+        assert.equal(await evaluate(`document.activeElement.title`), title, 'card intercepted control focus')
+        assert.equal(await evaluate(`(() => {const button=document.activeElement, r=button.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button')===button})()`), true, 'control was covered by another element')
+      }
       // Same-turn handlers must compose against the current draft, not a render snapshot.
       await evaluate(`const buttons = title => Array.from(document.querySelectorAll('button')).filter(b => b.title === title && b.offsetParent !== null);
         buttons('Move Down')[0].click(); buttons('Move Down')[0].click(); buttons('Remove')[2].click();`)
@@ -172,7 +191,24 @@ try {
       await eventually(() => hasButton('Disable Autoload'), 'remount lost editor')
 
       // Countdown phase transitions, zero delay and malformed progress must render finite SVG values.
-      await evaluate(`window.editor.show('overlay'); window.editor.status({state:'countdown',remaining:0,delay:0,list:'a,b',total:2,done:0})`)
+      holdIcons = true
+      await evaluate(`window.editor.itemsLoading(true); window.editor.show('overlay'); window.editor.status({state:'waiting',remaining:5,delay:5,list:'a,b',total:2,done:0})`)
+      await eventually(() => pendingIcons.length > 0, 'overlay icon fetch did not start')
+      await evaluate(`window.editor.status({state:'countdown',remaining:5,delay:5,list:'repo/demo@bbabc123,local/next',total:2,done:0})`)
+      await wait(50)
+      assert.equal(await evaluate(`document.querySelectorAll('[data-icon-pending]').length`), 2, 'pending metadata flashed fallback icons')
+      assert.equal(await evaluate(`document.querySelector('[data-payload-index="0"]').textContent.includes('demo')`), true)
+      assert.equal(await evaluate(`document.body.textContent.includes('@bbabc123')`), false, 'raw repository slot hash flashed before metadata arrived')
+      await evaluate(`window.editor.itemsLoading(false)`)
+      assert.equal(await evaluate(`!!document.querySelector('[data-payload-index="0"] .lucide-package')`), false)
+      assert.equal(await hasButton('Abort Autoload'), true, 'metadata fetch hid the abort control')
+      assert.equal(await evaluate(`document.querySelector('.text-8xl')?.textContent`), '5')
+      holdIcons = false
+      for (const response of pendingIcons.splice(0)) { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(iconCatalog)) }
+      await eventually(() => evaluate(`document.querySelector('[data-payload-index="0"] img')?.naturalWidth > 0`), 'resolved metadata did not replace the placeholder')
+      assert.equal(await evaluate(`document.querySelectorAll('[data-icon-pending]').length`), 0)
+      assert.equal(await evaluate(`!!document.querySelector('[data-payload-index="1"] .lucide-package')`), true, 'payload without an icon lost its fallback')
+      await evaluate(`window.editor.status({state:'countdown',remaining:0,delay:0,list:'a,b',total:2,done:0})`)
       await wait(50)
       const finiteSVG = () => evaluate(`Array.from(document.querySelectorAll('circle[stroke-dashoffset]')).every(c => Number.isFinite(Number(c.getAttribute('stroke-dashoffset'))) && Number(c.getAttribute('stroke-dashoffset')) >= 0 && Number(c.getAttribute('stroke-dashoffset')) <= 628)`)
       assert.equal(await finiteSVG(), true)
@@ -184,6 +220,66 @@ try {
       await evaluate(`window.editor.status({state:'executing',remaining:0,delay:0,total:2,done:99,list:'a,b'})`)
       await wait(50); assert.equal(await finiteSVG(), true)
       assert.equal(await evaluate(`document.querySelector('.text-6xl')?.textContent`), '100%')
+
+      // Delay rows track their sequence index, animate between status polls and reset for consecutive delays.
+      await evaluate(`window.editor.status({state:'executing',list:'local/kept-a,!3000,!1500,local/next',total:2,done:1,outcomes:'sp',current:'DELAY',entry_index:1,entry_duration_ms:3000,entry_remaining_ms:2500})`)
+      await wait(50)
+      const fill = index => evaluate(`parseFloat(document.querySelector('[data-delay-index="${index}"] [data-delay-fill]').style.width)`)
+      const initialFill = await fill(1)
+      await wait(300)
+      assert.ok(await fill(1) > initialFill + 5, 'delay fill did not animate between polls')
+      assert.equal(await evaluate(`document.querySelector('[data-payload-index="3"]').dataset.active`), 'false')
+      assert.equal(await evaluate(`document.querySelector('[data-payload-index="0"]').textContent.includes('Success')`), false)
+      assert.equal(await evaluate(`!!document.querySelector('[data-payload-index="0"] .lucide-circle-check')`), true)
+      assert.equal(await evaluate(`document.querySelector('[data-payload-index="3"]').textContent.includes('Success')`), false)
+      assert.equal(await evaluate(`document.querySelector('[data-payload-index="0"]').textContent.includes('Other Source')`), false)
+      await evaluate(`window.editor.status({state:'executing',list:'local/kept-a,!3000,!1500,local/next',total:2,done:1,outcomes:'sp',current:'DELAY',entry_index:2,entry_duration_ms:1500,entry_remaining_ms:1500})`)
+      await wait(50)
+      assert.equal(await fill(1), 100)
+      assert.ok(await fill(2) < 20, 'consecutive delay reused the previous timer')
+      await evaluate(`window.editor.status({state:'done',list:'local/kept-a,!3000,!1500,local/next',total:2,done:2,outcomes:'fk',failed:1,skipped:1,current:'DONE',entry_index:3})`)
+      await wait(50)
+      assert.equal(await evaluate(`document.querySelector('[data-payload-index="0"]').textContent.includes('Failed')`), true)
+      assert.equal(await evaluate(`document.querySelector('[data-payload-index="3"]').textContent.includes('Skipped')`), true)
+      assert.equal(await evaluate(`document.body.textContent.includes('All payloads loaded')`), false)
+
+      // A long sequence follows delays and fast completed entries without scrolling the whole overlay.
+      const longList = Array.from({ length: 24 }, (_, index) => index % 2 ? '!3000' : 'local/next').join(',')
+      await evaluate(`window.editor.status({state:'executing',list:${JSON.stringify(longList)},total:12,done:0,outcomes:'pppppppppppp',current:'local/next',entry_index:0})`)
+      await wait(50)
+      const pageScroll = await evaluate(`document.querySelector('.fixed.inset-0').scrollTop`)
+      const rowVisible = index => evaluate(`(() => {const row=document.querySelector('[data-sequence-index="${index}"]'), container=row.parentElement, r=row.getBoundingClientRect(), c=container.getBoundingClientRect();return container.scrollTop>0 && r.top>=c.top-1 && r.bottom<=c.bottom+1})()`)
+      await evaluate(`window.editor.status({state:'executing',list:${JSON.stringify(longList)},total:12,done:9,outcomes:'sssssssssppp',current:'DELAY',entry_index:17,entry_duration_ms:3000,entry_remaining_ms:3000})`)
+      await eventually(() => rowVisible(17), 'active delay was not scrolled into the list viewport')
+      const colors = await evaluate(`(() => {const loaded=getComputedStyle(document.querySelector('[data-payload-index="0"]')).backgroundColor, pending=getComputedStyle(document.querySelector('[data-payload-index="20"]')).backgroundColor;return {loaded,pending}})()`)
+      assert.notEqual(colors.loaded, colors.pending, 'completed payload did not have a distinct background')
+      // Snapshot caught just after launch: no active row exists, but the latest processed row still needs to be visible.
+      await evaluate(`window.editor.status({state:'executing',list:${JSON.stringify(longList)},total:12,done:11,outcomes:'sssssssssssp',current:'local/next',entry_index:20})`)
+      await eventually(() => rowVisible(20), 'fast completed payload was not followed')
+      await evaluate(`window.editor.status({state:'done',list:${JSON.stringify(longList)},total:12,done:12,outcomes:'ssssssssssss',current:'DONE',entry_index:23})`)
+      await eventually(() => rowVisible(23), 'final delay was not visible at completion')
+      assert.equal(await evaluate(`document.querySelector('.fixed.inset-0').scrollTop`), pageScroll, 'following the list scrolled the whole page')
+
+      // Real repository hydration supplies the icon/title while the installed version remains accurate.
+      await evaluate(`window.editor.status({state:'executing',list:'repo/demo@bbabc123,!3000,local/next',total:2,done:1,outcomes:'sp',current:'DELAY',entry_index:1,entry_duration_ms:3000,entry_remaining_ms:3000})`)
+      await eventually(() => evaluate(`!!document.querySelector('[data-payload-index="0"] img')?.complete`), 'repository icon did not load')
+      assert.equal(await evaluate(`document.querySelector('[data-payload-index="0"] img').naturalWidth > 0`), true)
+      for (const text of ['Example Payload', 'Example Author', '1.1']) {
+        assert.equal(await evaluate(`document.querySelector('[data-payload-index="0"]').textContent.includes(${JSON.stringify(text)})`), true)
+      }
+      assert.equal(await evaluate(`document.querySelector('[data-payload-index="0"]').textContent.includes('Demo Repository')`), false)
+      for (const [width, height] of [[1920, 1080], [390, 844]]) {
+        await rpc('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }, sessionId)
+        await wait(100)
+        assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), true, 'overlay caused horizontal overflow')
+        const sizes = await evaluate(`(() => {const payload=document.querySelector('[data-payload-index="0"]').getBoundingClientRect(), delay=document.querySelector('[data-delay-index="1"]').getBoundingClientRect();return {payload:payload.width,delay:delay.width,payloadHeight:payload.height,delayHeight:delay.height}})()`)
+        assert.ok(Math.abs(sizes.delay - sizes.payload) < 1 && sizes.delayHeight < sizes.payloadHeight, 'delay did not stay compact')
+        if (process.env.AUTOLOAD_SCREENSHOT_DIR) {
+          const screenshot = await rpc('Page.captureScreenshot', { format: 'png' }, sessionId)
+          await writeFile(join(process.env.AUTOLOAD_SCREENSHOT_DIR, `autoload-${width}.png`), Buffer.from(screenshot.data, 'base64'))
+        }
+      }
+      await rpc('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false }, sessionId)
 
       // Reading old logs alone must not claim new activity; new logs must not drag the reader down.
       await evaluate(`window.editor.show('logs')`); await wait(100)

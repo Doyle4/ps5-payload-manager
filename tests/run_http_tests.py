@@ -424,6 +424,7 @@ def autoload_network_tests(binary, storage):
         (storage / "autoload.txt").write_text("local/changed\n")
         snapshot = request()
         assert snapshot["list"] == "local/running" and snapshot["total"] == 1
+        assert snapshot["entry_index"] == -1 and snapshot["entry_duration_ms"] == 0 and snapshot["entry_remaining_ms"] == 0
         request("POST","/autoload_clear",marked)
         assert state_is("countdown"), "reset erased active countdown"
         request("POST","/abort",marked)
@@ -432,6 +433,7 @@ def autoload_network_tests(binary, storage):
         request("POST","/autoload_clear",marked)
         snapshot = request()
         assert snapshot["state"] == "disabled" and snapshot["total"] == 0
+        assert snapshot["entry_index"] == -1 and snapshot["entry_remaining_ms"] == 0
         server.stdin.write("\n");server.stdin.flush()
         output,_=server.communicate(timeout=10)
         assert server.returncode == 0,output

@@ -27,3 +27,27 @@ export function autoloadItemProgress(status, index) {
     skipped: outcome === 'k',
   }
 }
+
+export function autoloadSequenceItems(status) {
+  const phase = autoloadPhase(status)
+  const tokens = typeof status.list === 'string' ? status.list.split(',').map(token => token.trim()).filter(Boolean) : []
+  const entryIndex = Number.isInteger(status.entry_index) && status.entry_index >= 0 && status.entry_index < tokens.length ? status.entry_index : null
+  let payloadIndex = 0
+  return tokens.map((token, index) => {
+    const isDelay = /^!\d+$/.test(token)
+    const durationMs = isDelay ? Math.min(3600000, Number(token.slice(1))) : 0
+    if (isDelay) {
+      const processed = phase === 'done' || (entryIndex !== null ? index < entryIndex : payloadIndex < nonnegative(status.done) || (phase === 'executing' && status.current !== 'DELAY' && payloadIndex === status.done))
+      return { token, index, isDelay, durationMs, processed, active: phase === 'executing' && status.current === 'DELAY' && index === entryIndex, failed: false, skipped: false }
+    }
+    const result = autoloadItemProgress(status, payloadIndex++)
+    return { token, index, isDelay: false, durationMs: 0, ...result,
+      active: !result.processed && (entryIndex === null ? result.active : phase === 'executing' && index === entryIndex && status.current !== 'DELAY') }
+  })
+}
+
+export function autoloadDelayDisplay(status) {
+  const durationMs = Math.min(3600000, nonnegative(status.entry_duration_ms))
+  const remainingMs = Math.min(durationMs, nonnegative(status.entry_remaining_ms))
+  return { durationMs, remainingMs, progress: durationMs ? 1 - remainingMs / durationMs : 1 }
+}

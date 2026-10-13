@@ -311,8 +311,7 @@ const AutoloadView = ({
               return (
                 <div
                   key={`${p}-${i}`}
-                  tabIndex={0}
-                  className="group glass-card pl-4 pr-3 py-2.5 rounded-ps-xl flex flex-col justify-center border border-white/5 hover:border-ps-blue/40 focus:border-ps-blue focus:outline-none transition-all text-left relative min-h-[72px]"
+                  className="group glass-card pl-4 pr-3 py-2.5 rounded-ps-xl flex flex-col justify-center border border-white/5 hover:border-ps-blue/40 focus-within:border-ps-blue transition-all text-left relative min-h-[72px]"
                 >
                   <div className="flex items-center justify-between w-full z-10 my-auto">
                     <div className="flex items-center gap-3.5 min-w-0 pr-2 flex-1">
@@ -333,6 +332,7 @@ const AutoloadView = ({
                           path={meta?.filename || p}
                           version={meta?.version}
                           hideVersion={true}
+                          hideIcon={meta?.isDelay}
                           displayName={meta?.displayName}
                           className="text-white text-lg md:text-xl leading-snug"
                           stacked={false}
@@ -367,7 +367,7 @@ const AutoloadView = ({
                         }}
                         disabled={i === 0}
                         title={t("autoload.move_up", "Move Up")}
-                        className="p-1.5 bg-white/5 hover:bg-ps-blue hover:text-white text-zinc-400 rounded-lg border border-white/5 hover:border-ps-blue transition-all disabled:opacity-20 disabled:pointer-events-none"
+                        className="p-1.5 bg-white/5 hover:bg-ps-blue focus:bg-ps-blue hover:text-white focus:text-white text-zinc-400 rounded-lg border border-white/5 hover:border-ps-blue focus:border-ps-blue transition-all disabled:opacity-20 disabled:pointer-events-none"
                       >
                         <ChevronUp className="w-4 h-4" />
                       </button>
@@ -378,7 +378,7 @@ const AutoloadView = ({
                         }}
                         disabled={i === autoloadList.length - 1}
                         title={t("autoload.move_down", "Move Down")}
-                        className="p-1.5 bg-white/5 hover:bg-ps-blue hover:text-white text-zinc-400 rounded-lg border border-white/5 hover:border-ps-blue transition-all disabled:opacity-20 disabled:pointer-events-none"
+                        className="p-1.5 bg-white/5 hover:bg-ps-blue focus:bg-ps-blue hover:text-white focus:text-white text-zinc-400 rounded-lg border border-white/5 hover:border-ps-blue focus:border-ps-blue transition-all disabled:opacity-20 disabled:pointer-events-none"
                       >
                         <ChevronDown className="w-4 h-4" />
                       </button>
@@ -388,7 +388,7 @@ const AutoloadView = ({
                           removePayload(i)
                         }}
                         title={t("autoload.remove", "Remove")}
-                        className="p-1.5 bg-white/5 hover:bg-red-600 hover:text-white text-zinc-400 hover:border-red-500 rounded-lg border border-white/5 transition-all"
+                        className="p-1.5 bg-white/5 hover:bg-red-600 focus:bg-red-600 hover:text-white focus:text-white text-zinc-400 hover:border-red-500 focus:border-red-500 rounded-lg border border-white/5 transition-all"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

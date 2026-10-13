@@ -11,6 +11,8 @@ typedef struct {
     int remaining, total, done, successful, failed, skipped;
     int delay, scan_usb_payloads;
     long long remaining_ms;
+    int entry_index, entry_duration_ms;
+    long long entry_remaining_ms;
     char current[128];
     char list[4096];
     char outcomes[4096]; /* Per payload: p=pending, s=success, f=failed, k=skipped. */

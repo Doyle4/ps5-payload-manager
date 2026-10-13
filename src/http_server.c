@@ -996,10 +996,11 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         json_format(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
                  "{\"remaining\":%d,\"remaining_ms\":%lld,\"total\":%d,\"done\":%d,\"current\":\"%s\","
                  "\"list\":\"%s\",\"delay\":%d,\"SCAN_USB_PAYLOADS\":%s,"
-                 "\"state\":\"%s\",\"successful\":%d,\"failed\":%d,\"skipped\":%d,\"outcomes\":\"%s\"}",
+                 "\"state\":\"%s\",\"successful\":%d,\"failed\":%d,\"skipped\":%d,\"outcomes\":\"%s\",\"entry_index\":%d,\"entry_duration_ms\":%d,\"entry_remaining_ms\":%lld}",
                  snapshot.remaining, snapshot.remaining_ms, snapshot.total, snapshot.done, current_escaped,
                  list_escaped, snapshot.delay, snapshot.scan_usb_payloads ? "true" : "false",
-                 pldmgr_autoload_state_name(snapshot.state),snapshot.successful,snapshot.failed,snapshot.skipped,snapshot.outcomes);
+                 pldmgr_autoload_state_name(snapshot.state),snapshot.successful,snapshot.failed,snapshot.skipped,snapshot.outcomes,
+                 snapshot.entry_index,snapshot.entry_duration_ms,snapshot.entry_remaining_ms);
         if (!resp_buf[0]) return send_serialization_error(conn, resp_buf);
         resp = create_buffer_response(strlen(resp_buf),
                                                (void *)resp_buf,

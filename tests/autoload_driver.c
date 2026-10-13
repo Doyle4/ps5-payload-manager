@@ -50,7 +50,7 @@ static void counters(void) {
     setup("\r\n   !0\r\n\t\nlocal/ok\r\n   pldmgr.elf \nlocal/missing\nlocal/fail",0,0);
     CHECK(!pldmgr_autoload_start()); AutoloadSnapshot snapshot=wait_state(AUTOLOAD_DONE);
     CHECK(snapshot.total==4); CHECK(snapshot.done==4 && snapshot.successful==1 && snapshot.failed==2 && snapshot.skipped==1);
-    CHECK(!strcmp(snapshot.list,"local/ok,pldmgr.elf,local/missing,local/fail")); CHECK(!strcmp(snapshot.outcomes,"skff")); CHECK(launches==1);
+    CHECK(!strcmp(snapshot.list,"!0,local/ok,pldmgr.elf,local/missing,local/fail")); CHECK(!strcmp(snapshot.outcomes,"skff")); CHECK(launches==1);
     CHECK(!pldmgr_autoload_start()); CHECK(created==1);pldmgr_autoload_reset();CHECK(!pldmgr_autoload_start());CHECK(created==1 && launches==1);
     pldmgr_autoload_stop();CHECK(joined==1);
     puts("Autoload counters: CRLF/blanks/indented delays/final line, skip/fail/success, repeat start and terminal reset passed");
@@ -65,6 +65,33 @@ static void active_reset(void) {
     long long first=snapshot.remaining_ms;usleep(20000);pldmgr_autoload_reset();pldmgr_autoload_get_snapshot(&snapshot);CHECK(snapshot.state==AUTOLOAD_COUNTDOWN && snapshot.remaining_ms<=first);
     CHECK(!pldmgr_autoload_start());CHECK(created==1);pldmgr_autoload_abort();wait_state(AUTOLOAD_ABORTED);pldmgr_autoload_stop();CHECK(!launches && joined==1);
     puts("Autoload active reset: waiting/countdown survive reset, deadline advances, abort prevents launch");
+}
+static AutoloadSnapshot wait_entry(int index) {
+    long long end=now_ms()+3000; AutoloadSnapshot snapshot;
+    do { pldmgr_autoload_get_snapshot(&snapshot);if(snapshot.entry_index==index)return snapshot;usleep(1000); } while(now_ms()<end);
+    CHECK(snapshot.entry_index==index);return snapshot;
+}
+static void delay_progress(void) {
+    blocked=1;setup("!600\n!800\n!0\nlocal/ok",0,0);CHECK(!pldmgr_autoload_start());
+    AutoloadSnapshot snapshot=wait_entry(0);
+    CHECK(!strcmp(snapshot.list,"!600,!800,!0,local/ok") && snapshot.total==1 && snapshot.done==0);
+    CHECK(snapshot.entry_duration_ms==600 && snapshot.entry_remaining_ms>0 && snapshot.entry_remaining_ms<=600);
+    long long first=snapshot.entry_remaining_ms;usleep(50000);pldmgr_autoload_reset();pldmgr_autoload_get_snapshot(&snapshot);
+    CHECK(snapshot.entry_index==0 && snapshot.entry_remaining_ms<first && snapshot.entry_remaining_ms>0);
+    snapshot=wait_entry(1);CHECK(snapshot.entry_duration_ms==800 && snapshot.entry_remaining_ms>600 && snapshot.done==0);
+    wait_entered();pldmgr_autoload_get_snapshot(&snapshot);
+    CHECK(snapshot.entry_index==3 && snapshot.entry_duration_ms==0 && snapshot.entry_remaining_ms==0);
+    released=1;wait_state(AUTOLOAD_DONE);pldmgr_autoload_stop();
+    setup("!0\n!5000",0,0);CHECK(!pldmgr_autoload_start());snapshot=wait_entry(1);
+    CHECK(snapshot.total==0 && snapshot.done==0 && snapshot.entry_duration_ms==5000);
+    pldmgr_autoload_abort();snapshot=wait_state(AUTOLOAD_ABORTED);
+    CHECK(snapshot.entry_index==1 && snapshot.entry_remaining_ms>0 && snapshot.entry_remaining_ms<=5000);
+    first=snapshot.entry_remaining_ms;usleep(20000);pldmgr_autoload_get_snapshot(&snapshot);CHECK(snapshot.entry_remaining_ms==first);
+    pldmgr_autoload_stop();pldmgr_autoload_reset();pldmgr_autoload_get_snapshot(&snapshot);
+    CHECK(snapshot.entry_index==-1 && snapshot.entry_remaining_ms==0 && snapshot.entry_duration_ms==0);
+    setup("!0\n!50",0,0);CHECK(!pldmgr_autoload_start());snapshot=wait_state(AUTOLOAD_DONE);
+    CHECK(snapshot.total==0 && snapshot.done==0 && snapshot.entry_index==1 && snapshot.entry_remaining_ms==0);pldmgr_autoload_stop();
+    puts("Autoload delay progress: exact sequence indices, decreasing deadlines, consecutive/zero delays, reset and frozen abort status passed");
 }
 static void cancellable(const char *which) {
     if(!strcmp(which,"wait")) { setup("local/ok",1,0);CHECK(!pldmgr_autoload_start());wait_state(AUTOLOAD_WAITING); }
@@ -145,7 +172,7 @@ int main(int argc,char **argv) {
     CHECK(argc==2);CHECK(!ensure_dir_recursive(BASE_DATA_DIR));
     if(!strcmp(argv[1],"counters"))counters();else if(!strcmp(argv[1],"reset"))active_reset();
     else if(!strcmp(argv[1],"wait")||!strcmp(argv[1],"delay")||!strcmp(argv[1],"send"))cancellable(argv[1]);
-    else if(!strcmp(argv[1],"snapshot"))snapshot_file();else if(!strcmp(argv[1],"invalid"))invalid();
+    else if(!strcmp(argv[1],"progress"))delay_progress();else if(!strcmp(argv[1],"snapshot"))snapshot_file();else if(!strcmp(argv[1],"invalid"))invalid();
     else if(!strcmp(argv[1],"concurrency"))concurrency();else if(!strcmp(argv[1],"thread"))thread_failure();else if(!strcmp(argv[1],"unicode"))unicode_name();else if(!strcmp(argv[1],"allocation"))allocation_failure();else if(!strcmp(argv[1],"timeout"))frontend_timeout();else return 2;
     return 0;
 }

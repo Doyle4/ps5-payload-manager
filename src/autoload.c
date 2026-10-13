@@ -29,8 +29,8 @@ static pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t state_cond = PTHREAD_COND_INITIALIZER;
 static pthread_t worker_thread;
 static int owned, running, cancel_requested, frontend_ready;
-static long long countdown_end;
-static AutoloadSnapshot status = {.state=AUTOLOAD_DISABLED, .remaining=-1, .remaining_ms=-1000};
+static long long countdown_end, entry_delay_end;
+static AutoloadSnapshot status = {.state=AUTOLOAD_DISABLED, .remaining=-1, .remaining_ms=-1000,.entry_index=-1};
 
 typedef struct { char key[MAX_ENTRY_TEXT + 1]; int delay_ms; } SequenceEntry;
 
@@ -51,6 +51,10 @@ void pldmgr_autoload_get_snapshot(AutoloadSnapshot *out) {
         out->remaining_ms = countdown_end - now_ms();
         if (out->remaining_ms < 0) out->remaining_ms = 0;
         out->remaining = (int)((out->remaining_ms + 999) / 1000);
+    }
+    if (status.state == AUTOLOAD_EXECUTING && entry_delay_end) {
+        out->entry_remaining_ms = entry_delay_end - now_ms();
+        if (out->entry_remaining_ms < 0) out->entry_remaining_ms = 0;
     }
     pthread_mutex_unlock(&state_mutex);
 }
@@ -134,12 +138,11 @@ static int read_sequence(SequenceEntry **out, size_t *count, char list[4096]) {
                 if (delay > MAX_ENTRY_DELAY_MS) goto invalid;
             }
             entry->delay_ms=(int)delay;
-        } else {
-            size_t needed=length+(pos?1:0);
-            if (needed >= 4096-pos) goto invalid;
-            if (pos) list[pos++]=',';
-            memcpy(list+pos,line,length); pos+=length; list[pos]=0;
         }
+        size_t needed=length+(pos?1:0);
+        if (needed >= 4096-pos) goto invalid;
+        if (pos) list[pos++]=',';
+        memcpy(list+pos,line,length); pos+=length; list[pos]=0;
         memcpy(entry->key,line,length+1);
         (*count)++;
     }
@@ -157,6 +160,11 @@ static void set_current(const char *key) {
 }
 static void finish(AutoloadState state) {
     pthread_mutex_lock(&state_mutex);
+    if (entry_delay_end) {
+        status.entry_remaining_ms=entry_delay_end-now_ms();
+        if (status.entry_remaining_ms<0) status.entry_remaining_ms=0;
+    }
+    entry_delay_end=0;
     status.state=cancel_requested ? AUTOLOAD_ABORTED : state;
     status.remaining=status.state==AUTOLOAD_DONE ? 0 : -1;
     status.remaining_ms=(long long)status.remaining*1000;
@@ -246,13 +254,23 @@ static void *autoload_worker(void *argument) {
         if (cancelled(NULL)) goto aborted;
         SequenceEntry *entry=&entries[i];
         if (entry->delay_ms>=0) {
+            long long deadline=now_ms()+entry->delay_ms;
             pthread_mutex_lock(&state_mutex);
+            status.entry_index=(int)i;
+            status.entry_duration_ms=entry->delay_ms;
+            status.entry_remaining_ms=entry->delay_ms;
+            entry_delay_end=deadline;
             snprintf(status.current,sizeof(status.current),"DELAY");
             pthread_mutex_unlock(&state_mutex);
-            if (wait_until(now_ms()+entry->delay_ms,0)) goto aborted;
+            if (wait_until(deadline,0)) goto aborted;
+            pthread_mutex_lock(&state_mutex);
+            status.entry_remaining_ms=0; entry_delay_end=0;
+            pthread_mutex_unlock(&state_mutex);
             continue;
         }
         pthread_mutex_lock(&state_mutex);
+        status.entry_index=(int)i;
+        status.entry_duration_ms=0; status.entry_remaining_ms=0; entry_delay_end=0;
         set_current(entry->key);
         pthread_mutex_unlock(&state_mutex);
         int skipped=0, failed=0;
@@ -286,8 +304,8 @@ int pldmgr_autoload_start(void) {
     pthread_mutex_lock(&lifecycle_mutex);
     if (owned) { pthread_mutex_unlock(&lifecycle_mutex); return 0; }
     pthread_mutex_lock(&state_mutex);
-    status=(AutoloadSnapshot){.state=AUTOLOAD_WAITING,.remaining=-1,.remaining_ms=-1000};
-    cancel_requested=0; frontend_ready=0; countdown_end=0; running=1;
+    status=(AutoloadSnapshot){.state=AUTOLOAD_WAITING,.remaining=-1,.remaining_ms=-1000,.entry_index=-1};
+    cancel_requested=0; frontend_ready=0; countdown_end=0; entry_delay_end=0; running=1;
     int result=pthread_create(&worker_thread,NULL,autoload_worker,NULL);
     if (result) { running=0;status.state=AUTOLOAD_FAILED; }
     else owned=1;
@@ -313,8 +331,8 @@ void pldmgr_autoload_stop(void) {
 void pldmgr_autoload_reset(void) {
     pthread_mutex_lock(&state_mutex);
     if (!running) {
-        status=(AutoloadSnapshot){.state=AUTOLOAD_DISABLED,.remaining=-1,.remaining_ms=-1000};
-        countdown_end=0;
+        status=(AutoloadSnapshot){.state=AUTOLOAD_DISABLED,.remaining=-1,.remaining_ms=-1000,.entry_index=-1};
+        countdown_end=0; entry_delay_end=0;
     }
     pthread_mutex_unlock(&state_mutex);
 }

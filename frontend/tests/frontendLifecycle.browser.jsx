@@ -31,10 +31,12 @@ const items = [
   { slot: 'local/kept-b', filename: 'b.elf', name: 'B', kind: 'local' },
   { slot: 'local/next', filename: 'next.elf', name: 'Next', kind: 'local' },
 ]
+const overlayItems = [...items, { slot: 'repo/demo@bbabc123', id: 'demo', filename: 'demo.elf', version: '1.1', source_url: 'https://mirror.invalid/payloads.json' }]
 function Harness() {
   const [config, setConfig] = useState({}), [mounted, setMounted] = useState(true)
   const [view, setView] = useState('autoload'), [status, setStatus] = useState({ state: 'countdown', remaining: 5, delay: 5 })
   const [logs, setLogs] = useState(Array.from({ length: 100 }, (_, i) => `line ${i}`))
+  const [overlayItemsLoading, setOverlayItemsLoading] = useState(false)
   useEffect(() => {
     const scope = createRequestScope()
     fetch('/__editor_config', { signal: scope.signal }).then(async response => {
@@ -43,9 +45,9 @@ function Harness() {
     }).catch(() => {})
     return () => scope.abort()
   }, [])
-  window.editor = { mount: setMounted, config: setConfig, show: setView, status: setStatus, logs: setLogs }
+  window.editor = { mount: setMounted, config: setConfig, show: setView, status: setStatus, logs: setLogs, itemsLoading: setOverlayItemsLoading }
   if (!mounted) return <div>Other section</div>
-  if (view === 'overlay') return <AutoloadOverlay status={status} onCancel={() => {}} onFinish={() => {}} />
+  if (view === 'overlay') return <RepositoryProvider><AutoloadOverlay status={status} items={overlayItemsLoading ? [] : overlayItems} itemsLoading={overlayItemsLoading} onCancel={() => {}} onFinish={() => {}} /></RepositoryProvider>
   if (view === 'logs') return <div style={{ height: 300 }}><LogViewer logs={logs} /></div>
   if (view === 'processes') return <ActiveProcessesView addToast={() => {}} showConfirm={(_, __, callback) => callback()} />
   if (view === 'app') return <RepositoryProvider><App /></RepositoryProvider>
