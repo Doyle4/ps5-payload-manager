@@ -583,6 +583,45 @@ int sources_clear_cache(void) {
     return result;
 }
 
+static void update_source_catalog_name(SourceEntry *source, const char *json, size_t json_size) {
+    if (!source || !source->removable || !strcmp(source->id, "default") || !json || !json_size) return;
+    char fresh_name[sizeof(source->name)] = "";
+    int rc = json_extract_string_prefix(json, json + json_size, "name", fresh_name, sizeof(fresh_name));
+    if (rc < 0 || fresh_name[0] == '\0' || strcmp(fresh_name, source->name) == 0) {
+        return;
+    }
+
+    pthread_mutex_lock(&sources_mutex);
+    SourceEntry *latest_sources = calloc(MAX_SOURCES, sizeof(SourceEntry));
+    int latest_count = 0;
+    int matched = 0;
+    if (latest_sources && load_sources(latest_sources, &latest_count) == 0) {
+        int updated = 0;
+        for (int i = 0; i < latest_count; i++) {
+            if (strcmp(latest_sources[i].id, source->id) == 0 ||
+                strcmp(latest_sources[i].url, source->url) == 0) {
+                matched = 1;
+                if (strcmp(latest_sources[i].name, fresh_name) != 0) {
+                    strncpy(latest_sources[i].name, fresh_name, sizeof(latest_sources[i].name) - 1);
+                    latest_sources[i].name[sizeof(latest_sources[i].name) - 1] = '\0';
+                    updated = 1;
+                }
+                break;
+            }
+        }
+        if (updated) {
+            save_sources(latest_sources, latest_count);
+        }
+    }
+    free(latest_sources);
+    pthread_mutex_unlock(&sources_mutex);
+
+    if (matched) {
+        strncpy(source->name, fresh_name, sizeof(source->name) - 1);
+        source->name[sizeof(source->name) - 1] = '\0';
+    }
+}
+
 static size_t repository_list_locked(char *buf, size_t size, int force_refresh) {
     if (!buf || !size) return 0;
     SourceEntry *sources = calloc(MAX_SOURCES, sizeof(SourceEntry));
@@ -611,11 +650,6 @@ static size_t repository_list_locked(char *buf, size_t size, int force_refresh) 
         char cache_path[512], ts_path[512];
         get_cache_paths(sources[si].url, cache_path, sizeof(cache_path), ts_path, sizeof(ts_path));
 
-        char id_e[6 * 128], name_e[6 * 256], url_e[6 * 1024];
-        json_escape_checked(&jb, sources[si].id, id_e, sizeof(id_e));
-        json_escape_checked(&jb, sources[si].name, name_e, sizeof(name_e));
-        json_escape_checked(&jb, sources[si].url, url_e, sizeof(url_e));
-
         long last_update = 0;
         FILE *tf = fopen(ts_path, "r");
         if (tf) { fscanf(tf, "%ld", &last_update); fclose(tf); }
@@ -638,9 +672,16 @@ static size_t repository_list_locked(char *buf, size_t size, int force_refresh) 
                 return 0;
             }
 
+            update_source_catalog_name(&sources[si], cached, cached_size);
+
             ensure_icons(sources[si].url, cached, items, count, icons_revision);
             free(cached);
         }
+
+        char id_e[6 * 128], name_e[6 * 256], url_e[6 * 1024];
+        json_escape_checked(&jb, sources[si].id, id_e, sizeof(id_e));
+        json_escape_checked(&jb, sources[si].name, name_e, sizeof(name_e));
+        json_escape_checked(&jb, sources[si].url, url_e, sizeof(url_e));
 
         if (json_append(&jb, "  {\"id\":\"%s\",\"name\":\"%s\",\"url\":\"%s\",\"last_update\":%ld,\"error\":%s,\"icons_revision\":\"%s\",\"payloads\":[\n",
             id_e, name_e, url_e, last_update, fetch_ok ? "false" : "true", icons_revision) != 0) {

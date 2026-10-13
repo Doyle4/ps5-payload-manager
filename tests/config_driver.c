@@ -33,7 +33,7 @@ void pldmgr_autoload_abort(void) { aborts++; }
 int pldmgr_autoload_update_config_entry(const char *a,const char *b) { return config_update_list_entry(AUTOLOAD_CONFIG_PATH,a,b); }
 static _Atomic int downloads;
 int download_to_file_limited(const char *url,const char *path,size_t limit) {
-    (void)limit; CHECK(strstr(url,"fixture://")); downloads++;
+    (void)limit; CHECK(strstr(url,"fixture://") || !strcmp(url, REPOSITORY_SOURCE_URL)); downloads++;
     const char *json="{\"name\":\"F\\u00edxture\",\"payloads\":[{\"id\":\"safe\",\"name\":\"Safe\",\"filename\":\"safe.elf\",\"url\":\"http://example.invalid/safe.elf\"}]}";
     FILE *f=fopen(path,"wb"); CHECK(f); CHECK(fwrite(json,1,strlen(json),f)==strlen(json)); CHECK(!fclose(f));
     usleep(1000); return 0;
@@ -82,6 +82,18 @@ static void validation(void) {
     CHECK(!sources_save("{\"sources\":[]}",14)); char *sources=read_text(SOURCES_CONFIG_PATH);
     const char *bad[]={"{\"sources\":[]", "{\"sources\":[],\"sources\":[]}", "{\"sources\":[{}]}", "{\"nested\":{\"sources\":[]}}", "{\"sources\":null}", "{\"sources\":[{\"id\":\"x\",\"name\":\"X\",\"url\":false}]}"};
     for(size_t i=0;i<sizeof(bad)/sizeof(*bad);i++) { CHECK(sources_save(bad[i],strlen(bad[i]))==CONFIG_INVALID); expect_text(SOURCES_CONFIG_PATH,sources); }
+    CHECK(!config_handle_set_json("{\"MULTI_SOURCES_ENABLED\":true}"));
+    const char *custom_init = "{\"sources\":[{\"id\":\"source_custom\",\"name\":\"Old Name\",\"url\":\"fixture://custom-rename\",\"removable\":true}]}";
+    CHECK(!sources_save(custom_init, strlen(custom_init)));
+    char repolist[16384];
+    CHECK(sources_multi_repository_list_json(repolist, sizeof(repolist), 1) > 0);
+    CHECK(strstr(repolist, "Fíxture"));
+    CHECK(!strstr(repolist, "Old Name"));
+    char src_out[4096];
+    CHECK(!sources_list_json(src_out, sizeof(src_out)));
+    CHECK(strstr(src_out, "Fíxture"));
+    CHECK(!strstr(src_out, "Old Name"));
+    CHECK(!sources_save("{\"sources\":[]}", 14));
     free(sources); puts("Config/source validation: malformed input rejected without writes or aborts");
 }
 static void atomic_files(void) {
