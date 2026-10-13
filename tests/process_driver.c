@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -17,7 +18,31 @@ static int queries, fetches, app_calls, kills;
 
 void pldmgr_log(const char *format, ...) { (void)format; }
 void *test_malloc(size_t size) { return !strcmp(scenario, "alloc-fail") ? NULL : malloc(size); }
-int test_kill(pid_t pid, int signal) { (void)pid; (void)signal; kills++; return 0; }
+int test_usleep(useconds_t usec) { (void)usec; return 0; }
+static int dead_pid;
+int test_kill(pid_t pid, int signal) {
+    if (pid == 777777) {
+        errno = ESRCH;
+        return -1;
+    }
+    if (signal == 0) {
+        if (pid == dead_pid) {
+            errno = ESRCH;
+            return -1;
+        }
+        return 0;
+    }
+    kills++;
+    if (signal == SIGTERM) {
+        if (pid != 888888) dead_pid = pid;
+        return 0;
+    }
+    if (signal == SIGKILL) {
+        dead_pid = pid;
+        return 0;
+    }
+    return 0;
+}
 int sceKernelGetAppInfo(pid_t pid, void *info) {
     app_calls++;
     *(uint32_t *)info = pid == 42 ? 1 : 0;
@@ -88,8 +113,15 @@ int main(int argc, char **argv) {
     char output[8192]; memset(output, 'X', sizeof(output));
     size_t used = process_list_json(output, !strcmp(scenario, "small-output") ? 32 : sizeof(output));
     assert(used ? output[used] == '\0' : output[0] == '\0');
+    dead_pid = 0; kills = 0;
     assert(process_kill(0) == -1 && process_kill(-1) == -1 && process_kill(getpid()) == -1 && kills == 0);
     assert(process_kill(999999) == 0 && kills == 1);
+    if (!strcmp(scenario, "normal")) {
+        dead_pid = 0; kills = 0;
+        assert(process_kill(888888) == 0 && kills == 2);
+        dead_pid = 0; kills = 0;
+        assert(process_kill(777777) == -1 && kills == 0);
+    }
     printf("{\"found\":%d,\"length\":%zu,\"queries\":%d,\"fetches\":%d,\"lookup_queries\":%d,\"lookup_fetches\":%d,\"app_calls\":%d,\"data\":%s}\n",
            (int)found, used, queries, fetches, lookup_queries, lookup_fetches, app_calls, used ? output : "null");
 }

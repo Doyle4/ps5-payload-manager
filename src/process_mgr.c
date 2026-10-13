@@ -129,7 +129,26 @@ int process_kill(int pid) {
     /* Prevent killing our own process */
     if (pid == getpid()) return -1;
 
-    if (kill(pid, SIGKILL) == 0) {
+    if (kill(pid, SIGTERM) != 0) {
+        if (errno == ESRCH) return -1;
+        return kill(pid, SIGKILL) == 0 ? 0 : -1;
+    }
+
+    for (int i = 0; i < 30; i++) {
+        if (kill(pid, 0) != 0) {
+            if (errno == ESRCH) {
+                return 0;
+            }
+            break;
+        }
+        usleep(50000);
+    }
+
+    if (kill(pid, 0) != 0 && errno == ESRCH) {
+        return 0;
+    }
+
+    if (kill(pid, SIGKILL) == 0 || errno == ESRCH) {
         return 0;
     }
     return -1;
