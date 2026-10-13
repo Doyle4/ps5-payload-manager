@@ -41,10 +41,8 @@ You can add third-party payload repositories to the manager. To learn how to cre
 PS5 Payload Manager supports multiple languages. For the list of supported languages, how to report translation issues or suggest improvements, and past community translators, see [TRANSLATIONS.md](TRANSLATIONS.md).
 
 ## Credits
-- [John Törnblom](https://github.com/john-tornblom) - for the [shell UI installer](https://github.com/ps5-payload-dev/ftpsrv/blob/master/install-ps5.c) and various payloads used as reference.
-- [BenNoxXD](https://github.com/BenNoxXD) - for the [Disc Player termination logic](https://github.com/BenNoxXD/PS5-BDJ-HEN-loader/blob/main/HENloader_C_part/src/kill_disc_player.c) used in earlier versions.
-- Twitter, Inc. and contributors - for the bundled Twemoji artwork; [source, license and modifications](frontend/src/assets/emoji/README.md).
-- [owendswang](https://github.com/owendswang) - for [contributions](https://github.com/itsPLK/ps5-payload-manager/commits/main/?author=owendswang)
+- [John Törnblom](https://github.com/john-tornblom) - for the [PS5 Payload SDK](https://github.com/ps5-payload-dev/sdk) and homebrew samples used as reference.
+- [All contributors](https://github.com/itsPLK/ps5-payload-manager/graphs/contributors) - for their contributions to the project.
 - Everyone else contributing to the PS5 homebrew scene.
 
 ## Donations
