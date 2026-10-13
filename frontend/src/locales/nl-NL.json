@@ -83,7 +83,6 @@
   "active_processes.kill_button": "Beëindigen",
   "active_processes.note_title": "Opmerking:",
   "active_processes.note_message": "Sommige payloads die threads in systeemprocessen injecteren (zoals <1>SceShellCore</1>) blijven in die processen actief, ook nadat hun hoofdproces is beëindigd.",
-  "autoload_overlay.conflict": "Conflict: etaHEN + KStuff actief",
   "autoload_overlay.autoloading": "Automatisch laden",
   "autoload_overlay.waiting": "Wachten op handmatig afbreken...",
   "autoload_overlay.executing": "Uitvoeren",

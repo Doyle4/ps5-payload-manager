@@ -83,7 +83,6 @@
   "active_processes.kill_button": "終了",
   "active_processes.note_title": "注意：",
   "active_processes.note_message": "システムプロセス（<1>SceShellCore</1> など）にスレッドを挿入する一部のペイロードは、メインプロセスが終了した後もそのプロセス内に残る場合があります。",
-  "autoload_overlay.conflict": "競合：etaHEN + KStuff が同時に有効になっています",
   "autoload_overlay.autoloading": "自動実行中",
   "autoload_overlay.waiting": "手動中断の待機中…",
   "autoload_overlay.executing": "実行中",

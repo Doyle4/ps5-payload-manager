@@ -83,7 +83,6 @@
   "active_processes.kill_button": "Завершить",
   "active_processes.note_title": "Примечание:",
   "active_processes.note_message": "Некоторые полезные нагрузки, внедряющие потоки в системные процессы (например, <1>SceShellCore</1>), продолжают работать внутри этих процессов даже после завершения их основного процесса.",
-  "autoload_overlay.conflict": "Конфликт: etaHEN + KStuff активны",
   "autoload_overlay.autoloading": "Автозагрузка",
   "autoload_overlay.waiting": "Ожидание ручного прерывания...",
   "autoload_overlay.executing": "Выполнение",

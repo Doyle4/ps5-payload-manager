@@ -80,12 +80,6 @@ const AutoloadOverlay = ({ status, items = [], itemsLoading = false, onCancel, o
       <div className="mx-auto w-full max-w-[1400px] min-h-full flex flex-col justify-center">
         <div className={cn('grid grid-cols-1 gap-8 items-center lg:grid-cols-2', isPS5 ? 'grid-cols-[minmax(0,2fr)_minmax(0,3fr)]' : 'md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]')}>
           <div className="flex flex-col items-center space-y-6 md:space-y-8 w-full min-w-0 max-w-[560px] justify-self-center">
-            {!isDone && entries.some(entry => entry.token.toLowerCase().includes('etahen')) && entries.some(entry => entry.token.toLowerCase().includes('kstuff')) && (
-              <div className="w-full p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center space-x-3 text-amber-500">
-                <AlertTriangle className="w-5 h-5 shrink-0" />
-                <span className="font-medium text-xs">{t('autoload_overlay.conflict', 'Conflict: etaHEN + KStuff active')}</span>
-              </div>
-            )}
             <div className="text-center space-y-2">
               <h2 className="text-2xl md:text-4xl font-bold text-white">
                 {isDone ? `${t('autoload_overlay.done_title_1', 'Autoload')} ${t('autoload_overlay.done_title_2', 'Done')}`

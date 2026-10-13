@@ -83,7 +83,6 @@
   "active_processes.kill_button": "Encerrar",
   "active_processes.note_title": "Anotações:",
   "active_processes.note_message": "Algumas Cargas que injetam tarefas nos processos do Sistema (ex.: <1>SceShellCore</1>) continuarão ativas mesmo depois que o processo principal é encerrado.",
-  "autoload_overlay.conflict": "Conflito: EtaHEN + Kstuff ativos",
   "autoload_overlay.autoloading": "Carregamento automático",
   "autoload_overlay.waiting": "Aguardando fechamento manual...",
   "autoload_overlay.executing": "Executando",

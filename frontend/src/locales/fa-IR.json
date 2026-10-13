@@ -83,7 +83,6 @@
   "active_processes.kill_button": "از بین بردن",
   "active_processes.note_title": "یادداشت:",
   "active_processes.note_message": "برخی از پیلودهایی که رشته‌ها را به فرآیندهای سیستم تزریق می‌کنند (مانند <1>SceShellCore</1>) در داخل آن فرآیندها حتی بعد از، از بین رفتن فرآیند اصلی خود باقی می‌مانند.",
-  "autoload_overlay.conflict": "مغایرت: etaHEN + KStuff فعال است",
   "autoload_overlay.autoloading": "در حال اجرای خودکار",
   "autoload_overlay.waiting": "در انتظار لغو کردن دستی...",
   "autoload_overlay.executing": "در حال اجرا",

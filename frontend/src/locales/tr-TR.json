@@ -83,7 +83,6 @@
   "active_processes.kill_button": "Sonlandır",
   "active_processes.note_title": "Not:",
   "active_processes.note_message": "Sistem süreçlerine iş parçacığı enjekte eden bazı zararlı yazılımlar (örneğin <1>SceShellCore</1>), ana süreçleri sonlandırıldıktan sonra bile bu süreçlerin içinde kalmaya devam eder.",
-  "autoload_overlay.conflict": "Çatışma: etaHEN + KStuff aktif",
   "autoload_overlay.autoloading": "Otomatik yükleme",
   "autoload_overlay.waiting": "Manuel iptal işlemi bekleniyor...",
   "autoload_overlay.executing": "Çalıştırılıyor",

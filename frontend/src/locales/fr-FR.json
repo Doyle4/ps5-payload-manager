@@ -83,7 +83,6 @@
   "active_processes.kill_button": "Tuer",
   "active_processes.note_title": "Note :",
   "active_processes.note_message": "Certains payloads qui injectent des threads dans les processus système (comme <1>SceShellCore</1>) persisteront au sein de ces processus même après l'arrêt de leur processus principal.",
-  "autoload_overlay.conflict": "Conflit : etaHEN + KStuff actifs",
   "autoload_overlay.autoloading": "Lancement auto en cours",
   "autoload_overlay.waiting": "En attente d'une interruption manuelle...",
   "autoload_overlay.executing": "Exécution",

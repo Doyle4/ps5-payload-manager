@@ -83,7 +83,6 @@
   "active_processes.kill_button": "Beenden",
   "active_processes.note_title": "Hinweis:",
   "active_processes.note_message": "Einige Payloads, die Threads in Systemprozesse (z. B. <1>SceShellCore</1>) einschleusen, bleiben auch nach dem Beenden ihres Hauptprozesses innerhalb dieser Systemprozesse aktiv.",
-  "autoload_overlay.conflict": "Konflikt: etaHEN und KStuff gleichzeitig aktiv",
   "autoload_overlay.autoloading": "Autoload wird ausgeführt",
   "autoload_overlay.waiting": "Warten auf manuellen Abbruch …",
   "autoload_overlay.executing": "Wird ausgeführt …",

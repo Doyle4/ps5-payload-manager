@@ -83,7 +83,6 @@
   "active_processes.kill_button": "Finalizar",
   "active_processes.note_title": "Nota:",
   "active_processes.note_message": "Algunos Payloads que inyectan hilos en procesos del sistema (como <1>SceShellCore</1>) persistirán dentro de esos procesos incluso después de que su proceso principal sea finalizado.",
-  "autoload_overlay.conflict": "Conflicto: etaHEN + KStuff activos",
   "autoload_overlay.autoloading": "Cargando automáticamente",
   "autoload_overlay.waiting": "Esperando cancelación manual...",
   "autoload_overlay.executing": "Ejecutando",

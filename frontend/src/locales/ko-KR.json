@@ -83,7 +83,6 @@
   "active_processes.kill_button": "종료",
   "active_processes.note_title": "주의:",
   "active_processes.note_message": "시스템 프로세스(<1>SceShellCore</1> 등)에 스레드를 주입하는 일부 페이로드는 해당 프로세스가 종료된 후에도 남아있을 수 있습니다.",
-  "autoload_overlay.conflict": "충돌: etaHEN + KStuff 동시 활성화",
   "autoload_overlay.autoloading": "자동 실행 중",
   "autoload_overlay.waiting": "수동 중단 대기 중...",
   "autoload_overlay.executing": "실행 중",

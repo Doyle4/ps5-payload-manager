@@ -83,7 +83,6 @@
   "active_processes.kill_button": "Zakończ",
   "active_processes.note_title": "Uwaga:",
   "active_processes.note_message": "Niektóre payloady, które wstrzykują wątki do procesów systemowych (jak <1>SceShellCore</1>), będą nadal działać wewnątrz tych procesów, nawet po zakończeniu ich głównego procesu.",
-  "autoload_overlay.conflict": "Konflikt: etaHEN + KStuff aktywne",
   "autoload_overlay.autoloading": "Autostart",
   "autoload_overlay.waiting": "Oczekiwanie na ręczne przerwanie...",
   "autoload_overlay.executing": "Uruchamianie",

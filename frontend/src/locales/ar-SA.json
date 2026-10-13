@@ -83,7 +83,6 @@
   "active_processes.kill_button": "إنهاء",
   "active_processes.note_title": "ملاحظة:",
   "active_processes.note_message": "بعض الحمولات التي تحقن سلاسل عمليات في عمليات النظام (مثل <1>SceShellCore</1>) ستستمر داخل تلك العمليات حتى بعد إنهاء عمليتها الرئيسية.",
-  "autoload_overlay.conflict": "تعارض: etaHEN + KStuff نشطان",
   "autoload_overlay.autoloading": "التحميل التلقائي",
   "autoload_overlay.waiting": "في انتظار الإلغاء اليدوي...",
   "autoload_overlay.executing": "التنفيذ",

@@ -83,7 +83,6 @@
   "active_processes.kill_button": "Disabilita",
   "active_processes.note_title": "Note:",
   "active_processes.note_message": "Alcuni payload iniettano thread nei processi di sistema (come <1>SceShellCore</1>)\npersisteranno all'interno di tali processi anche dopo la disabilitazione del processo principale.",
-  "autoload_overlay.conflict": "Conflitto: etaHEN + KStuff attivo",
   "autoload_overlay.autoloading": "Caricamento automatico",
   "autoload_overlay.waiting": "In attesa di interruzione manuale...",
   "autoload_overlay.executing": "Esecuzione",

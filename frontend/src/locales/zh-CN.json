@@ -83,7 +83,6 @@
   "active_processes.kill_button": "终止",
   "active_processes.note_title": "注意：",
   "active_processes.note_message": "某些将线程注入系统进程（例如 <1>SceShellCore</1>）的 payload ，即使主进程被终止，仍会继续存在于这些系统进程中。",
-  "autoload_overlay.conflict": "冲突：etaHEN + KStuff 已启用",
   "autoload_overlay.autoloading": "自动加载中",
   "autoload_overlay.waiting": "等待手动中止……",
   "autoload_overlay.executing": "执行中",

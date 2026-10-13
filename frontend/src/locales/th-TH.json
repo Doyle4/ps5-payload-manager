@@ -83,7 +83,6 @@
   "active_processes.kill_button": "หยุด",
   "active_processes.note_title": "หมายเหตุ:",
   "active_processes.note_message": "payload บางตัวที่แทรกเธรดเข้าไปในโปรเซสของระบบ (เช่น <1>SceShellCore</1>) จะยังคงอยู่ในโปรเซสนั้นแม้โปรเซสหลักจะถูกหยุดแล้วก็ตาม",
-  "autoload_overlay.conflict": "ขัดแย้ง: etaHEN + KStuff กำลังทำงาน",
   "autoload_overlay.autoloading": "กำลังโหลดอัตโนมัติ",
   "autoload_overlay.waiting": "กำลังรอการยกเลิกด้วยตนเอง...",
   "autoload_overlay.executing": "กำลังดำเนินการ",
