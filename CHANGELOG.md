@@ -1,3 +1,11 @@
+## v0.6.1
+
+### 🛠️ Backend & Bug Fixes
+- Restored automatic Disc Player termination on startup for BD-JB users, which was removed in v0.6.0.  
+This is still useful for users on older BD-JB autoloader builds (lower than v1.4.0).
+
+**Full Changelog**: [v0.6.0...v0.6.1](https://github.com/itsPLK/ps5-payload-manager/compare/v0.6.0...v0.6.1)
+
 ## v0.6.0
 
 ### 🚀 Features & UX Improvements
