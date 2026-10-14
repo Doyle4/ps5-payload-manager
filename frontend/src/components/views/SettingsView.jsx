@@ -44,6 +44,7 @@ const SettingRow = ({ title, description, children, icon: Icon, vertical }) => (
 const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate, onClearCache }) => {
   const { t, i18n } = useTranslation()
   const autoOpen = config.AUTO_BROWSER_OPEN !== false
+  const killDiscPlayer = config.KILL_DISC_PLAYER_ON_STARTUP !== false
   const autoInstall = config.AUTO_INSTALL_APP !== false
   const autoloadDelay = config.AUTOLOAD_DELAY ?? 5
   const multiSources = config.MULTI_SOURCES_ENABLED === true
@@ -160,6 +161,24 @@ const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate, onClearCa
               <div className={cn(
                 "w-5 h-5 md:w-7 md:h-7 bg-white rounded-full transition-all",
                 autoInstall ? "translate-x-7 md:translate-x-10" : "translate-x-0"
+              )} />
+            </button>
+          </SettingRow>
+
+          <SettingRow
+            title={t("settings.kill_disc_title", "Kill Disc Player")}
+            description={t("settings.kill_disc_desc", "Automatically terminate the Disc Player application on startup (for BD-JB users).")}
+          >
+            <button
+              onClick={() => onSaveConfig({ KILL_DISC_PLAYER_ON_STARTUP: !killDiscPlayer })}
+              className={cn(
+                "w-14 h-7 md:w-20 md:h-10 rounded-full transition-all relative p-1 md:p-1.5",
+                killDiscPlayer ? "bg-ps-blue" : "bg-white/10"
+              )}
+            >
+              <div className={cn(
+                "w-5 h-5 md:w-7 md:h-7 bg-white rounded-full transition-all",
+                killDiscPlayer ? "translate-x-7 md:translate-x-10" : "translate-x-0"
               )} />
             </button>
           </SettingRow>

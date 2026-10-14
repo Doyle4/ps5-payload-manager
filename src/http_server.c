@@ -990,15 +990,17 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
             pldmgr_json_escape(snapshot.list,list_escaped,sizeof(list_escaped)))
             return send_request_error(conn,MHD_HTTP_INTERNAL_SERVER_ERROR,"Invalid autoload snapshot");
 
+        PldmgrConfig cfg;
+        config_read(&cfg);
         char *resp_buf;
         if (!alloc_response_buffer_small(&resp_buf))
             return send_out_of_memory(conn);
         json_format(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
                  "{\"remaining\":%d,\"remaining_ms\":%lld,\"total\":%d,\"done\":%d,\"current\":\"%s\","
-                 "\"list\":\"%s\",\"delay\":%d,\"SCAN_USB_PAYLOADS\":%s,"
+                 "\"list\":\"%s\",\"delay\":%d,\"KILL_DISC_PLAYER_ON_STARTUP\":%s,\"SCAN_USB_PAYLOADS\":%s,"
                  "\"state\":\"%s\",\"successful\":%d,\"failed\":%d,\"skipped\":%d,\"outcomes\":\"%s\",\"entry_index\":%d,\"entry_duration_ms\":%d,\"entry_remaining_ms\":%lld}",
                  snapshot.remaining, snapshot.remaining_ms, snapshot.total, snapshot.done, current_escaped,
-                 list_escaped, snapshot.delay, snapshot.scan_usb_payloads ? "true" : "false",
+                 list_escaped, snapshot.delay, cfg.kill_disc_player ? "true" : "false", snapshot.scan_usb_payloads ? "true" : "false",
                  pldmgr_autoload_state_name(snapshot.state),snapshot.successful,snapshot.failed,snapshot.skipped,snapshot.outcomes,
                  snapshot.entry_index,snapshot.entry_duration_ms,snapshot.entry_remaining_ms);
         if (!resp_buf[0]) return send_serialization_error(conn, resp_buf);
@@ -1043,11 +1045,12 @@ enum MHD_Result http_on_request(void *cls, struct MHD_Connection *conn,
         json_format(resp_buf, SMALL_RESPONSE_BUFFER_SIZE,
                  "{\"AUTOLOAD_ENABLED\":%s,\"AUTOLOAD_LIST\":\"%s\",\"LAST_"
                  "REPOSITORY_UPDATE\":%ld,"
-                 "\"AUTO_BROWSER_OPEN\":%s,\"AUTOLOAD_DELAY\":%d,"
+                 "\"AUTO_BROWSER_OPEN\":%s,\"AUTOLOAD_DELAY\":%d,\"KILL_DISC_PLAYER_ON_STARTUP\":%s,"
                  "\"SCAN_USB_PAYLOADS\":%s,\"AUTO_INSTALL_APP\":%s,"
                  "\"MULTI_SOURCES_ENABLED\":%s,\"FAVORITES\":\"%s\",\"FAVORITES_INITIALIZED\":%s}",
                  cfg.autoload_enabled ? "true" : "false", list_escaped, cfg.last_repository_update,
                  cfg.auto_browser_open ? "true" : "false", cfg.autoload_delay,
+                 cfg.kill_disc_player ? "true" : "false",
                  cfg.scan_usb_payloads ? "true" : "false",
                  cfg.auto_install_app ? "true" : "false",
                  cfg.multi_sources_enabled ? "true" : "false",
