@@ -404,9 +404,25 @@ try {
       holdAppConfig = false; await wait(100)
       assert.equal(await evaluate(`localStorage.getItem('favoritePayloads')`), '["local/kept-a","local/next"]', 'stale config response replaced newer favorite edits')
 
+      // Dashboard-only icon setting persists through navigation and keeps the card dimensions.
+      const cardMetrics = () => evaluate(`(() => {const card=${nextCard}, r=card.getBoundingClientRect();return {width:r.width,height:r.height,text:card.querySelector('button .flex-col').getBoundingClientRect().width}})()`)
+      const withIcons = await cardMetrics()
+      await clickText('Settings')
+      await eventually(() => evaluate(`!!document.querySelector('button[role="switch"][aria-label="Dashboard Payload Icons"]')`), 'icon setting was not shown')
+      assert.equal(await evaluate(`document.querySelector('button[role="switch"]').getAttribute('aria-checked')`), 'true')
+      await evaluate(`document.querySelector('button[role="switch"][aria-label="Dashboard Payload Icons"]').click()`)
+      await eventually(() => stored.SHOW_DASHBOARD_ICONS === false, 'icon setting did not save')
+      await clickText('Dashboard')
+      await eventually(() => evaluate(`document.querySelectorAll('.glass-card .lucide-package, .glass-card img').length === 0`), 'dashboard icons stayed visible')
+      const withoutIcons = await cardMetrics()
+      assert.equal(withoutIcons.width, withIcons.width)
+      assert.equal(withoutIcons.height, withIcons.height)
+      assert.ok(withoutIcons.text > withIcons.text + 40, 'hiding icons did not free text space')
+
       // Actual App details: wide README content stays inside its own scrollers; removal uses the installed slot.
       await clickText('Get Payloads')
       await eventually(() => evaluate(`!!document.querySelector('#cloud-repository')`), 'repository did not open')
+      await eventually(() => evaluate(`document.querySelector('#cloud-repository img')?.naturalWidth > 0`), 'dashboard preference hid repository icons')
       for (const width of [320, 390, 768]) {
         await rpc('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: false }, sessionId)
         for (const searching of [false, true]) {

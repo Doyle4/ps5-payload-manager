@@ -951,6 +951,7 @@ function App() {
                   sourceName={sourceName}
                   version={version}
                   icon={icon}
+                  showIcon={config.SHOW_DASHBOARD_ICONS !== false}
                   author={author}
                   displayName={displayName}
                   isFavorite={isFavorite}

@@ -249,5 +249,7 @@
   "settings.cache_clearing": "Suppression…",
   "settings.cache_cleared": "Cache des dépôts vidé.",
   "settings.cache_failed": "Impossible de vider le cache des dépôts.",
-  "settings.cache_desc": "Supprime les catalogues et icônes téléchargés, puis les télécharge à nouveau. Les payloads installés et les paramètres sont conservés."
+  "settings.cache_desc": "Supprime les catalogues et icônes téléchargés, puis les télécharge à nouveau. Les payloads installés et les paramètres sont conservés.",
+  "settings.dashboard_icons_title": "Icônes des payloads sur le tableau de bord",
+  "settings.dashboard_icons_desc": "Afficher les icônes des payloads sur le tableau de bord. Les masquer laisse plus de place au texte."
 }

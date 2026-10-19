@@ -12,6 +12,7 @@ typedef struct PldmgrConfig {
     int  kill_disc_player;       /* Default: 1  (on) */
     int  scan_usb_payloads;      /* Default: 0  (off) */
     int  auto_install_app;       /* Default: 1  (on) */
+    int  show_dashboard_icons;   /* Default: 1  (on) */
     int  multi_sources_enabled;  /* Default: 0  (off) */
 } PldmgrConfig;
 
@@ -32,7 +33,7 @@ enum { CONFIG_INVALID = -2 };
 /* Apply a JSON config update sent from the frontend /set_config route.
  * Handles AUTOLOAD_ENABLED, AUTO_BROWSER_OPEN, AUTOLOAD_DELAY,
  * KILL_DISC_PLAYER_ON_STARTUP, SCAN_USB_PAYLOADS, AUTO_INSTALL_APP,
- * MULTI_SOURCES_ENABLED, and AUTOLOAD_LIST.
+ * MULTI_SOURCES_ENABLED, SHOW_DASHBOARD_ICONS, and AUTOLOAD_LIST.
  * Booleans must be JSON booleans; delay is an integer from 0 to 3600 seconds.
  * Returns 0, CONFIG_INVALID for bad input, or -1 for persistence failure.
  * All input is validated first; each file publishes atomically, but a multi-file

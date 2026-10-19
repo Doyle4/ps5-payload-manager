@@ -249,5 +249,7 @@
   "settings.cache_clearing": "Borrando…",
   "settings.cache_cleared": "Caché de repositorios borrada.",
   "settings.cache_failed": "No se pudo borrar la caché de repositorios.",
-  "settings.cache_desc": "Borra los catálogos e iconos descargados y vuelve a descargarlos. Se conservan los payloads instalados y la configuración."
+  "settings.cache_desc": "Borra los catálogos e iconos descargados y vuelve a descargarlos. Se conservan los payloads instalados y la configuración.",
+  "settings.dashboard_icons_title": "Iconos de payloads en el panel",
+  "settings.dashboard_icons_desc": "Mostrar iconos de payloads en el panel. Ocultarlos deja más espacio para el texto."
 }

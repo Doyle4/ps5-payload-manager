@@ -43,6 +43,7 @@ const SettingRow = ({ title, description, children, icon: Icon, vertical }) => (
 
 const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate, onClearCache }) => {
   const { t, i18n } = useTranslation()
+  const showDashboardIcons = config.SHOW_DASHBOARD_ICONS !== false
   const autoOpen = config.AUTO_BROWSER_OPEN !== false
   const killDiscPlayer = config.KILL_DISC_PLAYER_ON_STARTUP !== false
   const autoInstall = config.AUTO_INSTALL_APP !== false
@@ -127,6 +128,28 @@ const SettingsView = ({ config, onSaveConfig, setShowLogs, onNavigate, onClearCa
                 {t("settings.language_disclaimer", "Translations are community-driven and may contain errors.")}
               </p>
             </div>
+          </SettingRow>
+
+          <SettingRow
+            title={t("settings.dashboard_icons_title", "Dashboard Payload Icons")}
+            description={t("settings.dashboard_icons_desc", "Show payload icons on the dashboard. Hiding them leaves more space for text.")}
+          >
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showDashboardIcons}
+              aria-label={t("settings.dashboard_icons_title", "Dashboard Payload Icons")}
+              onClick={() => onSaveConfig({ SHOW_DASHBOARD_ICONS: !showDashboardIcons })}
+              className={cn(
+                "w-14 h-7 md:w-20 md:h-10 rounded-full transition-all relative p-1 md:p-1.5",
+                showDashboardIcons ? "bg-ps-blue" : "bg-white/10"
+              )}
+            >
+              <div className={cn(
+                "w-5 h-5 md:w-7 md:h-7 bg-white rounded-full transition-all",
+                showDashboardIcons ? "translate-x-7 md:translate-x-10" : "translate-x-0"
+              )} />
+            </button>
           </SettingRow>
 
           <SettingRow

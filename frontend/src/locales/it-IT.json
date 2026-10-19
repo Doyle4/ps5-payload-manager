@@ -249,5 +249,7 @@
   "settings.cache_clearing": "Svuotamento…",
   "settings.cache_cleared": "Cache dei repository svuotata.",
   "settings.cache_failed": "Impossibile svuotare la cache dei repository.",
-  "settings.cache_desc": "Elimina i cataloghi e le icone scaricati, poi scaricali di nuovo. I payload installati e le impostazioni vengono mantenuti."
+  "settings.cache_desc": "Elimina i cataloghi e le icone scaricati, poi scaricali di nuovo. I payload installati e le impostazioni vengono mantenuti.",
+  "settings.dashboard_icons_title": "Icone dei payload nella dashboard",
+  "settings.dashboard_icons_desc": "Mostra le icone dei payload nella dashboard. Nasconderle lascia più spazio al testo."
 }

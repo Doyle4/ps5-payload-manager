@@ -245,5 +245,7 @@
   "settings.cache_clearing": "削除中…",
   "settings.cache_cleared": "リポジトリのキャッシュを削除しました。",
   "settings.cache_failed": "リポジトリのキャッシュを削除できませんでした。",
-  "settings.cache_desc": "ダウンロード済みのカタログとアイコンを削除し、再取得します。インストール済みのペイロードと設定は保持されます。"
+  "settings.cache_desc": "ダウンロード済みのカタログとアイコンを削除し、再取得します。インストール済みのペイロードと設定は保持されます。",
+  "settings.dashboard_icons_title": "ダッシュボードのペイロードアイコン",
+  "settings.dashboard_icons_desc": "ダッシュボードにペイロードアイコンを表示します。非表示にするとテキストの表示領域が広がります。"
 }

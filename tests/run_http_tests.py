@@ -376,6 +376,11 @@ def config_network_tests(binary, storage):
         status, body = request("GET", "/get_config")
         assert status == 200 and json.loads(body)["AUTO_BROWSER_OPEN"] is False
         assert json.loads(body)["KILL_DISC_PLAYER_ON_STARTUP"] is True
+        assert json.loads(body)["SHOW_DASHBOARD_ICONS"] is True
+        for enabled in [False, True]:
+            assert request("POST", "/set_config", json.dumps({"SHOW_DASHBOARD_ICONS": enabled}))[0] == 200
+            status, body = request("GET", "/get_config")
+            assert status == 200 and json.loads(body)["SHOW_DASHBOARD_ICONS"] is enabled
         for enabled in [False, True]:
             assert request("POST", "/set_config", json.dumps({"KILL_DISC_PLAYER_ON_STARTUP": enabled}))[0] == 200
             for route in ["/get_config", "/autoload_status"]:

@@ -251,5 +251,7 @@
   "settings.cache_clearing": "Czyszczenie…",
   "settings.cache_cleared": "Wyczyszczono pamięć podręczną repozytoriów.",
   "settings.cache_failed": "Nie udało się wyczyścić pamięci podręcznej repozytoriów.",
-  "settings.cache_desc": "Usuń pobrane katalogi i ikony, a następnie pobierz je ponownie. Zainstalowane payloady i ustawienia zostaną zachowane."
+  "settings.cache_desc": "Usuń pobrane katalogi i ikony, a następnie pobierz je ponownie. Zainstalowane payloady i ustawienia zostaną zachowane.",
+  "settings.dashboard_icons_title": "Ikony payloadów na pulpicie",
+  "settings.dashboard_icons_desc": "Pokaż ikony payloadów na pulpicie. Ukrycie ich pozostawia więcej miejsca na tekst."
 }
