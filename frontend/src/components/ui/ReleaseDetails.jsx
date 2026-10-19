@@ -32,7 +32,7 @@ export default function ReleaseDetails({ payload, onMarkdownClick }) {
   return (
     <details className="group mt-8 glass-panel rounded-2xl border border-white/10 bg-black/20 min-w-0 max-w-full overflow-hidden"
       onToggle={event => setExpanded(event.currentTarget.open)}>
-      <summary className="flex items-center gap-2 p-5 sm:p-6 list-none cursor-pointer text-lg sm:text-xl font-bold text-white focus-visible:outline-ps-blue">
+      <summary className="release-details-summary flex items-center gap-2 p-5 sm:p-6 list-none cursor-pointer text-lg sm:text-xl font-bold text-white focus-visible:outline-ps-blue">
         <Sparkles className="w-5 h-5 text-ps-blue shrink-0" />
         <span className="flex-1">{t('payload_detail.release_details', 'Release details')}</span>
         <ChevronDown className="w-5 h-5 shrink-0 group-open:rotate-180 transition-transform" />
