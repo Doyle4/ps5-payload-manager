@@ -247,5 +247,8 @@
   "settings.cache_failed": "リポジトリのキャッシュを削除できませんでした。",
   "settings.cache_desc": "ダウンロード済みのカタログとアイコンを削除し、再取得します。インストール済みのペイロードと設定は保持されます。",
   "settings.dashboard_icons_title": "ダッシュボードのペイロードアイコン",
-  "settings.dashboard_icons_desc": "ダッシュボードにペイロードアイコンを表示します。非表示にするとテキストの表示領域が広がります。"
+  "settings.dashboard_icons_desc": "ダッシュボードにペイロードアイコンを表示します。非表示にするとテキストの表示領域が広がります。",
+  "payload_detail.release_details": "リリース詳細",
+  "payload_detail.loading_release": "リリース詳細を読み込み中...",
+  "payload_detail.no_release_notes": "このバージョンのリリースノートはありません。"
 }

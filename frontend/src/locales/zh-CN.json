@@ -247,5 +247,8 @@
   "settings.cache_failed": "无法清除仓库缓存。",
   "settings.cache_desc": "清除已下载的目录和图标，然后重新下载。已安装的载荷和设置将保留。",
   "settings.dashboard_icons_title": "主页载荷图标",
-  "settings.dashboard_icons_desc": "在主页显示载荷图标。隐藏图标可为文字留出更多空间。"
+  "settings.dashboard_icons_desc": "在主页显示载荷图标。隐藏图标可为文字留出更多空间。",
+  "payload_detail.release_details": "发布详情",
+  "payload_detail.loading_release": "正在加载发布详情...",
+  "payload_detail.no_release_notes": "此版本没有可用的发布说明。"
 }

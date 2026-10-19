@@ -247,5 +247,8 @@
   "settings.cache_failed": "ไม่สามารถล้างแคชคลังเพย์โหลดได้",
   "settings.cache_desc": "ล้างรายการและไอคอนที่ดาวน์โหลด แล้วดาวน์โหลดใหม่ เพย์โหลดที่ติดตั้งและการตั้งค่าจะยังคงอยู่",
   "settings.dashboard_icons_title": "ไอคอนเพย์โหลดบนแดชบอร์ด",
-  "settings.dashboard_icons_desc": "แสดงไอคอนเพย์โหลดบนแดชบอร์ด การซ่อนไอคอนจะเพิ่มพื้นที่สำหรับข้อความ"
+  "settings.dashboard_icons_desc": "แสดงไอคอนเพย์โหลดบนแดชบอร์ด การซ่อนไอคอนจะเพิ่มพื้นที่สำหรับข้อความ",
+  "payload_detail.release_details": "รายละเอียดรุ่น",
+  "payload_detail.loading_release": "กำลังโหลดรายละเอียดรุ่น...",
+  "payload_detail.no_release_notes": "ไม่มีบันทึกประจำรุ่นสำหรับเวอร์ชันนี้"
 }

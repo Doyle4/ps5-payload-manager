@@ -249,5 +249,8 @@
   "settings.cache_failed": "Depo önbelleği temizlenemedi.",
   "settings.cache_desc": "İndirilen katalogları ve simgeleri silip yeniden indirir. Yüklü payloadlar ve ayarlar korunur.",
   "settings.dashboard_icons_title": "Panelde Payload Simgeleri",
-  "settings.dashboard_icons_desc": "Panelde payload simgelerini göster. Simgeleri gizlemek metne daha fazla yer bırakır."
+  "settings.dashboard_icons_desc": "Panelde payload simgelerini göster. Simgeleri gizlemek metne daha fazla yer bırakır.",
+  "payload_detail.release_details": "Sürüm ayrıntıları",
+  "payload_detail.loading_release": "Sürüm ayrıntıları yükleniyor...",
+  "payload_detail.no_release_notes": "Bu sürüm için sürüm notu bulunmuyor."
 }

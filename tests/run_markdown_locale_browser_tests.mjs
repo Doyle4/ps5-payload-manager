@@ -74,7 +74,7 @@ try {
   ws = new WebSocket(`ws://127.0.0.1:${port}${path}`)
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject })
   let id = 0
-  const calls = new Map(), remoteRequests = []
+  const calls = new Map(), remoteRequests = [], releaseRequests = []
   ws.onmessage = event => {
     const reply = JSON.parse(event.data), call = calls.get(reply.id)
     if (call) { calls.delete(reply.id); reply.error ? call.reject(reply.error) : call.resolve(reply.result) }
@@ -84,7 +84,12 @@ try {
     }
     if (reply.method === 'Fetch.requestPaused') {
       // Supply deterministic CDN artwork; no test reaches an external host.
-      if (reply.params.request.url.startsWith('https://cdn.jsdelivr.net/gh/jdecked/twemoji@v15.1.0/assets/72x72/')) {
+      if (reply.params.request.url.startsWith('https://api.github.com/repos/fixture/payload/releases/tags/')) {
+        const url = reply.params.request.url, tag = decodeURIComponent(url.split('/').pop()); releaseRequests.push(url)
+        void rpc('Fetch.fulfillRequest', { requestId: reply.params.requestId, responseCode: tag.includes('missing') ? 404 : 200,
+          responseHeaders: [{name:'Content-Type',value:'application/json'}, {name:'Access-Control-Allow-Origin',value:'*'}],
+          body: Buffer.from(JSON.stringify({tag_name:tag,body:tag === '1.0' ? '# Release :pig: 👩🏽‍💻 🇵🇱 1️⃣\n\n[Safe link](https://example.com/docs) and [anchor](#section)\n\n| Name | Value |\n| --- | --- |\n| Test | **works** |' : '## Notes for '+tag+'\n\n**Catalog release** [Docs](https://example.com/release) <script>window.__xss=1</script>'})).toString('base64') }, reply.sessionId)
+      } else if (reply.params.request.url.startsWith('https://cdn.jsdelivr.net/gh/jdecked/twemoji@v15.1.0/assets/72x72/')) {
         void rpc('Fetch.fulfillRequest', { requestId: reply.params.requestId, responseCode: 200,
           responseHeaders: [{name:'Content-Type',value:'image/png'}, {name:'Access-Control-Allow-Origin',value:'*'}], body: fixtureIcon.split(',')[1] }, reply.sessionId)
       } else void rpc('Fetch.failRequest', { requestId: reply.params.requestId, errorReason: 'InternetDisconnected' }, reply.sessionId)
@@ -144,6 +149,10 @@ try {
     await eventually(() => remoteRequests.some(url => url.includes('cdn.jsdelivr.net')), 'old emoji dependency not reproduced')
     console.log('Baseline c799297: remote CDN emoji requests on unavailable WAN and raw script HTML returned without a DOM sanitizer reproduced')
   } else {
+    assert.equal(await evaluate('document.querySelector("details").open'), false, 'release details should start collapsed')
+    assert.equal(releaseRequests.length, 0, 'collapsed release details fetched the API')
+    await evaluate(`document.querySelector('summary').click()`)
+    await eventually(() => evaluate(`document.querySelectorAll('.markdown-body .emoji').length >= 5`), 'GitHub release notes did not expand')
     assert.equal(await evaluate('document.querySelector(".markdown-body img")'), null)
     assert.ok(await evaluate('document.querySelectorAll(".markdown-body .emoji").length >= 5'), 'emoji were not generated')
     await eventually(() => evaluate(`getComputedStyle(document.querySelector('.emoji')).backgroundImage.startsWith('url("data:image/png;base64,')`), 'CDN artwork did not load')
@@ -159,7 +168,7 @@ try {
     await evaluate(`window.markdown.parseMarkdown(':pig: :pig: :rocket:')`)
     assert.equal(await evaluate(`document.querySelector('style[data-emoji-images]').sheet.cssRules.length`), positions, 'repeated emoji duplicated image rules')
     assert.ok(remoteRequests.length > 0)
-    const assertTrustedRequests = () => assert.ok(remoteRequests.every(url => url.startsWith('https://cdn.jsdelivr.net/gh/jdecked/twemoji@v15.1.0/assets/72x72/')), 'untrusted remote media was fetched')
+    const assertTrustedRequests = () => assert.ok(remoteRequests.every(url => (url.startsWith('https://cdn.jsdelivr.net/gh/jdecked/twemoji@v15.1.0/assets/72x72/') || releaseRequests.includes(url))), 'untrusted remote media was fetched')
     assertTrustedRequests()
     const probes = [
       '<script>window.__xss=1</script><p onclick="window.__xss=2">hello</p>',
@@ -221,8 +230,32 @@ try {
     assert.deepEqual(await evaluate(`(() => {const a=[...document.querySelectorAll('a')].find(a=>a.textContent.trim()==='Open Link');return {href:a.getAttribute('href'),target:a.target,rel:a.rel}})()`), { href: 'https://example.com/docs', target: '_blank', rel: 'noopener noreferrer' })
     await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Cancel').click()`)
     await eventually(() => evaluate('!document.body.textContent.includes("Open External Link")'), 'cancel did not restore details')
+    await evaluate(`document.querySelector('summary').click()`)
+    await eventually(() => evaluate(`!!document.querySelector('.markdown-body a[href="#section"]')`), 'GitHub release notes did not reopen')
     await evaluate(`document.querySelector('.markdown-body a[href="#section"]').click()`)
     assert.equal(await evaluate('document.body.textContent.includes("Open External Link")'), false)
+    // Real release details load only the catalog version, expand/collapse and retain link safety.
+    const catalogPayload = {name:'Release Fixture',filename:'release.elf',version:'1.7beta5-fix1',source:'https://github.com/fixture/payload/releases',source_direct:'https://github.com/fixture/payload/releases/download/1.7beta5-fix1/release.elf',details_url:'/__readme'}
+    await evaluate(`window.setFixturePayload(${JSON.stringify(catalogPayload)})`)
+    await eventually(() => evaluate(`document.querySelector('details')?.open === false`), 'new payload did not reset release details')
+    const beforeCatalogRelease = releaseRequests.length
+    assert.equal(await evaluate(`document.body.textContent.includes('Stale mirror notes must be ignored')`), false)
+    await evaluate(`document.querySelector('summary').click()`)
+    await eventually(() => evaluate(`document.querySelector('details .markdown-body strong')?.textContent === 'Catalog release'`), 'release markdown did not render')
+    assert.equal(releaseRequests.length, beforeCatalogRelease + 1)
+    assert.ok(releaseRequests.at(-1).endsWith('/tags/1.7beta5-fix1'))
+    assert.equal(await evaluate(`document.querySelector('details script')`), null)
+    assert.equal(await evaluate(`window.__xss`), undefined)
+    await evaluate(`document.querySelector('details .markdown-body a').click()`)
+    await eventually(() => evaluate(`document.body.textContent.includes('Open External Link')`), 'release link bypassed confirmation')
+    await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Cancel').click()`)
+    await evaluate(`document.querySelector('summary').click()`)
+    await eventually(() => evaluate(`document.querySelector('details').open === false`), 'release details did not collapse')
+    await evaluate(`window.setFixturePayload(${JSON.stringify({...catalogPayload,version:'missing',source_direct:''})})`)
+    await wait(50)
+    await evaluate(`document.querySelector('summary').click()`)
+    await eventually(() => evaluate(`document.querySelector('details').textContent.includes('No release notes available for this version.')`), 'missing release did not get a clear empty state')
+    assert.ok(releaseRequests.every(url=>!url.endsWith('/latest')))
     // Real settings view exposes Dutch, persists explicit selection, and defaults to browser.
     await evaluate('window.showView("settings")')
     await eventually(() => evaluate('!!document.querySelector("select")'), 'settings missing')
