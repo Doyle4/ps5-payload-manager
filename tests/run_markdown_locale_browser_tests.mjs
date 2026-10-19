@@ -10,6 +10,7 @@ const frontend = fileURLToPath(new URL('../frontend/', import.meta.url))
 process.chdir(frontend)
 const baseline = process.argv.includes('--baseline')
 const iconsMode = process.argv.includes('--repository-icons')
+let holdCatalog = false, pendingCatalog = []
 let iconRequests = 0, iconRevision = 'r1', failClear = false, brokenIcon = false, clearRequests = 0
 const fixtureIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT1cAAAAASUVORK5CYII='
 const previousMarkdown = baseline ? execFileSync('git', ['show', 'c799297:frontend/src/utils/markdown.js'], { encoding: 'utf8' }) : null
@@ -30,6 +31,8 @@ const vite = await createServer({ root: frontend, configFile: join(frontend, 'vi
           const json = (value, status = 200) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)) }
           if (req.url.startsWith('/__icon_control')) {
             const action = new URL(req.url, 'http://fixture').searchParams.get('action');
+            if (action === 'hold') holdCatalog = true;
+            if (action === 'release') { holdCatalog = false; pendingCatalog.splice(0).forEach(send => send()) }
             if (action === 'new') iconRevision = 'r2';
             if (action === 'fail') failClear = true;
             if (action === 'restore') failClear = false;
@@ -38,8 +41,10 @@ const vite = await createServer({ root: frontend, configFile: join(frontend, 'vi
             json({ iconRequests, clearRequests }); return
           }
           if (req.url === '/repository_payloads' || req.url === '/repository_refresh') {
-            json({ sources: [{ id: 'default', url: 'https://mirror.invalid/payloads.json', icons_revision: iconRevision,
-              payloads: [{ id: 'one', name: 'One', icon_key: 'shared' }, ...(iconRevision === 'r2' ? [{id:'two',name:'Two',icon_key:'new'}] : [])] }] }); return
+            const sendCatalog = () => json({ sources: [{ id: 'default', url: 'https://mirror.invalid/payloads.json', icons_revision: iconRevision,
+              payloads: [{ id: 'one', name: 'One', icon_key: 'shared' }, ...(iconRevision === 'r2' ? [{id:'two',name:'Two',icon_key:'new'}] : [])] }] });
+            if (holdCatalog) pendingCatalog.push(sendCatalog); else sendCatalog();
+            return
           }
           if (req.url.startsWith('/repository_icons?')) { iconRequests++; json({ icons: {shared: brokenIcon ? 'data:image/png;base64,aGVsbG8=' : fixtureIcon, new: fixtureIcon} }); return }
           if (req.url === '/repository_cache_clear') { clearRequests++; json({ok:!failClear}, failClear ? 500 : 200); return }
@@ -117,6 +122,12 @@ try {
     await eventually(() => evaluate('window.fixtureReady && document.querySelector("[data-testid=icons] img")?.naturalWidth > 0'), 'cached repository image did not render')
     const control = action => evaluate(`fetch('/__icon_control?action=${action}').then(r=>r.json())`)
     assert.equal((await control('state')).iconRequests, 1)
+    await control('hold')
+    await evaluate('window.__beforeIconReload = true')
+    await rpc('Page.reload', {}, sessionId)
+    await eventually(() => evaluate('!window.__beforeIconReload && window.fixtureReady && document.querySelector("[data-testid=icons] img")?.naturalWidth > 0'), 'cached icons waited for the catalog response after reload')
+    assert.equal((await control('state')).iconRequests, 1)
+    await control('release')
     await evaluate('window.refreshIcons(true)'); assert.equal((await control('state')).iconRequests, 1)
     await control('new'); await evaluate('window.refreshIcons(true)')
     await eventually(() => evaluate('document.querySelectorAll("[data-testid=icons] img").length === 2'), 'new icon key did not render')
