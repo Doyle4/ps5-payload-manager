@@ -407,6 +407,16 @@ try {
       // Actual App details: wide README content stays inside its own scrollers; removal uses the installed slot.
       await clickText('Get Payloads')
       await eventually(() => evaluate(`!!document.querySelector('#cloud-repository')`), 'repository did not open')
+      for (const width of [320, 390, 768]) {
+        await rpc('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: false }, sessionId)
+        for (const searching of [false, true]) {
+          if (searching) await click('Search payloads by name or description...')
+          await wait(50)
+          assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), true, `repository toolbar overflowed at ${width}px`)
+          assert.equal(await evaluate(`(() => {const upload=document.querySelector('label[title="Upload ELF Payload"]'), r=upload.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.width>0})()`), true, 'upload was outside the portrait viewport')
+          if (searching) await click('Close')
+        }
+      }
       await evaluate(`Array.from(document.querySelectorAll('#cloud-repository button')).find(b => b.textContent.includes('Example Payload')).click()`)
       await eventually(() => pendingReadmes.length > 0, 'details README request did not start')
       assert.equal(await hasButton('Remove Payload'), true)
