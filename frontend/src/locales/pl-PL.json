@@ -256,5 +256,7 @@
   "settings.dashboard_icons_desc": "Pokaż ikony payloadów na pulpicie. Ukrycie ich pozostawia więcej miejsca na tekst.",
   "payload_detail.release_details": "Szczegóły wydania",
   "payload_detail.loading_release": "Wczytywanie szczegółów wydania...",
-  "payload_detail.no_release_notes": "Brak informacji o zmianach dla tej wersji."
+  "payload_detail.no_release_notes": "Brak informacji o zmianach dla tej wersji.",
+  "settings.autoload_return_title": "Powrót po autoloadzie",
+  "settings.autoload_return_desc": "Automatycznie wróć do pulpitu 3 sekundy po pomyślnym załadowaniu wszystkich payloadów."
 }

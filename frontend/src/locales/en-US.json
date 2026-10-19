@@ -252,5 +252,7 @@
   "settings.dashboard_icons_desc": "Show payload icons on the dashboard. Hiding them leaves more space for text.",
   "payload_detail.release_details": "Release details",
   "payload_detail.loading_release": "Loading release details...",
-  "payload_detail.no_release_notes": "No release notes available for this version."
+  "payload_detail.no_release_notes": "No release notes available for this version.",
+  "settings.autoload_return_title": "Return After Autoload",
+  "settings.autoload_return_desc": "Automatically return to the dashboard 3 seconds after all payloads load successfully."
 }

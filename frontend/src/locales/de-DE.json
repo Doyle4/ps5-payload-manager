@@ -252,5 +252,7 @@
   "settings.dashboard_icons_desc": "Payload-Symbole im Dashboard anzeigen. Durch Ausblenden bleibt mehr Platz für Text.",
   "payload_detail.release_details": "Veröffentlichungsdetails",
   "payload_detail.loading_release": "Veröffentlichungsdetails werden geladen...",
-  "payload_detail.no_release_notes": "Keine Versionshinweise für diese Version verfügbar."
+  "payload_detail.no_release_notes": "Keine Versionshinweise für diese Version verfügbar.",
+  "settings.autoload_return_title": "Rückkehr nach Autoload",
+  "settings.autoload_return_desc": "3 Sekunden nach dem erfolgreichen Laden aller Payloads automatisch zum Dashboard zurückkehren."
 }

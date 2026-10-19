@@ -251,6 +251,12 @@ try {
       await wait(50)
       assert.equal(await fill(1), 100)
       assert.ok(await fill(2) < 20, 'consecutive delay reused the previous timer')
+      // Auto-return is off unless explicitly enabled, even for successful completion.
+      const successStatus = { state: 'done', remaining: 0, list: 'a,b', total: 2, done: 2, outcomes: 'ss', failed: 0, skipped: 0, current: 'DONE' }
+      await evaluate(`window.editor.status(${JSON.stringify(successStatus)})`)
+      await wait(3100)
+      assert.equal(await evaluate(`window.__overlayFinishes || 0`), 0, 'default setting dismissed successful autoload')
+      await evaluate(`window.editor.config({AUTOLOAD_RETURN_TO_DASHBOARD:true})`)
       await evaluate(`window.editor.status({state:'done',list:'local/kept-a,!3000,!1500,local/next',total:2,done:2,outcomes:'fk',failed:1,skipped:1,current:'DONE',entry_index:3})`)
       await wait(50)
       assert.equal(await evaluate(`document.querySelector('[data-payload-index="0"]').textContent.includes('Failed')`), true)
@@ -260,7 +266,6 @@ try {
       // Only successful completion dismisses after three seconds; polling must not reset it.
       await wait(3100)
       assert.equal(await evaluate(`window.__overlayFinishes || 0`), 0, 'failed/skipped autoload dismissed automatically')
-      const successStatus = { state: 'done', remaining: 0, list: 'a,b', total: 2, done: 2, outcomes: 'ss', failed: 0, skipped: 0, current: 'DONE' }
       await evaluate(`window.editor.status(${JSON.stringify(successStatus)})`)
       await wait(1600)
       assert.equal(await evaluate(`window.__overlayFinishes || 0`), 0, 'autoload dismissed too soon')
@@ -271,6 +276,11 @@ try {
       await evaluate(`window.editor.status({state:'executing',remaining:0})`)
       await wait(50)
       await evaluate(`window.editor.status(${JSON.stringify(successStatus)})`)
+      await wait(50)
+      await evaluate(`window.editor.config({AUTOLOAD_RETURN_TO_DASHBOARD:false})`)
+      await wait(3100)
+      assert.equal(await evaluate(`window.__overlayFinishes`), 1, 'disabling auto-return did not cancel the timer')
+      await evaluate(`window.editor.config({AUTOLOAD_RETURN_TO_DASHBOARD:true})`)
       await wait(50)
       await evaluate(`window.editor.show('logs')`)
       await wait(3100)
@@ -410,6 +420,13 @@ try {
       await clickText('Settings')
       await eventually(() => evaluate(`!!document.querySelector('button[role="switch"][aria-label="Dashboard Payload Icons"]')`), 'icon setting was not shown')
       assert.equal(await evaluate(`document.querySelector('button[role="switch"]').getAttribute('aria-checked')`), 'true')
+      const returnSwitch = `document.querySelector('button[role="switch"][aria-label="Return After Autoload"]')`
+      assert.equal(await evaluate(`${returnSwitch}.getAttribute('aria-checked')`), 'false', 'auto-return should default to off')
+      await evaluate(`${returnSwitch}.click()`)
+      await eventually(() => stored.AUTOLOAD_RETURN_TO_DASHBOARD === true, 'auto-return setting did not save')
+      await eventually(() => evaluate(`${returnSwitch}.getAttribute('aria-checked') === 'true'`), 'auto-return switch did not reflect the saved setting')
+      await evaluate(`${returnSwitch}.click()`)
+      await eventually(() => stored.AUTOLOAD_RETURN_TO_DASHBOARD === false, 'auto-return setting did not turn off')
       await evaluate(`document.querySelector('button[role="switch"][aria-label="Dashboard Payload Icons"]').click()`)
       await eventually(() => stored.SHOW_DASHBOARD_ICONS === false, 'icon setting did not save')
       await clickText('Dashboard')

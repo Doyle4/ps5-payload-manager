@@ -250,5 +250,7 @@
   "settings.dashboard_icons_desc": "แสดงไอคอนเพย์โหลดบนแดชบอร์ด การซ่อนไอคอนจะเพิ่มพื้นที่สำหรับข้อความ",
   "payload_detail.release_details": "รายละเอียดรุ่น",
   "payload_detail.loading_release": "กำลังโหลดรายละเอียดรุ่น...",
-  "payload_detail.no_release_notes": "ไม่มีบันทึกประจำรุ่นสำหรับเวอร์ชันนี้"
+  "payload_detail.no_release_notes": "ไม่มีบันทึกประจำรุ่นสำหรับเวอร์ชันนี้",
+  "settings.autoload_return_title": "กลับหลังโหลดอัตโนมัติ",
+  "settings.autoload_return_desc": "กลับไปยังแดชบอร์ดโดยอัตโนมัติ 3 วินาทีหลังจากโหลดเพย์โหลดทั้งหมดสำเร็จ"
 }

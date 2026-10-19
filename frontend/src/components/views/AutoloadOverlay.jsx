@@ -27,7 +27,7 @@ function useRemainingTime(sampleMs, key, running) {
   return remaining
 }
 
-const AutoloadOverlay = ({ status, items = [], itemsLoading = false, onCancel, onFinish, isPS5 }) => {
+const AutoloadOverlay = ({ status, items = [], itemsLoading = false, onCancel, onFinish, isPS5, autoReturn = false }) => {
   const { t } = useTranslation()
   const repository = useRepository()
   const metadataLoading = itemsLoading || repository?.repoData === null || repository?.loading
@@ -47,10 +47,10 @@ const AutoloadOverlay = ({ status, items = [], itemsLoading = false, onCancel, o
   const hasIssues = status.failed > 0 || status.skipped > 0
 
   useEffect(() => {
-    if (!isDone || hasIssues) return
+    if (!autoReturn || !isDone || hasIssues) return
     const timer = setTimeout(onFinish, 3000)
     return () => clearTimeout(timer)
-  }, [isDone, hasIssues, onFinish])
+  }, [autoReturn, isDone, hasIssues, onFinish])
 
   useEffect(() => {
     const scroller = listRef.current

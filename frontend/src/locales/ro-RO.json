@@ -254,5 +254,7 @@
   "settings.dashboard_icons_desc": "Afișează pictogramele payload-urilor pe panoul principal. Ascunderea lor lasă mai mult spațiu pentru text.",
   "payload_detail.release_details": "Detalii versiune",
   "payload_detail.loading_release": "Se încarcă detaliile versiunii...",
-  "payload_detail.no_release_notes": "Nicio notă de lansare disponibilă pentru această versiune."
+  "payload_detail.no_release_notes": "Nicio notă de lansare disponibilă pentru această versiune.",
+  "settings.autoload_return_title": "Revenire după încărcarea automată",
+  "settings.autoload_return_desc": "Revino automat la panoul principal la 3 secunde după încărcarea cu succes a tuturor payload-urilor."
 }

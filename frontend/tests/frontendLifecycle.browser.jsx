@@ -48,7 +48,7 @@ function Harness() {
   }, [])
   window.editor = { mount: setMounted, config: setConfig, show: setView, status: setStatus, logs: setLogs, itemsLoading: setOverlayItemsLoading }
   if (!mounted) return <div>Other section</div>
-  if (view === 'overlay') return <RepositoryProvider><AutoloadOverlay status={status} items={overlayItemsLoading ? [] : overlayItems} itemsLoading={overlayItemsLoading} onCancel={() => {}} onFinish={finishOverlay} /></RepositoryProvider>
+  if (view === 'overlay') return <RepositoryProvider><AutoloadOverlay autoReturn={config.AUTOLOAD_RETURN_TO_DASHBOARD === true} status={status} items={overlayItemsLoading ? [] : overlayItems} itemsLoading={overlayItemsLoading} onCancel={() => {}} onFinish={finishOverlay} /></RepositoryProvider>
   if (view === 'logs') return <div style={{ height: 300 }}><LogViewer logs={logs} /></div>
   if (view === 'processes') return <ActiveProcessesView addToast={() => {}} showConfirm={(_, __, callback) => callback()} />
   if (view === 'app') return <RepositoryProvider><App /></RepositoryProvider>

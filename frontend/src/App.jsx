@@ -700,7 +700,7 @@ function App() {
   const isAutoloadActive = autoloadStatus && Number.isFinite(autoloadStatus.remaining) && autoloadStatus.remaining >= 0;
 
   if (isAutoloadActive) {
-    return <AutoloadOverlay status={autoloadStatus} items={items} itemsLoading={loadingPayloads} onCancel={handleAbort} onFinish={handleFinish} isPS5={isPS5} />;
+    return <AutoloadOverlay autoReturn={config.AUTOLOAD_RETURN_TO_DASHBOARD === true} status={autoloadStatus} items={items} itemsLoading={loadingPayloads} onCancel={handleAbort} onFinish={handleFinish} isPS5={isPS5} />;
   }
 
   return (

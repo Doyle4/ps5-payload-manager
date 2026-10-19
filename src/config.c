@@ -16,7 +16,7 @@ static pthread_mutex_t config_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define CONFIG_LIMIT (64 * 1024)
 
 static const char *setting_keys[] = {"AUTOLOAD_ENABLED", "AUTO_BROWSER_OPEN",
-    "AUTOLOAD_DELAY", "SCAN_USB_PAYLOADS", "AUTO_INSTALL_APP", "MULTI_SOURCES_ENABLED", "KILL_DISC_PLAYER_ON_STARTUP", "SHOW_DASHBOARD_ICONS"};
+    "AUTOLOAD_DELAY", "SCAN_USB_PAYLOADS", "AUTO_INSTALL_APP", "MULTI_SOURCES_ENABLED", "KILL_DISC_PLAYER_ON_STARTUP", "SHOW_DASHBOARD_ICONS", "AUTOLOAD_RETURN_TO_DASHBOARD"};
 enum { SETTING_COUNT = sizeof(setting_keys) / sizeof(setting_keys[0]),
     AUTOLOAD_LIST_INDEX = SETTING_COUNT, FAVORITES_INDEX = SETTING_COUNT + 1 };
 
@@ -38,7 +38,7 @@ static int read_config(PldmgrConfig *cfg) {
         if (errno || *end || end == equal) continue;
         if (!strcmp(line, "LAST_REPOSITORY_UPDATE")) { if (value >= 0) cfg->last_repository_update = value; continue; }
         int *fields[] = {&cfg->autoload_enabled, &cfg->auto_browser_open, &cfg->autoload_delay,
-            &cfg->scan_usb_payloads, &cfg->auto_install_app, &cfg->multi_sources_enabled, &cfg->kill_disc_player, &cfg->show_dashboard_icons};
+            &cfg->scan_usb_payloads, &cfg->auto_install_app, &cfg->multi_sources_enabled, &cfg->kill_disc_player, &cfg->show_dashboard_icons, &cfg->autoload_return_to_dashboard};
         for (size_t i = 0; i < SETTING_COUNT; i++) if (!strcmp(line, setting_keys[i])) {
             if (i == 2 ? value >= 0 && value <= 3600 : value == 0 || value == 1) *fields[i] = (int)value;
         }
@@ -50,9 +50,9 @@ static int write_config(const PldmgrConfig *cfg) {
     char text[512];
     int length = snprintf(text, sizeof(text),
         "AUTOLOAD_ENABLED=%d\nLAST_REPOSITORY_UPDATE=%ld\nAUTO_BROWSER_OPEN=%d\n"
-        "AUTOLOAD_DELAY=%d\nSCAN_USB_PAYLOADS=%d\nAUTO_INSTALL_APP=%d\nMULTI_SOURCES_ENABLED=%d\nKILL_DISC_PLAYER_ON_STARTUP=%d\nSHOW_DASHBOARD_ICONS=%d\n",
+        "AUTOLOAD_DELAY=%d\nSCAN_USB_PAYLOADS=%d\nAUTO_INSTALL_APP=%d\nMULTI_SOURCES_ENABLED=%d\nKILL_DISC_PLAYER_ON_STARTUP=%d\nSHOW_DASHBOARD_ICONS=%d\nAUTOLOAD_RETURN_TO_DASHBOARD=%d\n",
         !!cfg->autoload_enabled, cfg->last_repository_update, !!cfg->auto_browser_open,
-        cfg->autoload_delay, !!cfg->scan_usb_payloads, !!cfg->auto_install_app, !!cfg->multi_sources_enabled, !!cfg->kill_disc_player, !!cfg->show_dashboard_icons);
+        cfg->autoload_delay, !!cfg->scan_usb_payloads, !!cfg->auto_install_app, !!cfg->multi_sources_enabled, !!cfg->kill_disc_player, !!cfg->show_dashboard_icons, !!cfg->autoload_return_to_dashboard);
     if (length < 0 || (size_t)length >= sizeof(text) || ensure_dir_recursive(BASE_DATA_DIR)) return -1;
     char *old = NULL; size_t size = 0;
     if (read_file_text(PLDMGR_CONFIG_PATH, &old, &size) && errno != ENOENT) return -1;
@@ -215,7 +215,7 @@ int config_handle_set_json(const char *json) {
     PldmgrConfig cfg;
     int result = read_config(&cfg);
     int *fields[] = {&cfg.autoload_enabled, &cfg.auto_browser_open, &cfg.autoload_delay,
-        &cfg.scan_usb_payloads, &cfg.auto_install_app, &cfg.multi_sources_enabled, &cfg.kill_disc_player, &cfg.show_dashboard_icons};
+        &cfg.scan_usb_payloads, &cfg.auto_install_app, &cfg.multi_sources_enabled, &cfg.kill_disc_player, &cfg.show_dashboard_icons, &cfg.autoload_return_to_dashboard};
     for (size_t i = 0; i < SETTING_COUNT; i++) if (update.seen & (1u << i)) *fields[i] = update.values[i];
     /* Validate the entire request before any write. Individual files publish
      * atomically; on I/O failure prior successful file publications remain.

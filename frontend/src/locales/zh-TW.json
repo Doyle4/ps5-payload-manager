@@ -250,5 +250,7 @@
   "settings.dashboard_icons_desc": "在主頁顯示 Payload 圖示。隱藏圖示可保留更多文字空間。",
   "payload_detail.release_details": "版本詳情",
   "payload_detail.loading_release": "正在載入版本詳情...",
-  "payload_detail.no_release_notes": "此版本沒有可用的版本說明。"
+  "payload_detail.no_release_notes": "此版本沒有可用的版本說明。",
+  "settings.autoload_return_title": "自動載入後返回",
+  "settings.autoload_return_desc": "所有 Payload 成功載入後，等待 3 秒自動返回主頁。"
 }
