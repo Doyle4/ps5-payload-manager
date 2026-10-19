@@ -414,11 +414,11 @@ function App() {
     addToast(t("app.toasts.sequence_aborted", "Sequence Aborted"), "error")
   }
 
-  const handleFinish = async () => {
+  const handleFinish = useCallback(async () => {
     await mutationFetch('/autoload_clear').catch(() => { })
     setAutoloadStatus(null)
-    window.location.reload()
-  }
+    navigate('dashboard')
+  }, [navigate])
 
   const loadPayload = async (slotOrPath, presentation = {}) => {
     if (!slotOrPath) return

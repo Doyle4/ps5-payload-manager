@@ -257,6 +257,26 @@ try {
       assert.equal(await evaluate(`document.querySelector('[data-payload-index="3"]').textContent.includes('Skipped')`), true)
       assert.equal(await evaluate(`document.body.textContent.includes('All payloads loaded')`), false)
 
+      // Only successful completion dismisses after three seconds; polling must not reset it.
+      await wait(3100)
+      assert.equal(await evaluate(`window.__overlayFinishes || 0`), 0, 'failed/skipped autoload dismissed automatically')
+      const successStatus = { state: 'done', remaining: 0, list: 'a,b', total: 2, done: 2, outcomes: 'ss', failed: 0, skipped: 0, current: 'DONE' }
+      await evaluate(`window.editor.status(${JSON.stringify(successStatus)})`)
+      await wait(1600)
+      assert.equal(await evaluate(`window.__overlayFinishes || 0`), 0, 'autoload dismissed too soon')
+      await evaluate(`window.editor.status(${JSON.stringify(successStatus)})`)
+      await eventually(() => evaluate(`window.__overlayFinishes === 1`), 'successful autoload did not dismiss')
+      await wait(200)
+      assert.equal(await evaluate(`window.__overlayFinishes`), 1, 'autoload dismissed more than once')
+      await evaluate(`window.editor.status({state:'executing',remaining:0})`)
+      await wait(50)
+      await evaluate(`window.editor.status(${JSON.stringify(successStatus)})`)
+      await wait(50)
+      await evaluate(`window.editor.show('logs')`)
+      await wait(3100)
+      assert.equal(await evaluate(`window.__overlayFinishes`), 1, 'dismiss timer survived unmount')
+      await evaluate(`window.editor.show('overlay'); window.editor.status({state:'executing',remaining:0})`)
+
       // A long sequence follows delays and fast completed entries without scrolling the whole overlay.
       const longList = Array.from({ length: 24 }, (_, index) => index % 2 ? '!3000' : 'local/next').join(',')
       await evaluate(`window.editor.status({state:'executing',list:${JSON.stringify(longList)},total:12,done:0,outcomes:'pppppppppppp',current:'local/next',entry_index:0})`)

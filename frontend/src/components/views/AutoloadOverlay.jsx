@@ -47,6 +47,12 @@ const AutoloadOverlay = ({ status, items = [], itemsLoading = false, onCancel, o
   const hasIssues = status.failed > 0 || status.skipped > 0
 
   useEffect(() => {
+    if (!isDone || hasIssues) return
+    const timer = setTimeout(onFinish, 3000)
+    return () => clearTimeout(timer)
+  }, [isDone, hasIssues, onFinish])
+
+  useEffect(() => {
     const scroller = listRef.current
     if (!scroller || (phase !== 'executing' && phase !== 'done')) return
     const processedRows = scroller.querySelectorAll('[data-processed="true"]')
