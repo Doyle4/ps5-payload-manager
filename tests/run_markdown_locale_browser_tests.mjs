@@ -166,7 +166,7 @@ try {
     await eventually(() => evaluate(`document.querySelectorAll('.markdown-body .emoji').length >= 5`), 'GitHub release notes did not expand')
     assert.equal(await evaluate('document.querySelector(".markdown-body img")'), null)
     assert.ok(await evaluate('document.querySelectorAll(".markdown-body .emoji").length >= 5'), 'emoji were not generated')
-    await eventually(() => evaluate(`getComputedStyle(document.querySelector('.emoji')).backgroundImage.startsWith('url("data:image/png;base64,')`), 'CDN artwork did not load')
+    await eventually(() => evaluate(`getComputedStyle(document.querySelector('.emoji')).backgroundImage !== 'none'`), 'CDN artwork did not load')
     const artwork = await evaluate(`(async () => {
       const node=document.querySelector('.emoji'), style=getComputedStyle(node);
       const image=new Image(); image.src=style.backgroundImage.slice(5,-2);
@@ -225,7 +225,7 @@ try {
     await evaluate(`const node=document.createElement('div');node.id='offline-markdown';node.className='markdown-body';node.innerHTML=window.markdown.parseMarkdown('# Offline :pig: :rocket: 👩🏽‍💻');document.body.append(node)`)
     assert.ok(await evaluate('document.getElementById("offline-markdown").textContent.includes("🐷 🚀 👩🏽‍💻")'))
     assert.equal(await evaluate('document.querySelectorAll("#offline-markdown .emoji").length'), 3)
-    assert.ok(await evaluate('getComputedStyle(document.querySelector("#offline-markdown .emoji")).backgroundImage !== "none"'))
+    await eventually(() => evaluate('getComputedStyle(document.querySelector("#offline-markdown .emoji")).backgroundImage !== "none"'), 'cached offline artwork did not decode')
     assert.ok(await evaluate('document.body.textContent.includes("Cached README 🚀")'))
     await wait(100); assertTrustedRequests()
     // Remount the real panel to exercise the browser's cached README response.
@@ -267,6 +267,31 @@ try {
     await evaluate(`document.querySelector('summary').click()`)
     await eventually(() => evaluate(`document.querySelector('details').textContent.includes('No release notes available for this version.')`), 'missing release did not get a clear empty state')
     assert.ok(releaseRequests.every(url=>!url.endsWith('/latest')))
+    // Simulate legacy WebKit failures without blocking the native image loader.
+    const legacyEmojiCases = [
+      ['empty-blob-type', '🦄', '1f984'],
+      ['fetch-failure', '🦊', '1f98a'],
+      ['missing-reader', '🐙', '1f419'],
+      ['undefined-rule-index', '🐬', '1f42c'],
+    ]
+    for (const [mode, text, identifier] of legacyEmojiCases) {
+      await evaluate(`(() => {
+        const transport=window.fetch, Reader=window.FileReader, insertRule=CSSStyleSheet.prototype.insertRule;
+        window.fetch=(url,options)=>{
+          if (!String(url).startsWith('https://cdn.jsdelivr.net/gh/jdecked/twemoji')) return transport(url,options);
+          if (${JSON.stringify(mode)}==='fetch-failure') return Promise.reject(Error('Legacy fetch unavailable'));
+          return transport(url,options).then(response=>({ok:response.ok,blob:()=>response.blob().then(blob=>new Blob([blob]))}));
+        };
+        if (${JSON.stringify(mode)}==='missing-reader') window.FileReader=undefined;
+        if (${JSON.stringify(mode)}==='undefined-rule-index') CSSStyleSheet.prototype.insertRule=function(...args){insertRule.apply(this,args)};
+        window.__restoreEmojiAPIs=()=>{window.fetch=transport;window.FileReader=Reader;CSSStyleSheet.prototype.insertRule=insertRule};
+        const node=document.createElement('div');node.id='legacy-emoji';node.className='markdown-body';node.innerHTML=window.markdown.parseMarkdown(${JSON.stringify(text)});document.body.append(node);
+      })()`)
+      await eventually(() => evaluate(`getComputedStyle(document.querySelector('#legacy-emoji .emoji')).backgroundImage !== 'none'`), `${mode} prevented emoji rendering`)
+      if (mode === 'empty-blob-type') await eventually(() => evaluate(`!!JSON.parse(localStorage.getItem('twemoji-v15.1.0-png'))[${JSON.stringify(identifier)}]`), 'legacy Blob MIME type prevented persistent caching')
+      await wait(100)
+      await evaluate(`window.__restoreEmojiAPIs();document.getElementById('legacy-emoji').remove()`)
+    }
     // Real settings view exposes Dutch, persists explicit selection, and defaults to browser.
     await evaluate('window.showView("settings")')
     await eventually(() => evaluate('!!document.querySelector("select")'), 'settings missing')
@@ -292,7 +317,7 @@ try {
     await eventually(() => evaluate('localStorage.getItem("i18nextLng") === null'), 'system default failed to clear preference')
     assertTrustedRequests()
     assert.deepEqual(await evaluate('window.__errors'), [])
-    console.log('Markdown/locale browser: real DOM sanitation, malicious URLs/media, unavailable sanitizer, CDN artwork caching and offline emoji, cached README, link confirmation, Dutch selection/fallback and representative locales passed')
+    console.log('Markdown/locale browser: real DOM sanitation, malicious URLs/media, unavailable sanitizer, CDN artwork caching, legacy WebKit loading failures and offline emoji, cached README, link confirmation, Dutch selection/fallback and representative locales passed')
   }
   }
 } finally {

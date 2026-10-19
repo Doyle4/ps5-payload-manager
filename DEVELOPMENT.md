@@ -286,6 +286,8 @@ Source/license and regeneration instructions are in
 The browser HTTP cache and a bounded localStorage cache retain fetched glyphs
 for offline use on both secure origins and the PS5's HTTP origin. Uncached
 artwork falls back to Unicode when offline; it retries on subsequent rendering.
+Native image loading handles rendering independently of fetch/Blob/FileReader
+caching, so legacy WebKit cache failures cannot suppress downloaded emoji.
 
 DOMPurify first removes untrusted media, classes/styles, forms and scripts while
 retaining links/code/tables/headings. Sanitized text nodes produce emoji spans;
