@@ -1,3 +1,10 @@
+## v0.6.3
+
+### 🛠️ Bug Fixes
+* Hotfix for v0.6.2: fixed emojis not appearing on PS5.
+
+**Full Changelog**: [v0.6.2...v0.6.3](https://github.com/itsPLK/ps5-payload-manager/compare/v0.6.2...v0.6.3)
+
 ## v0.6.2
 
 ### 🚀 Features & UX Improvements
