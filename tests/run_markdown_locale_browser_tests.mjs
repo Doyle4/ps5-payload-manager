@@ -283,9 +283,9 @@ try {
     assert.equal(await evaluate('window.locale.resolvedLanguage'), 'nl-NL')
     assert.equal(await evaluate('window.locale.t("nonexistent", {defaultValue:"Fallback"})'), 'Fallback')
     assert.equal(await evaluate('window.locale.t("settings.title", {lng:"unsupported"})'), 'Settings')
-    for (const language of ['pl-PL', 'ar-SA', 'zh-CN']) {
+    for (const language of ['pl-PL', 'ar-SA', 'zh-CN', 'ro-RO', 'zh-TW']) {
       await evaluate(`window.locale.changeLanguage(${JSON.stringify(language)})`)
-      assert.ok(await evaluate('document.querySelector("select").options.length >= 18'))
+      assert.ok(await evaluate('document.querySelector("select").options.length >= 20'))
       assert.equal(await evaluate('document.body.textContent.includes("settings.title")'), false)
     }
     await evaluate(`{const select=document.querySelector('select');select.value='__auto__';select.dispatchEvent(new Event('change',{bubbles:true}))}`)
