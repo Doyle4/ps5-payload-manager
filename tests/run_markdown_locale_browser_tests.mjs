@@ -83,8 +83,11 @@ try {
       if (/^https?:/.test(url) && !url.startsWith(`http://127.0.0.1:${vite.httpServer.address().port}/`)) remoteRequests.push(url)
     }
     if (reply.method === 'Fetch.requestPaused') {
-      // The test never reaches any external host; record attempts via Network above.
-      void rpc('Fetch.failRequest', { requestId: reply.params.requestId, errorReason: 'InternetDisconnected' }, reply.sessionId)
+      // Supply deterministic CDN artwork; no test reaches an external host.
+      if (reply.params.request.url.startsWith('https://cdn.jsdelivr.net/gh/jdecked/twemoji@v15.1.0/assets/72x72/')) {
+        void rpc('Fetch.fulfillRequest', { requestId: reply.params.requestId, responseCode: 200,
+          responseHeaders: [{name:'Content-Type',value:'image/png'}, {name:'Access-Control-Allow-Origin',value:'*'}], body: fixtureIcon.split(',')[1] }, reply.sessionId)
+      } else void rpc('Fetch.failRequest', { requestId: reply.params.requestId, errorReason: 'InternetDisconnected' }, reply.sessionId)
     }
   }
   function rpc(method, params = {}, sessionId) {
@@ -142,24 +145,22 @@ try {
     console.log('Baseline c799297: remote CDN emoji requests on unavailable WAN and raw script HTML returned without a DOM sanitizer reproduced')
   } else {
     assert.equal(await evaluate('document.querySelector(".markdown-body img")'), null)
-    assert.ok(await evaluate('document.querySelectorAll(".markdown-body .emoji-sprite").length >= 5'), 'bundled emoji were not generated')
-    const sprite = await evaluate(`(async () => {
-      const node=document.querySelector('.emoji-sprite'), style=getComputedStyle(node);
+    assert.ok(await evaluate('document.querySelectorAll(".markdown-body .emoji").length >= 5'), 'emoji were not generated')
+    await eventually(() => evaluate(`getComputedStyle(document.querySelector('.emoji')).backgroundImage.startsWith('url("data:image/png;base64,')`), 'CDN artwork did not load')
+    const artwork = await evaluate(`(async () => {
+      const node=document.querySelector('.emoji'), style=getComputedStyle(node);
       const image=new Image(); image.src=style.backgroundImage.slice(5,-2);
-      await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=()=>reject(Error('sprite failed to decode'));if(image.complete&&image.naturalWidth)resolve()});
-      const canvas=document.createElement('canvas');canvas.width=canvas.height=20;
-      const index=Number([...node.classList].find(c=>/^emoji-\\d+$/.test(c)).slice(6));
-      canvas.getContext('2d').drawImage(image,(index%64)*20,Math.floor(index/64)*20,20,20,0,0,20,20);
-      return {width:image.naturalWidth,height:image.naturalHeight,box:node.getBoundingClientRect().width,
-        indent:style.textIndent,alpha:[...canvas.getContext('2d').getImageData(0,0,20,20).data].filter((v,i)=>i%4===3&&v>0).length};
+      await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=()=>reject(Error('emoji failed to decode'));if(image.complete&&image.naturalWidth)resolve()});
+      return {width:image.naturalWidth,box:node.getBoundingClientRect().width,indent:style.textIndent};
     })()`)
-    assert.equal(sprite.width, 1280); assert.equal(sprite.height, 1200)
-    assert.ok(sprite.box > 0 && sprite.alpha > 100)
-    assert.equal(sprite.indent, '-9999px', 'native missing glyph is not hidden')
-    const positions = await evaluate(`document.querySelector('style[data-emoji-positions]').sheet.cssRules.length`)
+    assert.equal(artwork.width, 1); assert.ok(artwork.box > 0)
+    assert.equal(artwork.indent, '-9999px', 'native missing glyph is not hidden')
+    const positions = await evaluate(`document.querySelector('style[data-emoji-images]').sheet.cssRules.length`)
     await evaluate(`window.markdown.parseMarkdown(':pig: :pig: :rocket:')`)
-    assert.equal(await evaluate(`document.querySelector('style[data-emoji-positions]').sheet.cssRules.length`), positions, 'repeated emoji duplicated position rules')
-    assert.deepEqual(remoteRequests, [], 'markdown tried to load external assets')
+    assert.equal(await evaluate(`document.querySelector('style[data-emoji-images]').sheet.cssRules.length`), positions, 'repeated emoji duplicated image rules')
+    assert.ok(remoteRequests.length > 0)
+    const assertTrustedRequests = () => assert.ok(remoteRequests.every(url => url.startsWith('https://cdn.jsdelivr.net/gh/jdecked/twemoji@v15.1.0/assets/72x72/')), 'untrusted remote media was fetched')
+    assertTrustedRequests()
     const probes = [
       '<script>window.__xss=1</script><p onclick="window.__xss=2">hello</p>',
       '<img src="https://evil.test/image" onerror="window.__xss=3"><picture><source srcset="https://evil.test/source"></picture><video poster="https://evil.test/poster"></video><audio src="https://evil.test/audio"></audio><iframe src="https://evil.test/frame"></iframe><object data="https://evil.test/object"></object><embed src="https://evil.test/embed">',
@@ -167,7 +168,7 @@ try {
       '<style>@import "https://evil.test/css";</style><p style="background:url(https://evil.test/bg)">styled</p><link href="https://evil.test/link" rel="stylesheet"><form action="https://evil.test/form"><input autofocus onfocus="window.__xss=6"></form>',
       '[js](javascript:window.__xss=7) [data](data:text/html,evil) [vb](vbscript:evil) <a href="jav&#x61;script:evil()">encoded</a><a href="java\nscript:evil()">newline</a>',
       '![Markdown media](https://evil.test/markdown.png)\n\n<img src="https://evil.test/raw.png">',
-      '<span class="emoji-sprite emoji-0" role="img" aria-label="fake" style="background:url(https://evil.test/fake)">ordinary words</span>',
+      '<span class="emoji emoji-1f437" role="img" aria-label="fake" style="background:url(https://evil.test/fake)">ordinary words</span>',
       '# Heading :pig:\n\n**bold** *italic* ~~deleted~~\n\n- item\n\n1. numbered\n\n> quote\n\n```js\n<script>example</script>\n```\n\n| A | B |\n| --- | --- |\n| one | two |\n\n[safe](https://example.com/docs "Title") [relative](./docs) [anchor](#section)\n\n👩🏽‍💻 🇵🇱 1️⃣ ❤️ :rocket: :unknown:',
     ]
     for (const input of probes) {
@@ -187,20 +188,26 @@ try {
         assert.ok(result.text.includes('👩🏽‍💻 🇵🇱 1️⃣ ❤️ 🚀 :unknown:'))
         assert.ok(result.text.includes('<script>example</script>'))
       }
-      if (input.includes('aria-label="fake"')) assert.ok(!result.html.includes('emoji-sprite'), 'untrusted markup forged a sprite')
+      if (input.includes('aria-label="fake"')) assert.ok(!result.html.includes('class="emoji'), 'untrusted markup forged an emoji')
     }
     assert.equal(await evaluate('window.__xss'), undefined)
     for (const purifier of ['null', '{}', '{isSupported:false,sanitize(){throw Error("should not run")}}']) {
       const text = await evaluate(`(() => {const el=document.createElement('div');el.innerHTML=window.markdown.createMarkdownParser(${purifier})('<script>evil()</script> :pig:');return {text:el.textContent,scripts:el.querySelectorAll('script').length}})()`)
       assert.equal(text.scripts, 0); assert.equal(text.text, '<script>evil()</script> 🐷')
     }
+    await eventually(() => evaluate(`Object.keys(JSON.parse(localStorage.getItem('twemoji-v15.1.0-png'))).length >= 6`), 'artwork was not persisted')
+    const beforeReload = remoteRequests.length
+    await evaluate(`window.__beforeEmojiReload = true`)
+    await rpc('Page.reload', {}, sessionId)
+    await eventually(() => evaluate(`!window.__beforeEmojiReload && window.fixtureReady && document.body.textContent.includes('Cached README') && getComputedStyle(document.querySelector('.emoji')).textIndent === '-9999px'`), 'persistent emoji cache did not survive reload')
+    assert.equal(remoteRequests.length, beforeReload, 'cached artwork fetched the CDN again after reload')
     await rpc('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 }, sessionId)
     await evaluate(`const node=document.createElement('div');node.id='offline-markdown';node.className='markdown-body';node.innerHTML=window.markdown.parseMarkdown('# Offline :pig: :rocket: 👩🏽‍💻');document.body.append(node)`)
     assert.ok(await evaluate('document.getElementById("offline-markdown").textContent.includes("🐷 🚀 👩🏽‍💻")'))
-    assert.equal(await evaluate('document.querySelectorAll("#offline-markdown .emoji-sprite").length'), 3)
-    assert.ok(await evaluate('getComputedStyle(document.querySelector("#offline-markdown .emoji-sprite")).backgroundImage !== "none"'))
+    assert.equal(await evaluate('document.querySelectorAll("#offline-markdown .emoji").length'), 3)
+    assert.ok(await evaluate('getComputedStyle(document.querySelector("#offline-markdown .emoji")).backgroundImage !== "none"'))
     assert.ok(await evaluate('document.body.textContent.includes("Cached README 🚀")'))
-    await wait(100); assert.deepEqual(remoteRequests, [], 'offline rendering attempted external requests')
+    await wait(100); assertTrustedRequests()
     // Remount the real panel to exercise the browser's cached README response.
     await evaluate('window.showView("closed")'); await wait(50)
     const beforeCache = readmeRequests
@@ -223,6 +230,7 @@ try {
     await evaluate(`{const select=document.querySelector('select');select.value='nl-NL';select.dispatchEvent(new Event('change',{bubbles:true}))}`)
     await eventually(() => evaluate('document.body.textContent.includes("Instellingen")'), 'Dutch UI did not change')
     assert.equal(await evaluate('localStorage.getItem("i18nextLng")'), 'nl-NL')
+    await evaluate(`window.__beforeEmojiReload = true`)
     await rpc('Page.reload', {}, sessionId)
     await eventually(() => evaluate('window.fixtureReady === true && window.locale.resolvedLanguage === "nl-NL" && document.body.textContent.includes("Cached README")'), 'Dutch preference did not survive reload')
     await evaluate('window.showView("settings")')
@@ -238,9 +246,9 @@ try {
     }
     await evaluate(`{const select=document.querySelector('select');select.value='__auto__';select.dispatchEvent(new Event('change',{bubbles:true}))}`)
     await eventually(() => evaluate('localStorage.getItem("i18nextLng") === null'), 'system default failed to clear preference')
-    assert.deepEqual(remoteRequests, [])
+    assertTrustedRequests()
     assert.deepEqual(await evaluate('window.__errors'), [])
-    console.log('Markdown/locale browser: real DOM sanitation, malicious URLs/media, unavailable sanitizer, decoded offline emoji sprites, cached README, link confirmation, Dutch selection/fallback and representative locales passed')
+    console.log('Markdown/locale browser: real DOM sanitation, malicious URLs/media, unavailable sanitizer, CDN artwork caching and offline emoji, cached README, link confirmation, Dutch selection/fallback and representative locales passed')
   }
   }
 } finally {
